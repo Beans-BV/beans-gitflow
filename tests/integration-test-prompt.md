@@ -15,7 +15,8 @@ bflow uses interactive terminal menus. Here's how to interact:
 
 - **Select menus**: Use arrow keys (↓/↑) to navigate, Enter to select. Default is always the first item (index 0).
 - **Text input**: Type the name, press Enter.
-- **Auto-dispatch**: On work branches (feature/fix/chore/docs/refactor), release-fix, and hotfix-fix branches, bflow auto-executes the finish action with no menu — just run `bflow` and it goes.
+- **Auto-dispatch**: On release-fix and hotfix-fix branches, bflow auto-executes the finish action with no menu — just run `bflow` and it goes.
+- **Work branches**: On work branches (feature/fix/chore/docs/refactor), bflow shows a menu with finish as default (index 0) plus start options. Pressing Enter finishes the branch. A PR target selection prompt follows.
 
 ### Menu indices reference
 
@@ -40,6 +41,16 @@ bflow uses interactive terminal menus. Here's how to interact:
 | Index | Option |
 |-------|--------|
 | 0 | start hotfix fix |
+
+**On work branches** (feature/fix/chore/docs/refactor) (6 options):
+| Index | Option |
+|-------|--------|
+| 0 | finish {type} |
+| 1 | start feature |
+| 2 | start fix |
+| 3 | start chore |
+| 4 | start docs |
+| 5 | start refactor |
 
 ---
 
@@ -88,7 +99,7 @@ git checkout develop
 Each work branch follows the same pattern:
 1. On `develop`: run `bflow` → select the branch type → enter a name
 2. Make a dummy commit on the new branch
-3. Run `bflow` again (auto-finishes, creates PR)
+3. Run `bflow` again → select "finish {type}" (index 0) → select PR target "develop" (index 0)
 4. Merge the PR via `gh`
 5. Return to `develop` and pull
 
@@ -111,7 +122,8 @@ git commit -m "feat: add user authentication"
 
 ```
 bflow
-→ Auto-dispatches: creates PR "feat: user-auth" → develop
+→ Select: "finish feature" (index 0, just press Enter)
+→ PR target: select "develop" (index 0, just press Enter)
 ```
 
 ```bash
@@ -136,7 +148,8 @@ git commit -m "fix: resolve null pointer exception"
 
 ```
 bflow
-→ Auto-dispatches: creates PR "fix: null-pointer" → develop
+→ Select: "finish fix" (index 0, just press Enter)
+→ PR target: select "develop" (index 0, just press Enter)
 ```
 
 ```bash
@@ -161,7 +174,8 @@ git commit -m "chore: update dependencies"
 
 ```
 bflow
-→ Auto-dispatches: creates PR "chore: update-deps" → develop
+→ Select: "finish chore" (index 0, just press Enter)
+→ PR target: select "develop" (index 0, just press Enter)
 ```
 
 ```bash
@@ -186,7 +200,8 @@ git commit -m "docs: add API guide"
 
 ```
 bflow
-→ Auto-dispatches: creates PR "docs: api-guide" → develop
+→ Select: "finish docs" (index 0, just press Enter)
+→ PR target: select "develop" (index 0, just press Enter)
 ```
 
 ```bash
@@ -211,7 +226,82 @@ git commit -m "refactor: clean up data models"
 
 ```
 bflow
-→ Auto-dispatches: creates PR "refactor: clean-models" → develop
+→ Select: "finish refactor" (index 0, just press Enter)
+→ PR target: select "develop" (index 0, just press Enter)
+```
+
+```bash
+gh pr merge --squash --delete-branch
+git checkout develop
+git pull
+```
+
+---
+
+## Phase 2.5: Child Work Branch Flow
+
+This tests creating a work branch from another work branch and verifying the PR targets the parent.
+
+### Step 2.5.1: Create Parent Feature
+
+```
+# On develop
+bflow
+→ Select: "start feature" (index 0, just press Enter)
+→ Input: "payment-system"
+```
+
+```bash
+echo "payment code" > payment.rs
+git add payment.rs
+git commit -m "feat: add payment system base"
+```
+
+### Step 2.5.2: Create Child Fix from Parent Feature
+
+```
+# On feature/payment-system
+bflow
+→ Select: "start fix" (index 2, press ↓ twice then Enter)
+→ Input: "payment-validation"
+```
+
+bflow creates `fix/payment-validation` from `feature/payment-system`.
+
+```bash
+echo "validation fix" > payment-validation.rs
+git add payment-validation.rs
+git commit -m "fix: add payment validation"
+```
+
+### Step 2.5.3: Finish Child Branch
+
+```
+bflow
+→ Select: "finish fix" (index 0, just press Enter)
+→ PR target: verify "feature/payment-system" is the default (index 0), press Enter
+```
+
+**Verify:** The PR targets `feature/payment-system`, not `develop`.
+
+```bash
+gh pr view --json baseRefName --jq '.baseRefName'
+```
+
+**Expected:** `feature/payment-system`
+
+```bash
+gh pr merge --squash --delete-branch
+git checkout feature/payment-system
+git pull
+```
+
+### Step 2.5.4: Finish Parent Branch
+
+```
+bflow
+→ Select: "finish feature" (index 0, just press Enter)
+→ PR target: verify "develop" is the default (index 0), press Enter
 ```
 
 ```bash
@@ -442,7 +532,7 @@ git log develop --oneline | head -20
 - The hotfix merge (`chore: merge hotfix 1.1.3 into develop`)
 - The release merge (`chore: merge release 1.1 into develop`)
 - The sync merge (`chore: sync release 1.1 with develop`)
-- All 5 work branch PRs (squash-merged)
+- All 5 work branch PRs (squash-merged) plus child work branch PRs
 
 ### 5.6: Verify Conventional Commit Compliance
 
@@ -459,7 +549,7 @@ git log main --merges --format="%s"
 gh pr list --state merged --json number,title,baseRefName --jq '.[] | "\(.number) \(.title) → \(.baseRefName)"'
 ```
 
-**Expected PRs (7 total):**
+**Expected PRs (10 total):**
 
 | # | Title | Target |
 |---|-------|--------|
@@ -468,9 +558,11 @@ gh pr list --state merged --json number,title,baseRefName --jq '.[] | "\(.number
 | 3 | chore: update-deps | develop |
 | 4 | docs: api-guide | develop |
 | 5 | refactor: clean-models | develop |
-| 6 | fix: payment-bug | release/1.1 |
-| 7 | fix: validation-error | release/1.1 |
-| 8 | fix: critical-crash | hotfix/1.1.3 |
+| 6 | fix: payment-validation | feature/payment-system |
+| 7 | feat: payment-system | develop |
+| 8 | fix: payment-bug | release/1.1 |
+| 9 | fix: validation-error | release/1.1 |
+| 10 | fix: critical-crash | hotfix/1.1.3 |
 
 ---
 
@@ -550,6 +642,8 @@ gh pr list --state open
 | 3 | Chore | chore/update-deps | start → commit → finish (PR) → merge |
 | 4 | Docs | docs/api-guide | start → commit → finish (PR) → merge |
 | 5 | Refactor | refactor/clean-models | start → commit → finish (PR) → merge |
+| 5.5 | Child fix | fix/payment-validation | start from feature/payment-system → commit → finish (PR → feature/payment-system) → merge |
+| 5.6 | Parent feature finish | feature/payment-system | finish (PR → develop) → merge |
 | 6 | Release fix 1 | release-fix/1.1/payment-bug | start (auto-creates release/1.1 + tag 1.1.0) → commit → finish (PR) → merge |
 | 7 | Bump version | release/1.1 | 1.1.0 → 1.1.1 |
 | 8 | Sync develop | release/1.1 | merge release into develop |
@@ -559,4 +653,4 @@ gh pr list --state open
 | 12 | Hotfix fix | hotfix-fix/1.1.3/critical-crash | start (auto-creates hotfix/1.1.3) → commit → finish (PR) → merge |
 | 13 | Finish hotfix | hotfix/1.1.3 | merge → main + develop, tag 1.1.3, delete branch |
 
-**Total: 13 operations covering 100% of bflow's functionality.**
+**Total: 15 operations covering 100% of bflow's functionality.**
