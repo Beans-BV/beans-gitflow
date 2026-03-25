@@ -4,6 +4,17 @@
 
 bflow currently only supports creating work branches (feature, fix, chore, docs, refactor) from `develop`. In practice, teams sometimes need to create a work branch from another work branch when one feature depends on another. When finishing such a child branch, the PR should target the parent work branch, not `develop`.
 
+### Intended merge workflow
+
+The child PR targets the parent branch for review purposes — this way reviewers only see the child's changes, not the parent's. The actual merge flow is:
+
+1. Both PRs are created and reviewed in parallel
+2. The parent PR (targeting `develop`) is merged first
+3. The child PR is retargeted from the (now-deleted) parent branch to `develop`
+4. The child PR is merged into `develop`
+
+All PRs ultimately merge into `develop`. bflow handles steps 1-2 (creating PRs with correct targets). Step 3 (retargeting) is done manually via GitHub or `gh pr edit`.
+
 ## Design
 
 ### Branch creation

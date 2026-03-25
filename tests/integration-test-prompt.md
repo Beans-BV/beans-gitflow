@@ -240,7 +240,7 @@ git pull
 
 ## Phase 2.5: Child Work Branch Flow
 
-This tests creating a work branch from another work branch and verifying the PR targets the parent.
+This tests creating a work branch from another work branch and verifying the PR targets the parent. The real workflow is: both PRs are reviewed in parallel (the child PR is small as it doesn't include the parent's changes), then the parent PR is merged first, the child PR is retargeted to develop, and then the child PR is merged.
 
 ### Step 2.5.1: Create Parent Feature
 
@@ -274,7 +274,9 @@ git add payment-validation.rs
 git commit -m "fix: add payment validation"
 ```
 
-### Step 2.5.3: Finish Child Branch
+### Step 2.5.3: Finish Both Branches (create PRs)
+
+Finish the child branch first (creates PR targeting parent):
 
 ```
 bflow
@@ -282,21 +284,20 @@ bflow
 → PR target: verify "feature/payment-system" is the default (index 0), press Enter
 ```
 
-**Verify:** The PR targets `feature/payment-system`, not `develop`.
+**Verify:** The child PR targets `feature/payment-system`, not `develop`.
 
 ```bash
+CHILD_PR_NUMBER=$(gh pr view --json number --jq '.number')
 gh pr view --json baseRefName --jq '.baseRefName'
 ```
 
 **Expected:** `feature/payment-system`
 
-```bash
-gh pr merge --squash --delete-branch
-git checkout feature/payment-system
-git pull
-```
+Now go back to the parent and finish it too (creates PR targeting develop):
 
-### Step 2.5.4: Finish Parent Branch
+```bash
+git checkout feature/payment-system
+```
 
 ```
 bflow
@@ -304,8 +305,32 @@ bflow
 → PR target: verify "develop" is the default (index 0), press Enter
 ```
 
+### Step 2.5.4: Merge Parent PR First
+
 ```bash
 gh pr merge --squash --delete-branch
+git checkout develop
+git pull
+```
+
+### Step 2.5.5: Retarget Child PR to Develop and Merge
+
+The parent branch is now merged and deleted. Retarget the child PR from `feature/payment-system` to `develop`:
+
+```bash
+gh pr edit "$CHILD_PR_NUMBER" --base develop
+```
+
+**Verify:** The child PR now targets `develop`.
+
+```bash
+gh pr view "$CHILD_PR_NUMBER" --json baseRefName --jq '.baseRefName'
+```
+
+**Expected:** `develop`
+
+```bash
+gh pr merge "$CHILD_PR_NUMBER" --squash --delete-branch
 git checkout develop
 git pull
 ```
