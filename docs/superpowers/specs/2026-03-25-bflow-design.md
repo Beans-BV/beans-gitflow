@@ -56,13 +56,28 @@ bflow
 
 ## Version Resolution
 
-Used when starting release-fix or hotfix-fix and no existing integration branch exists:
+### For start release-fix (resolving the release branch)
 
-1. List all tags matching semver pattern (e.g. `1.2.3`, `v1.2.3`)
-2. Sort semantically, take the latest
-3. For release: bump minor, zero patch → `release/{major}.{minor}`
-4. For hotfix: bump patch → `hotfix/{major}.{minor}.{patch}`
-5. Before creating, check if a `release/*` or `hotfix/*` branch already exists (local + remote). If yes, use that version.
+1. Check if a `release/*` branch already exists (local + remote). If yes, use that branch as the base. Done.
+2. If no release branch exists, determine the next version:
+   a. List all tags matching semver pattern (e.g. `1.2.3`, `v1.2.3`)
+   b. Sort semantically, take the latest
+   c. Bump minor, zero patch (e.g. `2.5.x` → `2.6`)
+   d. Create `release/{major}.{minor}` from `develop`, push it
+
+### For start hotfix-fix (resolving the hotfix branch)
+
+1. Check if a `hotfix/*` branch already exists (local + remote). If yes, use that branch as the base. Done.
+2. If no hotfix branch exists, determine the next version:
+   a. List all tags matching semver pattern (e.g. `1.2.3`, `v1.2.3`)
+   b. Sort semantically, take the latest
+   c. Bump patch (e.g. `2.5.3` → `2.5.4`)
+   d. Create `hotfix/{major}.{minor}.{patch}` from `main`, push it
+
+### Tagging strategy
+
+- **Release:** tagging is a manual step via "bump version" menu option. The user is prompted for a tag name (default: `{version}.0`, e.g. `2.6.0`). This allows the team to tag when the release is ready, not when the branch is created. "Finish release" requires a tag to exist.
+- **Hotfix:** tagging is automatic during "finish hotfix". The tag is derived from the branch name (e.g. `hotfix/2.5.4` → tag `2.5.4`). Hotfixes are short-lived and don't need a separate bump step.
 
 ## Menus
 
@@ -121,10 +136,10 @@ Used when starting release-fix or hotfix-fix and no existing integration branch 
 
 | Flow | Steps |
 |------|-------|
-| **bump version** | prompt for tag name (default: `{version}.0`) → create git tag → push tag |
+| **bump version** | prompt for tag name (default: `{version}.0`, e.g. `2.6.0`) → create git tag → push tag |
 | **sync with develop** | merge `release/{v}` into `develop` → push `develop` |
-| **finish release** | merge into `main` → create tag → merge into `develop` → push all → delete `release/{v}` branch (local + remote) |
-| **finish hotfix** | merge into `main` → create tag → merge into `develop` → push all → delete `hotfix/{v}` branch (local + remote) |
+| **finish release** | require that a version tag exists on the release branch (created via "bump version") → merge into `main` → merge into `develop` → push all → delete `release/{v}` branch (local + remote) |
+| **finish hotfix** | merge into `main` → create tag `{major}.{minor}.{patch}` (from branch name) → merge into `develop` → push all → delete `hotfix/{v}` branch (local + remote) |
 
 ## Cross-Platform
 
@@ -135,6 +150,8 @@ Used when starting release-fix or hotfix-fix and no existing integration branch 
 ## Error Handling
 
 - Verify `git` and `gh` are installed on startup
+- Verify `gh` is authenticated (`gh auth status`)
 - Verify working directory is a git repository
 - Verify clean working tree before branch operations
+- If a PR already exists for the branch, open the existing PR URL instead of failing
 - All git/gh command failures surface the stderr output to the user
