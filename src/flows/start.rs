@@ -2,10 +2,10 @@ use crate::git::Git;
 use crate::menu;
 use crate::version::SemVer;
 
-pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str) -> Result<(), String> {
+pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     println!("Creating branch: {branch}");
-    git.create_branch(&branch, "develop")?;
+    git.create_branch(&branch, from)?;
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
     Ok(())

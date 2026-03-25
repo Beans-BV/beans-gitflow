@@ -48,11 +48,11 @@ fn run() -> Result<(), String> {
         return Err("Working tree is not clean. Commit or stash your changes first.".to_string());
     }
 
-    let action = menu::show_menu(&branch_type)?;
+    let action = menu::show_menu(&branch_type, &branch_name)?;
 
     match action {
-        Action::StartWorkBranch { prefix, name } => {
-            start::start_work_branch(&git, &prefix, &name)?;
+        Action::StartWorkBranch { prefix, name, from } => {
+            start::start_work_branch(&git, &prefix, &name, &from)?;
         }
         Action::StartReleaseFix => {
             start::start_release_fix(&git)?;
