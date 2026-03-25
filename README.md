@@ -56,6 +56,17 @@ gitGraph
     merge release/2.6
     checkout develop
     merge release/2.6
+    checkout main
+    branch hotfix/2.6.2
+    commit id: "hotfix branch"
+    branch hotfix-fix/2.6.2/crash
+    commit id: "fix: crash"
+    checkout hotfix/2.6.2
+    merge hotfix-fix/2.6.2/crash
+    checkout main
+    merge hotfix/2.6.2 tag: "2.6.2"
+    checkout develop
+    merge hotfix/2.6.2
 ```
 
 ### Branch Types
