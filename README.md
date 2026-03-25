@@ -4,6 +4,19 @@ A cross-platform CLI tool that implements the Beans customized gitflow workflow.
 
 ## Installation
 
+### Homebrew (macOS)
+
+```bash
+brew tap Beans-BV/tap
+brew install bflow
+```
+
+### Chocolatey (Windows)
+
+```powershell
+choco install bflow
+```
+
 ### Pre-built binaries
 
 Download the latest release from the [GitHub Releases](https://github.com/Beans-BV/beans-gitflow/releases) page.

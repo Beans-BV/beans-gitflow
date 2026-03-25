@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.chocolatey.org/2010/07">
+  <metadata>
+    <id>bflow</id>
+    <version>0.1.0</version>
+    <title>bflow - Beans GitFlow CLI</title>
+    <authors>Beans BV</authors>
+    <projectUrl>https://github.com/Beans-BV/beans-gitflow</projectUrl>
+    <licenseUrl>https://github.com/Beans-BV/beans-gitflow/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>A cross-platform CLI tool that implements the Beans customized gitflow workflow. Detects your current git branch, presents context-appropriate options, and handles branching, merging, tagging, and PR creation.</description>
+    <tags>git gitflow cli workflow branching</tags>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
