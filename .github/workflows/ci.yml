@@ -166,8 +166,10 @@ jobs:
           $installScript = $installScript -replace '__CHECKSUM__', $checksum
           Set-Content "packaging\chocolatey\tools\chocolateyinstall.ps1" -Value $installScript
 
-          # Pack with version from tag
-          choco pack "packaging\chocolatey\bflow.nuspec" --version $version
+          # Pack from the chocolatey directory so tools/ is included
+          Push-Location "packaging\chocolatey"
+          choco pack "bflow.nuspec" --version $version
+          Pop-Location
 
           # Push to Chocolatey community repo
-          choco push "bflow.$version.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+          choco push "packaging\chocolatey\bflow.$version.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
