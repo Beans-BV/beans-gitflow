@@ -469,11 +469,27 @@ gh pr list --state merged --json number,title,baseRefName --jq '.[] | "\(.number
 
 ## Phase 6: Cleanup
 
+The playground repository must be completely destroyed — no traces left locally or on GitHub.
+
 ```bash
+# 1. Delete the GitHub repository (removes all remote branches, tags, PRs)
+gh repo delete Beans-BV/bflow-playground --yes
+
+# 2. Remove the local clone
 cd /tmp
 rm -rf bflow-playground
-gh repo delete Beans-BV/bflow-playground --yes
 ```
+
+**Verify cleanup:**
+```bash
+# Repo should no longer exist
+gh repo view Beans-BV/bflow-playground 2>&1 | grep -q "Could not resolve" && echo "✅ Remote repo deleted" || echo "❌ Remote repo still exists"
+
+# Local directory should be gone
+[ ! -d /tmp/bflow-playground ] && echo "✅ Local directory deleted" || echo "❌ Local directory still exists"
+```
+
+After cleanup, the state of your machine and GitHub org should be **identical to before the test started** — no leftover repos, branches, tags, or PRs.
 
 ---
 
