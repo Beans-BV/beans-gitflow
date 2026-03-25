@@ -57,7 +57,9 @@ Runs after `create-release` job. Steps:
 1. Download both macOS binaries from the release
 2. Compute SHA256 for each
 3. Clone `Beans-BV/homebrew-tap` using `HOMEBREW_TAP_TOKEN`
-4. Update `Formula/bflow.rb` with new version string and SHA256 hashes
+4. Update `Formula/bflow.rb` using `sed`:
+   - Replace the `version "..."` line with the new version
+   - Replace the `sha256 "..."` lines (first occurrence = ARM, second = x86)
 5. Commit and push
 
 **Auth:** `HOMEBREW_TAP_TOKEN` secret (fine-grained PAT with Contents read/write on `homebrew-tap` repo). Already configured.
@@ -103,15 +105,16 @@ choco install bflow
 
 ```powershell
 $ErrorActionPreference = 'Stop'
+$toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $version = $env:chocolateyPackageVersion
 $url = "https://github.com/Beans-BV/beans-gitflow/releases/download/v${version}/bflow-windows-x86_64.exe"
 $checksum = 'CHECKSUM'
 
-Install-ChocolateyZipPackage -PackageName 'bflow' `
+Get-ChocolateyWebFile -PackageName 'bflow' `
+  -FileFullPath "$toolsDir\bflow.exe" `
   -Url64bit $url `
   -Checksum64 $checksum `
-  -ChecksumType64 'sha256' `
-  -UnzipLocation "$(Split-Path -Parent $MyInvocation.MyCommand.Definition)"
+  -ChecksumType64 'sha256'
 ```
 
 ### chocolateyuninstall.ps1
@@ -125,11 +128,14 @@ Remove-Item "$toolsDir\bflow.exe" -Force -ErrorAction SilentlyContinue
 
 Runs after `create-release` job on `windows-latest`. Steps:
 
-1. Download the Windows binary from the release
-2. Compute SHA256 checksum
-3. Update `bflow.nuspec` version and `chocolateyinstall.ps1` checksum
-4. Run `choco pack` to create `.nupkg`
-5. Run `choco push` with `CHOCOLATEY_API_KEY` secret
+1. Checkout the repo (to access `packaging/chocolatey/`)
+2. Download the Windows binary from the release
+3. Compute SHA256 checksum
+4. Update `chocolateyinstall.ps1` checksum using PowerShell string replacement
+5. Run `choco pack packaging/chocolatey/bflow.nuspec --version $VERSION` (version via CLI flag, no nuspec editing needed)
+6. Run `choco push` with `CHOCOLATEY_API_KEY` secret
+
+**Note:** First-time Chocolatey community submission goes through moderation review (can take days). Subsequent updates are faster.
 
 **Auth:** `CHOCOLATEY_API_KEY` secret. Already configured.
 
