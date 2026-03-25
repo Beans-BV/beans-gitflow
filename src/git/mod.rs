@@ -19,6 +19,9 @@ pub trait Git {
     fn delete_branch_local(&self, branch: &str) -> Result<()>;
     fn delete_branch_remote(&self, branch: &str) -> Result<()>;
     fn tags_on_branch(&self, branch: &str) -> Result<Vec<String>>;
+    fn list_remote_branches(&self) -> Result<Vec<String>>;
+    fn merge_base(&self, a: &str, b: &str) -> Result<String>;
+    fn rev_list_count(&self, from: &str, to: &str) -> Result<u32>;
 }
 
 pub struct GitCli;
@@ -75,5 +78,21 @@ impl Git for GitCli {
     fn tags_on_branch(&self, branch: &str) -> Result<Vec<String>> {
         let output = self.run(&["tag", "--merged", branch])?;
         Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+    }
+    fn list_remote_branches(&self) -> Result<Vec<String>> {
+        let output = self.run(&["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/"])?;
+        Ok(output
+            .lines()
+            .map(|s| s.trim_start_matches("origin/").to_string())
+            .filter(|s| !s.is_empty() && s != "HEAD")
+            .collect())
+    }
+    fn merge_base(&self, a: &str, b: &str) -> Result<String> {
+        self.run(&["merge-base", a, b])
+    }
+    fn rev_list_count(&self, from: &str, to: &str) -> Result<u32> {
+        let range = format!("{from}..{to}");
+        let output = self.run(&["rev-list", "--count", &range])?;
+        output.parse::<u32>().map_err(|e| format!("Failed to parse rev-list count: {e}"))
     }
 }
