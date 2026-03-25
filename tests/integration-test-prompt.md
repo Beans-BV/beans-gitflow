@@ -45,28 +45,35 @@ bflow uses interactive terminal menus. Here's how to interact:
 
 ## Phase 1: Setup Playground Repository
 
+The playground repo already exists at `Beans-BV/bflow-playground` with its `.mcp.json` and any other config files. Before starting the test, record the initial state so cleanup can restore it exactly.
+
 ```bash
-# Create a temporary playground repo
-cd /tmp
-mkdir bflow-playground && cd bflow-playground
-git init
-git checkout -b main
+# Record the initial commit SHA (the reset target after the test)
+INITIAL_SHA=$(git rev-parse HEAD)
+echo "Initial SHA: $INITIAL_SHA"
 
-# Create initial structure
-echo "# bflow playground" > README.md
-git add README.md
-git commit -m "chore: initial commit"
+# Record existing tags (so we only delete tags created by the test)
+git tag --list > /tmp/bflow-pre-test-tags.txt
 
-# Create a GitHub repo (change org as needed)
-gh repo create Beans-BV/bflow-playground --private --source=. --push
+# Record existing branches
+git branch -a > /tmp/bflow-pre-test-branches.txt
 
-# Tag initial release
-git tag -a 1.0.0 -m "chore: initial release 1.0.0"
-git push origin 1.0.0
+# Make sure we're on main and clean
+git checkout main
+git pull
 
-# Create develop branch
-git checkout -b develop
-git push -u origin develop
+# Ensure develop branch exists
+git checkout -b develop 2>/dev/null || git checkout develop
+git push -u origin develop 2>/dev/null || true
+
+# Create initial tag if it doesn't exist yet
+if ! git tag --list | grep -q "^1.0.0$"; then
+  git tag -a 1.0.0 -m "chore: initial release 1.0.0"
+  git push origin 1.0.0
+fi
+
+# Start on develop
+git checkout develop
 ```
 
 **Verify before continuing:**
@@ -469,27 +476,68 @@ gh pr list --state merged --json number,title,baseRefName --jq '.[] | "\(.number
 
 ## Phase 6: Cleanup
 
-The playground repository must be completely destroyed — no traces left locally or on GitHub.
+Reset the playground repo to its exact pre-test state. The repo itself stays — only branches, tags, commits, and PRs created by the test are removed.
 
 ```bash
-# 1. Delete the GitHub repository (removes all remote branches, tags, PRs)
-gh repo delete Beans-BV/bflow-playground --yes
+# 1. Close any open PRs created by the test
+gh pr list --state open --json number --jq '.[].number' | while read pr; do
+  gh pr close "$pr" --delete-branch 2>/dev/null || true
+done
 
-# 2. Remove the local clone
-cd /tmp
-rm -rf bflow-playground
+# 2. Delete all remote branches except main and develop
+git branch -r | grep -v 'origin/main' | grep -v 'origin/develop' | grep -v 'HEAD' | sed 's|origin/||' | while read branch; do
+  # Only delete branches that weren't there before the test
+  if ! grep -q "$branch" /tmp/bflow-pre-test-branches.txt 2>/dev/null; then
+    git push origin --delete "$branch" 2>/dev/null || true
+  fi
+done
+
+# 3. Delete all local branches except main and develop
+git checkout main
+git branch | grep -v 'main' | grep -v 'develop' | xargs -r git branch -D 2>/dev/null || true
+
+# 4. Delete tags created by the test (remote + local)
+git tag --list | while read tag; do
+  if ! grep -q "^${tag}$" /tmp/bflow-pre-test-tags.txt 2>/dev/null; then
+    git push origin --delete "$tag" 2>/dev/null || true
+    git tag -d "$tag" 2>/dev/null || true
+  fi
+done
+
+# 5. Reset main to the initial commit
+git checkout main
+git reset --hard "$INITIAL_SHA"
+git push --force origin main
+
+# 6. Reset develop to match main
+git checkout develop
+git reset --hard "$INITIAL_SHA"
+git push --force origin develop
+
+# 7. Clean up temp files
+rm -f /tmp/bflow-pre-test-tags.txt /tmp/bflow-pre-test-branches.txt
 ```
 
 **Verify cleanup:**
 ```bash
-# Repo should no longer exist
-gh repo view Beans-BV/bflow-playground 2>&1 | grep -q "Could not resolve" && echo "✅ Remote repo deleted" || echo "❌ Remote repo still exists"
+# Only main and develop should exist
+echo "=== Branches ==="
+git branch -a
 
-# Local directory should be gone
-[ ! -d /tmp/bflow-playground ] && echo "✅ Local directory deleted" || echo "❌ Local directory still exists"
+# Only pre-existing tags should remain
+echo "=== Tags ==="
+git tag --list
+
+# Commit history should match initial state
+echo "=== History ==="
+git log --oneline --all
+
+# No open PRs
+echo "=== Open PRs ==="
+gh pr list --state open
 ```
 
-After cleanup, the state of your machine and GitHub org should be **identical to before the test started** — no leftover repos, branches, tags, or PRs.
+**Expected:** The repo looks exactly as it did before Phase 1 — same branches, same tags, same commit history, no open PRs.
 
 ---
 
