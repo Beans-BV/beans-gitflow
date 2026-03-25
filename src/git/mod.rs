@@ -52,9 +52,19 @@ impl Git for GitCli {
         Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
     }
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>> {
-        let output = self.run(&["branch", "--all", "--list", pattern])?;
-        Ok(output.lines().map(|s| s.trim().trim_start_matches("* ").trim_start_matches("remotes/origin/").to_string())
-            .filter(|s| !s.is_empty() && !s.contains("->")).collect())
+        let ref_pattern = format!("refs/remotes/origin/{pattern}");
+        let local_pattern = format!("refs/heads/{pattern}");
+        let output = self.run(&[
+            "for-each-ref", "--format=%(refname:short)",
+            &ref_pattern, &local_pattern,
+        ])?;
+        Ok(output
+            .lines()
+            .map(|s| s.trim_start_matches("origin/").to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect())
     }
     fn is_working_tree_clean(&self) -> Result<bool> {
         let output = self.run(&["status", "--porcelain"])?;

@@ -43,7 +43,7 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
-        let _ = git.checkout(branch);
+        git.checkout(branch)?;
         return Ok(branch.to_string());
     }
 
@@ -72,7 +72,7 @@ fn resolve_or_create_hotfix(git: &dyn Git) -> Result<String, String> {
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");
-        let _ = git.checkout(branch);
+        git.checkout(branch)?;
         return Ok(branch.to_string());
     }
 
