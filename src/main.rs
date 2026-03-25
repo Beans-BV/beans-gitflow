@@ -31,8 +31,8 @@ fn run() -> Result<(), String> {
     let git = GitCli::new();
     let hosting = GitHub::new();
 
-    hosting.check_auth().map_err(|_| {
-        "GitHub CLI is not authenticated. Run 'gh auth login' first.".to_string()
+    hosting.check_auth().map_err(|e| {
+        format!("GitHub CLI is not authenticated. Run 'gh auth login' first.\n{e}")
     })?;
 
     git.current_branch().map_err(|_| {

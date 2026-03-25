@@ -49,12 +49,12 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
 
     println!("Merging into main...");
     git.checkout("main")?;
-    git.merge(&release_branch, &format!("chore: finish release {latest_tag}"))?;
+    git.merge(&release_branch, &format!("chore: finish release {major}.{minor}"))?;
     git.push("main")?;
 
     println!("Merging into develop...");
     git.checkout("develop")?;
-    git.merge(&release_branch, &format!("chore: merge release {latest_tag} into develop"))?;
+    git.merge(&release_branch, &format!("chore: merge release {major}.{minor} into develop"))?;
     git.push("develop")?;
 
     println!("Cleaning up release branch...");
