@@ -24,7 +24,7 @@ impl HostingPlatform for GitHub {
         if let Ok(url) = existing {
             if !url.is_empty() { return Ok(url); }
         }
-        self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body", ""])
+        self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title])
     }
 
     fn open_url(&self, url: &str) -> Result<()> {
