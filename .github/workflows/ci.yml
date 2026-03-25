@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, develop]
+    tags: ['v*']
   pull_request:
     branches: [main, develop]
 
@@ -19,8 +20,10 @@ jobs:
       - run: cargo build --release
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: test
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
@@ -32,7 +35,7 @@ jobs:
             artifact: bflow-macos-aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: bflow-windows-x86_64.exe
+            artifact: bflow-windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -40,8 +43,36 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
+      - name: Rename binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp target/${{ matrix.target }}/release/bflow.exe ${{ matrix.artifact }}.exe
+          else
+            cp target/${{ matrix.target }}/release/bflow ${{ matrix.artifact }}
+            chmod +x ${{ matrix.artifact }}
+          fi
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: target/${{ matrix.target }}/release/bflow${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          path: ${{ matrix.artifact }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/bflow-macos-x86_64/bflow-macos-x86_64
+            artifacts/bflow-macos-aarch64/bflow-macos-aarch64
+            artifacts/bflow-windows-x86_64/bflow-windows-x86_64.exe
