@@ -8,6 +8,7 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
 
     println!("Merging into main...");
     git.checkout("main")?;
+    git.merge("origin/main", "chore: pull latest main")?;
     git.merge(&hotfix_branch, &format!("chore: finish hotfix {tag}"))?;
 
     println!("Tagging: {tag}");
@@ -17,6 +18,7 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
 
     println!("Merging into develop...");
     git.checkout("develop")?;
+    git.merge("origin/develop", "chore: pull latest develop")?;
     git.merge(&hotfix_branch, &format!("chore: merge hotfix {tag} into develop"))?;
     git.push("develop")?;
 
