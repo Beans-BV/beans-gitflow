@@ -340,7 +340,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                 }
             }
         }
-        BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),
+        BranchType::ReleaseFix { .. } => {
+            show_select("What would you like to do?", &["finish release fix"])?;
+            Ok(Action::FinishReleaseFix)
+        }
         BranchType::Release { .. } => {
             let labels: Vec<&str> = ReleaseOption::ALL.iter().map(|o| o.label()).collect();
             let idx = show_select("What would you like to do?", &labels)?;
@@ -351,7 +354,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                 ReleaseOption::FinishRelease => Ok(Action::FinishRelease),
             }
         }
-        BranchType::HotfixFix { .. } => Ok(Action::FinishHotfixFix),
+        BranchType::HotfixFix { .. } => {
+            show_select("What would you like to do?", &["finish hotfix fix"])?;
+            Ok(Action::FinishHotfixFix)
+        }
         BranchType::Hotfix { .. } => Ok(Action::FinishHotfix),
         BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
     }
