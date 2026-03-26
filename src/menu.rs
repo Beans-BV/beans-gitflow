@@ -370,7 +370,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Action {
     StartWorkBranch { prefix: String, name: String, from: String },
     StartRelease,
