@@ -213,7 +213,7 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
     Ok(result)
 }
 
-fn validate_branch_name(input: &str) -> Result<(), String> {
+pub fn validate_branch_name(input: &str) -> Result<(), String> {
     if input.is_empty() {
         return Err("Name cannot be empty".to_string());
     }
