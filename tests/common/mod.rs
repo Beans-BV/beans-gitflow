@@ -117,6 +117,16 @@ impl Git for MockGit {
         self.calls.borrow_mut().push(format!("rev_list_count:{from}:{to}"));
         Ok(self.rev_list_count_result)
     }
+
+    fn stash_push(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("stash_push".to_string());
+        Ok(())
+    }
+
+    fn stash_pop(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("stash_pop".to_string());
+        Ok(())
+    }
 }
 
 pub struct MockHosting {

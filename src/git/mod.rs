@@ -22,6 +22,8 @@ pub trait Git {
     fn list_remote_branches(&self) -> Result<Vec<String>>;
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32>;
+    fn stash_push(&self) -> Result<()>;
+    fn stash_pop(&self) -> Result<()>;
 }
 
 pub struct GitCli;
@@ -95,4 +97,6 @@ impl Git for GitCli {
         let output = self.run(&["rev-list", "--count", &range])?;
         output.parse::<u32>().map_err(|e| format!("Failed to parse rev-list count: {e}"))
     }
+    fn stash_push(&self) -> Result<()> { self.run(&["stash", "push", "-u"]).map(|_| ()) }
+    fn stash_pop(&self) -> Result<()> { self.run(&["stash", "pop"]).map(|_| ()) }
 }
