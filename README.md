@@ -153,6 +153,42 @@ Selecting finish creates a PR back to the base branch. You can also start a new 
 > finish hotfix fix
 ```
 
+## Non-Interactive CLI (for AI tools & scripts)
+
+All commands can be invoked directly via subcommands, bypassing the interactive menu:
+
+### Start commands
+
+```bash
+bflow start feature --name <name> [--base <branch>]
+bflow start fix --name <name> [--base <branch>]
+bflow start chore --name <name> [--base <branch>]
+bflow start docs --name <name> [--base <branch>]
+bflow start refactor --name <name> [--base <branch>]
+bflow start release
+bflow start release-fix --name <name>    # must be on a release branch
+bflow start hotfix-fix --name <name>     # must be on main or hotfix branch
+```
+
+`--base` defaults to `develop` when omitted.
+
+### Finish
+
+```bash
+bflow finish
+```
+
+Infers the action from the current branch type (e.g., creates PR on work branches, merges + tags on release/hotfix branches).
+
+### Release-only commands
+
+```bash
+bflow bump    # bump patch version
+bflow sync    # sync release into develop
+```
+
+Both require being on a release branch.
+
 ## Workflows
 
 ### Feature / Fix / Chore / Docs / Refactor
