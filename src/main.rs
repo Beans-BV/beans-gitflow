@@ -56,77 +56,91 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         false
     };
 
+    let result = run_flow(&git, &hosting, &branch_type, &branch_name, command, stashed);
+
+    if stashed {
+        println!("Restoring uncommitted changes...");
+        if let Err(e) = git.stash_pop() {
+            eprintln!("Warning: Failed to restore stashed changes: {e}");
+            eprintln!("Your changes are saved in git stash. Run 'git stash pop' to restore them.");
+        }
+    }
+
+    result
+}
+
+fn run_flow(
+    git: &GitCli,
+    hosting: &GitHub,
+    branch_type: &BranchType,
+    branch_name: &str,
+    command: Option<Commands>,
+    stashed: bool,
+) -> Result<(), String> {
     // Pull latest changes into current branch
     git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
 
     let action = match command {
-        None => menu::show_menu(&branch_type, &branch_name)?,
-        Some(cmd) => resolve_action(cmd, &branch_type)?,
+        None => menu::show_menu(branch_type, branch_name)?,
+        Some(cmd) => resolve_action(cmd, branch_type)?,
     };
 
     if stashed && !action.is_start() {
-        println!("Restoring uncommitted changes...");
-        git.stash_pop()?;
-        return Err("Working tree is not clean. Commit or stash your changes first.".to_string());
+        return Err("Working tree is not clean. Commit your changes before finishing.".to_string());
     }
 
     match action {
         Action::StartWorkBranch { prefix, name, from } => {
-            start::start_work_branch(&git, &prefix, &name, &from)?;
+            start::start_work_branch(git, &prefix, &name, &from)?;
         }
         Action::StartRelease => {
-            start::start_release(&git)?;
+            start::start_release(git)?;
         }
         Action::StartReleaseFix { name } => {
-            start::start_release_fix(&git, &name)?;
+            start::start_release_fix(git, &name)?;
         }
         Action::StartHotfixFix { name } => {
-            start::start_hotfix_fix(&git, &name)?;
+            start::start_hotfix_fix(git, &name)?;
         }
         Action::FinishWorkBranch => {
-            finish_work::finish_work_branch(&git, &hosting, &branch_type)?;
+            finish_work::finish_work_branch(git, hosting, branch_type)?;
         }
         Action::FinishReleaseFix => {
-            let BranchType::ReleaseFix { major, minor, name, .. } = &branch_type else {
+            let BranchType::ReleaseFix { major, minor, name, .. } = branch_type else {
                 unreachable!("FinishReleaseFix action only from ReleaseFix branch");
             };
-            finish_work::finish_release_fix(&git, &hosting, *major, *minor, name)?;
+            finish_work::finish_release_fix(git, hosting, *major, *minor, name)?;
         }
         Action::FinishHotfixFix => {
-            let BranchType::HotfixFix { major, minor, patch, name, .. } = &branch_type else {
+            let BranchType::HotfixFix { major, minor, patch, name, .. } = branch_type else {
                 unreachable!("FinishHotfixFix action only from HotfixFix branch");
             };
-            finish_work::finish_hotfix_fix(&git, &hosting, *major, *minor, *patch, name)?;
+            finish_work::finish_hotfix_fix(git, hosting, *major, *minor, *patch, name)?;
         }
         Action::BumpVersion => {
             let BranchType::Release { major, minor } = branch_type else {
                 unreachable!("BumpVersion action only from Release branch");
             };
-            finish_release::bump_version(&git, major, minor)?;
+            finish_release::bump_version(git, *major, *minor)?;
         }
         Action::SyncWithDevelop => {
             let BranchType::Release { major, minor } = branch_type else {
                 unreachable!("SyncWithDevelop action only from Release branch");
             };
-            finish_release::sync_with_develop(&git, major, minor)?;
+            finish_release::sync_with_develop(git, *major, *minor)?;
         }
         Action::FinishRelease => {
             let BranchType::Release { major, minor } = branch_type else {
                 unreachable!("FinishRelease action only from Release branch");
             };
-            finish_release::finish_release(&git, major, minor)?;
+            finish_release::finish_release(git, *major, *minor)?;
         }
         Action::FinishHotfix => {
             let BranchType::Hotfix { major, minor, patch } = branch_type else {
                 unreachable!("FinishHotfix action only from Hotfix branch");
             };
-            finish_hotfix::finish_hotfix(&git, major, minor, patch)?;
+            finish_hotfix::finish_hotfix(git, *major, *minor, *patch)?;
         }
-    }
-
-    if stashed {
-        println!("Restoring uncommitted changes...");
-        git.stash_pop()?;
     }
 
     Ok(())
