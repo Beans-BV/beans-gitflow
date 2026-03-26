@@ -331,7 +331,11 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                 WorkBranchOption::Finish => Ok(Action::FinishWorkBranch),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: current_branch.to_string() })
+                    let current_label = format!("{current_branch} (current)");
+                    let base_options: &[&str] = &[&current_label, "develop"];
+                    let base_idx = show_select("Base branch", base_options)?;
+                    let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from })
                 }
             }
         }
