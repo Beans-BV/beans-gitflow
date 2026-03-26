@@ -36,11 +36,20 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
             Ok(b) => b,
             Err(_) => continue,
         };
-        let count = match git.rev_list_count(&base, current) {
+        let current_count = match git.rev_list_count(&base, current) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        candidates.push((branch.clone(), count));
+        let candidate_count = match git.rev_list_count(&base, branch) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        // Skip child branches: if we have fewer commits since divergence
+        // than the candidate, it likely branched from us
+        if current_count < candidate_count {
+            continue;
+        }
+        candidates.push((branch.clone(), current_count));
     }
 
     if candidates.is_empty() {
