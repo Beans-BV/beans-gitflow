@@ -25,6 +25,10 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
     let release_branch = format!("release/{major}.{minor}");
     let current = git.current_branch()?;
 
+    println!("Pulling latest {release_branch}...");
+    git.fetch()?;
+    git.merge(&format!("origin/{release_branch}"), &format!("chore: pull latest {release_branch}"))?;
+
     println!("Merging {release_branch} into develop...");
     git.checkout("develop")?;
     git.merge(&release_branch, &format!("chore: sync release {major}.{minor} with develop"))?;
@@ -38,6 +42,10 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
 
 pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), String> {
     let release_branch = format!("release/{major}.{minor}");
+
+    println!("Pulling latest {release_branch}...");
+    git.fetch()?;
+    git.merge(&format!("origin/{release_branch}"), &format!("chore: pull latest {release_branch}"))?;
 
     let tags = git.tags_on_branch(&release_branch)?;
     let latest_tag = tags.iter().filter_map(|t| SemVer::parse(t))
