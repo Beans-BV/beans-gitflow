@@ -11,13 +11,19 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str) ->
     Ok(())
 }
 
+pub fn start_release(git: &dyn Git) -> Result<(), String> {
+    resolve_or_create_release(git)?;
+    Ok(())
+}
+
 pub fn start_release_fix(git: &dyn Git) -> Result<(), String> {
-    let release_branch = resolve_or_create_release(git)?;
-    let version = release_branch.strip_prefix("release/").unwrap();
+    let current = git.current_branch()?;
+    let version = current.strip_prefix("release/")
+        .ok_or("Not on a release branch")?;
     let name = menu::prompt_name("Name for release-fix branch")?;
     let branch = format!("release-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    git.create_branch(&branch, &release_branch)?;
+    git.create_branch(&branch, &current)?;
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
     Ok(())

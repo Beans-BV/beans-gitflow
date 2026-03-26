@@ -9,7 +9,7 @@ use crate::git::branch::BranchType;
 
 #[derive(Debug, Clone, Copy)]
 pub enum DevelopOption {
-    StartFeature, StartFix, StartChore, StartDocs, StartRefactor, StartReleaseFix,
+    StartFeature, StartFix, StartChore, StartDocs, StartRefactor, StartRelease,
 }
 
 impl DevelopOption {
@@ -20,7 +20,7 @@ impl DevelopOption {
             Self::StartChore => "start chore",
             Self::StartDocs => "start docs",
             Self::StartRefactor => "start refactor",
-            Self::StartReleaseFix => "start release fix",
+            Self::StartRelease => "start release",
         }
     }
 
@@ -31,11 +31,11 @@ impl DevelopOption {
             Self::StartChore => "chore",
             Self::StartDocs => "docs",
             Self::StartRefactor => "refactor",
-            Self::StartReleaseFix => unreachable!(),
+            Self::StartRelease => unreachable!(),
         }
     }
 
-    const ALL: [Self; 6] = [Self::StartFeature, Self::StartFix, Self::StartChore, Self::StartDocs, Self::StartRefactor, Self::StartReleaseFix];
+    const ALL: [Self; 6] = [Self::StartFeature, Self::StartFix, Self::StartChore, Self::StartDocs, Self::StartRefactor, Self::StartRelease];
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,19 +71,20 @@ impl WorkBranchOption {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ReleaseOption {
-    BumpVersion, SyncWithDevelop, FinishRelease,
+    StartReleaseFix, BumpVersion, SyncWithDevelop, FinishRelease,
 }
 
 impl ReleaseOption {
     pub fn label(&self) -> &'static str {
         match self {
+            Self::StartReleaseFix => "start release fix",
             Self::BumpVersion => "bump version",
             Self::SyncWithDevelop => "sync with develop",
             Self::FinishRelease => "finish release",
         }
     }
 
-    const ALL: [Self; 3] = [Self::BumpVersion, Self::SyncWithDevelop, Self::FinishRelease];
+    const ALL: [Self; 4] = [Self::StartReleaseFix, Self::BumpVersion, Self::SyncWithDevelop, Self::FinishRelease];
 }
 
 fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Result<()> {
@@ -306,7 +307,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let idx = show_select("What would you like to do?", &labels)?;
             let option = DevelopOption::ALL[idx];
             match option {
-                DevelopOption::StartReleaseFix => Ok(Action::StartReleaseFix),
+                DevelopOption::StartRelease => Ok(Action::StartRelease),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
                     Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string() })
@@ -344,6 +345,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let labels: Vec<&str> = ReleaseOption::ALL.iter().map(|o| o.label()).collect();
             let idx = show_select("What would you like to do?", &labels)?;
             match ReleaseOption::ALL[idx] {
+                ReleaseOption::StartReleaseFix => Ok(Action::StartReleaseFix),
                 ReleaseOption::BumpVersion => Ok(Action::BumpVersion),
                 ReleaseOption::SyncWithDevelop => Ok(Action::SyncWithDevelop),
                 ReleaseOption::FinishRelease => Ok(Action::FinishRelease),
@@ -358,6 +360,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
 #[derive(Debug)]
 pub enum Action {
     StartWorkBranch { prefix: String, name: String, from: String },
+    StartRelease,
     StartReleaseFix,
     StartHotfixFix,
     FinishWorkBranch,

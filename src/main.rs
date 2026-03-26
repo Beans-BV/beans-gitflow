@@ -54,6 +54,9 @@ fn run() -> Result<(), String> {
         Action::StartWorkBranch { prefix, name, from } => {
             start::start_work_branch(&git, &prefix, &name, &from)?;
         }
+        Action::StartRelease => {
+            start::start_release(&git)?;
+        }
         Action::StartReleaseFix => {
             start::start_release_fix(&git)?;
         }
