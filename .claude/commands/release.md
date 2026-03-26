@@ -5,8 +5,8 @@ Release a new version of the bflow CLI tool.
 ## Steps
 
 1. **Update version in Cargo.toml** — bump the `version` field to the new version (e.g., `"0.2.0"`)
-2. **Run tests** — `cargo test --all` must pass
-3. **Commit** the version bump: `git commit -am "chore: bump version to X.Y.Z"`
+2. **Run tests** — `cargo test --all` must pass (use `~/.cargo/bin/cargo` if `cargo` is not in PATH)
+3. **Commit** both `Cargo.toml` and `Cargo.lock`: `git add Cargo.toml Cargo.lock && git commit -m "chore: bump version to X.Y.Z"`
 4. **Tag** with `v` prefix: `git tag vX.Y.Z`
 5. **Push** commit and tag: `git push && git push origin vX.Y.Z`
 
