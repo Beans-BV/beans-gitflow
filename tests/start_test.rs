@@ -1,7 +1,7 @@
 mod common;
 
 use common::MockGit;
-use bflow::flows::start::{start_work_branch, start_release, start_release_fix};
+use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix};
 
 #[test]
 fn start_work_branch_creates_and_pushes() {
@@ -87,5 +87,39 @@ fn start_release_fix_creates_and_pushes() {
         "current_branch",
         "create_branch:release-fix/1.2/broken-login:release/1.2",
         "push:release-fix/1.2/broken-login",
+    ]);
+}
+
+#[test]
+fn start_hotfix_fix_creates_and_pushes_existing_hotfix() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["hotfix/1.0.1".to_string()];
+
+    start_hotfix_fix(&git, "urgent-crash").unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*",
+        "checkout:hotfix/1.0.1",
+        "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
+        "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
+}
+
+#[test]
+fn start_hotfix_fix_creates_hotfix_branch_when_none_exists() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+
+    start_hotfix_fix(&git, "urgent-crash").unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*",
+        "list_tags",
+        "checkout:main",
+        "create_branch:hotfix/1.0.1:main",
+        "push:hotfix/1.0.1",
+        "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
+        "push:hotfix-fix/1.0.1/urgent-crash",
     ]);
 }

@@ -1,5 +1,4 @@
 use crate::git::Git;
-use crate::menu;
 use crate::version::SemVer;
 
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str) -> Result<(), String> {
@@ -28,10 +27,9 @@ pub fn start_release_fix(git: &dyn Git, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn start_hotfix_fix(git: &dyn Git) -> Result<(), String> {
+pub fn start_hotfix_fix(git: &dyn Git, name: &str) -> Result<(), String> {
     let hotfix_branch = resolve_or_create_hotfix(git)?;
     let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
-    let name = menu::prompt_name("Name for hotfix-fix branch")?;
     let branch = format!("hotfix-fix/{version}/{name}");
     println!("Creating branch: {branch}");
     git.create_branch(&branch, &hotfix_branch)?;

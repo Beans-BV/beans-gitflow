@@ -300,7 +300,8 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
         BranchType::Main => {
             let labels = &["start hotfix fix"];
             show_select("What would you like to do?", labels)?;
-            Ok(Action::StartHotfixFix)
+            let name = prompt_name("Name for hotfix-fix branch")?;
+            Ok(Action::StartHotfixFix { name })
         }
         BranchType::Develop => {
             let labels: Vec<&str> = DevelopOption::ALL.iter().map(|o| o.label()).collect();
@@ -374,7 +375,7 @@ pub enum Action {
     StartWorkBranch { prefix: String, name: String, from: String },
     StartRelease,
     StartReleaseFix { name: String },
-    StartHotfixFix,
+    StartHotfixFix { name: String },
     FinishWorkBranch,
     FinishReleaseFix,
     FinishRelease,
