@@ -50,5 +50,6 @@ For non-trivial changes: pause and ask "is there a more elegant way?"
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimat Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 
-# Sync
-When any updates are made to the application, the test/integration-test-prompt.md also needs to be updated to keep the integration test in sync.
+# Reminder
+
+REMEMBER to ALWAYS keep things KISS, DRY and SOLID.
