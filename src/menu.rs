@@ -1,4 +1,10 @@
-use dialoguer::{Select, Input, theme::ColorfulTheme};
+use std::io::{self, Write};
+use crossterm::{
+    cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    execute, queue,
+    style::{self, Stylize},
+    terminal,
+};
 use crate::git::branch::BranchType;
 
 #[derive(Debug, Clone, Copy)]
@@ -80,13 +86,111 @@ impl ReleaseOption {
     const ALL: [Self; 3] = [Self::BumpVersion, Self::SyncWithDevelop, Self::FinishRelease];
 }
 
+fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Result<()> {
+    for (i, item) in items.iter().enumerate() {
+        let number = i + 1;
+        if i == selected {
+            queue!(
+                out,
+                style::PrintStyledContent(format!("> {number}) {item}").cyan().bold()),
+            )?;
+        } else {
+            queue!(
+                out,
+                style::PrintStyledContent(format!("  {number}) {item}").dim()),
+            )?;
+        }
+        if i < items.len() - 1 {
+            queue!(out, cursor::MoveToNextLine(1))?;
+        }
+    }
+    out.flush()?;
+    Ok(())
+}
+
 pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
-    Select::with_theme(&ColorfulTheme::default())
-        .with_prompt(prompt)
-        .items(items)
-        .default(0)
-        .interact()
-        .map_err(|e| format!("Menu error: {e}"))
+    let mut out = io::stderr();
+    let mut selected: usize = 0;
+
+    // Print prompt
+    execute!(
+        out,
+        style::PrintStyledContent("? ".green().bold()),
+        style::Print(prompt),
+        cursor::MoveToNextLine(1),
+    ).map_err(|e| format!("Menu error: {e}"))?;
+
+    terminal::enable_raw_mode().map_err(|e| format!("Menu error: {e}"))?;
+
+    // Hide cursor during selection
+    execute!(out, cursor::Hide).map_err(|e| {
+        let _ = terminal::disable_raw_mode();
+        format!("Menu error: {e}")
+    })?;
+
+    // Initial render
+    render_menu(&mut out, items, selected).map_err(|e| {
+        let _ = execute!(out, cursor::Show);
+        let _ = terminal::disable_raw_mode();
+        format!("Menu error: {e}")
+    })?;
+
+    let result = loop {
+        let ev = event::read().map_err(|e| {
+            let _ = execute!(out, cursor::Show);
+            let _ = terminal::disable_raw_mode();
+            format!("Menu error: {e}")
+        })?;
+
+        match ev {
+            Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
+            Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => {
+                let _ = execute!(out, cursor::Show);
+                let _ = terminal::disable_raw_mode();
+                return Err("Aborted".to_string());
+            }
+            Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                break selected;
+            }
+            Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
+                if selected > 0 {
+                    selected -= 1;
+                }
+            }
+            Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
+                if selected < items.len() - 1 {
+                    selected += 1;
+                }
+            }
+            Event::Key(KeyEvent { code: KeyCode::Char(c), modifiers: KeyModifiers::NONE, .. }) => {
+                if let Some(digit) = c.to_digit(10) {
+                    let idx = digit as usize;
+                    if idx >= 1 && idx <= items.len() && idx <= 9 {
+                        selected = idx - 1;
+                        break selected;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Redraw: move cursor up to start of menu, then re-render
+        if items.len() > 1 {
+            let _ = execute!(out, cursor::MoveUp((items.len() - 1) as u16));
+        }
+        let _ = execute!(out, cursor::MoveToColumn(0));
+        render_menu(&mut out, items, selected).map_err(|e| {
+            let _ = execute!(out, cursor::Show);
+            let _ = terminal::disable_raw_mode();
+            format!("Menu error: {e}")
+        })?;
+    };
+
+    // Cleanup: show cursor, disable raw mode, move past menu
+    let _ = execute!(out, cursor::Show, cursor::MoveToNextLine(1));
+    let _ = terminal::disable_raw_mode();
+
+    Ok(result)
 }
 
 pub fn prompt_name(prompt: &str) -> Result<String, String> {
