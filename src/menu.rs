@@ -109,6 +109,10 @@ fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Res
 }
 
 pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
+    if items.is_empty() {
+        return Err("Menu error: no items to select from".to_string());
+    }
+
     let mut out = io::stderr();
     let mut selected: usize = 0;
 
@@ -175,10 +179,18 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
         }
 
         // Redraw: move cursor up to start of menu, then re-render
-        if items.len() > 1 {
-            let _ = execute!(out, cursor::MoveUp((items.len() - 1) as u16));
+        let reposition = (|| -> io::Result<()> {
+            if items.len() > 1 {
+                execute!(out, cursor::MoveUp((items.len() - 1) as u16))?;
+            }
+            execute!(out, cursor::MoveToColumn(0))?;
+            Ok(())
+        })();
+        if let Err(e) = reposition {
+            let _ = execute!(out, cursor::Show);
+            let _ = terminal::disable_raw_mode();
+            return Err(format!("Menu error: {e}"));
         }
-        let _ = execute!(out, cursor::MoveToColumn(0));
         render_menu(&mut out, items, selected).map_err(|e| {
             let _ = execute!(out, cursor::Show);
             let _ = terminal::disable_raw_mode();
