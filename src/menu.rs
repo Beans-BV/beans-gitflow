@@ -348,7 +348,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let labels: Vec<&str> = ReleaseOption::ALL.iter().map(|o| o.label()).collect();
             let idx = show_select("What would you like to do?", &labels)?;
             match ReleaseOption::ALL[idx] {
-                ReleaseOption::StartReleaseFix => Ok(Action::StartReleaseFix),
+                ReleaseOption::StartReleaseFix => {
+                    let name = prompt_name("Name for release-fix branch")?;
+                    Ok(Action::StartReleaseFix { name })
+                }
                 ReleaseOption::BumpVersion => Ok(Action::BumpVersion),
                 ReleaseOption::SyncWithDevelop => Ok(Action::SyncWithDevelop),
                 ReleaseOption::FinishRelease => Ok(Action::FinishRelease),
@@ -370,7 +373,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
 pub enum Action {
     StartWorkBranch { prefix: String, name: String, from: String },
     StartRelease,
-    StartReleaseFix,
+    StartReleaseFix { name: String },
     StartHotfixFix,
     FinishWorkBranch,
     FinishReleaseFix,

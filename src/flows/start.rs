@@ -16,11 +16,10 @@ pub fn start_release(git: &dyn Git) -> Result<(), String> {
     Ok(())
 }
 
-pub fn start_release_fix(git: &dyn Git) -> Result<(), String> {
+pub fn start_release_fix(git: &dyn Git, name: &str) -> Result<(), String> {
     let current = git.current_branch()?;
     let version = current.strip_prefix("release/")
         .ok_or("Not on a release branch")?;
-    let name = menu::prompt_name("Name for release-fix branch")?;
     let branch = format!("release-fix/{version}/{name}");
     println!("Creating branch: {branch}");
     git.create_branch(&branch, &current)?;

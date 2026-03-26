@@ -60,8 +60,8 @@ fn run() -> Result<(), String> {
         Action::StartRelease => {
             start::start_release(&git)?;
         }
-        Action::StartReleaseFix => {
-            start::start_release_fix(&git)?;
+        Action::StartReleaseFix { name } => {
+            start::start_release_fix(&git, &name)?;
         }
         Action::StartHotfixFix => {
             start::start_hotfix_fix(&git)?;

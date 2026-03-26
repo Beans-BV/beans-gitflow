@@ -1,7 +1,7 @@
 mod common;
 
 use common::MockGit;
-use bflow::flows::start::{start_work_branch, start_release};
+use bflow::flows::start::{start_work_branch, start_release, start_release_fix};
 
 #[test]
 fn start_work_branch_creates_and_pushes() {
@@ -73,5 +73,19 @@ fn start_release_checks_out_existing_release_branch() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "checkout:release/1.1",
+    ]);
+}
+
+#[test]
+fn start_release_fix_creates_and_pushes() {
+    let mut git = MockGit::new();
+    git.current_branch = "release/1.2".to_string();
+
+    start_release_fix(&git, "broken-login").unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "current_branch",
+        "create_branch:release-fix/1.2/broken-login:release/1.2",
+        "push:release-fix/1.2/broken-login",
     ]);
 }
