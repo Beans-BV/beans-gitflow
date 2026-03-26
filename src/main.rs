@@ -48,6 +48,9 @@ fn run() -> Result<(), String> {
         return Err("Working tree is not clean. Commit or stash your changes first.".to_string());
     }
 
+    // Pull latest changes into current branch
+    git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
+
     let action = menu::show_menu(&branch_type, &branch_name)?;
 
     match action {
