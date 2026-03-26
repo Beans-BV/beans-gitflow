@@ -6,6 +6,11 @@
       "Bash(git push:*)",
       "Bash(git tag:*)",
       "Bash(gh api:*)",
+      "Bash(rtk git add:*)",
+      "Bash(rtk git commit:*)",
+      "Bash(rtk git push:*)",
+      "Bash(rtk git tag:*)",
+      "Bash(rtk gh api:*)",
       "Bash(cargo --version)",
       "Bash(cargo test:*)",
       "Bash(cargo build:*)"
