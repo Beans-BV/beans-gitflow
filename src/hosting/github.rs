@@ -24,7 +24,21 @@ impl HostingPlatform for GitHub {
         if let Ok(url) = existing {
             if !url.is_empty() { return Ok(url); }
         }
-        self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title])
+
+        let template_paths = [
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".github/pull_request_template.md",
+            "PULL_REQUEST_TEMPLATE.md",
+            "pull_request_template.md",
+            "docs/pull_request_template.md",
+        ];
+        let has_template = template_paths.iter().any(|p| std::path::Path::new(p).exists());
+
+        if has_template {
+            self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title])
+        } else {
+            self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body", ""])
+        }
     }
 
     fn open_url(&self, url: &str) -> Result<()> {
