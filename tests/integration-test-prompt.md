@@ -13,44 +13,44 @@
 
 bflow uses interactive terminal menus. Here's how to interact:
 
-- **Select menus**: Use arrow keys (↓/↑) to navigate, Enter to select. Default is always the first item (index 0).
-- **Text input**: Type the name, press Enter.
+- **Select menus**: Items are numbered 1-9. Press a number key to instantly select that option (no Enter needed), or use arrow keys (↓/↑) to navigate and Enter to confirm. Default is always the first item (index 0).
+- **Text input**: Type the name, press Enter. Spaces are automatically converted to hyphens as you type.
 - **Auto-dispatch**: On release-fix and hotfix-fix branches, bflow auto-executes the finish action with no menu — just run `bflow` and it goes.
-- **Work branches**: On work branches (feature/fix/chore/docs/refactor), bflow shows a menu with finish as default (index 0) plus start options. Pressing Enter finishes the branch. A PR target selection prompt follows.
+- **Work branches**: On work branches (feature/fix/chore/docs/refactor), bflow shows a menu with finish as default (index 0) plus start options. Pressing Enter or 1 finishes the branch. A PR target selection prompt follows.
 
-### Menu indices reference
+### Menu key reference
 
 **On `develop`** (6 options):
-| Index | Option |
-|-------|--------|
-| 0 | start feature |
-| 1 | start fix |
-| 2 | start chore |
-| 3 | start docs |
-| 4 | start refactor |
-| 5 | start release fix |
-
-**On `release/{v}`** (3 options):
-| Index | Option |
-|-------|--------|
-| 0 | bump version |
-| 1 | sync with develop |
-| 2 | finish release |
-
-**On `main`** (1 option):
-| Index | Option |
-|-------|--------|
-| 0 | start hotfix fix |
-
-**On work branches** (feature/fix/chore/docs/refactor) (6 options):
-| Index | Option |
-|-------|--------|
-| 0 | finish {type} |
+| Key | Option |
+|-----|--------|
 | 1 | start feature |
 | 2 | start fix |
 | 3 | start chore |
 | 4 | start docs |
 | 5 | start refactor |
+| 6 | start release fix |
+
+**On `release/{v}`** (3 options):
+| Key | Option |
+|-----|--------|
+| 1 | bump version |
+| 2 | sync with develop |
+| 3 | finish release |
+
+**On `main`** (1 option):
+| Key | Option |
+|-----|--------|
+| 1 | start hotfix fix |
+
+**On work branches** (feature/fix/chore/docs/refactor) (6 options):
+| Key | Option |
+|-----|--------|
+| 1 | finish {type} |
+| 2 | start feature |
+| 3 | start fix |
+| 4 | start chore |
+| 5 | start docs |
+| 6 | start refactor |
 
 ---
 
@@ -99,7 +99,7 @@ git checkout develop
 Each work branch follows the same pattern:
 1. On `develop`: run `bflow` → select the branch type → enter a name
 2. Make a dummy commit on the new branch
-3. Run `bflow` again → select "finish {type}" (index 0) → select PR target "develop" (index 0)
+3. Run `bflow` again → press 1 to finish → press 1 to select PR target "develop"
 4. Merge the PR via `gh`
 5. Return to `develop` and pull
 
@@ -108,7 +108,7 @@ Each work branch follows the same pattern:
 ```
 # On develop
 bflow
-→ Select: "start feature" (index 0, just press Enter)
+→ Press 1 (instant select: "start feature")
 → Input: "user-auth"
 ```
 
@@ -122,8 +122,8 @@ git commit -m "feat: add user authentication"
 
 ```
 bflow
-→ Select: "finish feature" (index 0, just press Enter)
-→ PR target: select "develop" (index 0, just press Enter)
+→ Press 1 (instant select: "finish feature")
+→ PR target: press 1 (instant select: "develop")
 ```
 
 ```bash
@@ -137,7 +137,7 @@ git merge origin/develop
 
 ```
 bflow
-→ Select: "start fix" (index 1, press ↓ once then Enter)
+→ Press 2 (instant select: "start fix")
 → Input: "null-pointer"
 ```
 
@@ -149,8 +149,8 @@ git commit -m "fix: resolve null pointer exception"
 
 ```
 bflow
-→ Select: "finish fix" (index 0, just press Enter)
-→ PR target: select "develop" (index 0, just press Enter)
+→ Press 1 (instant select: "finish fix")
+→ PR target: press 1 (instant select: "develop")
 ```
 
 ```bash
@@ -164,7 +164,7 @@ git merge origin/develop
 
 ```
 bflow
-→ Select: "start chore" (index 2, press ↓ twice then Enter)
+→ Press 3 (instant select: "start chore")
 → Input: "update-deps"
 ```
 
@@ -176,8 +176,8 @@ git commit -m "chore: update dependencies"
 
 ```
 bflow
-→ Select: "finish chore" (index 0, just press Enter)
-→ PR target: select "develop" (index 0, just press Enter)
+→ Press 1 (instant select: "finish chore")
+→ PR target: press 1 (instant select: "develop")
 ```
 
 ```bash
@@ -191,7 +191,7 @@ git merge origin/develop
 
 ```
 bflow
-→ Select: "start docs" (index 3, press ↓ three times then Enter)
+→ Press 4 (instant select: "start docs")
 → Input: "api-guide"
 ```
 
@@ -203,8 +203,8 @@ git commit -m "docs: add API guide"
 
 ```
 bflow
-→ Select: "finish docs" (index 0, just press Enter)
-→ PR target: select "develop" (index 0, just press Enter)
+→ Press 1 (instant select: "finish docs")
+→ PR target: press 1 (instant select: "develop")
 ```
 
 ```bash
@@ -218,7 +218,7 @@ git merge origin/develop
 
 ```
 bflow
-→ Select: "start refactor" (index 4, press ↓ four times then Enter)
+→ Press 5 (instant select: "start refactor")
 → Input: "clean-models"
 ```
 
@@ -230,8 +230,8 @@ git commit -m "refactor: clean up data models"
 
 ```
 bflow
-→ Select: "finish refactor" (index 0, just press Enter)
-→ PR target: select "develop" (index 0, just press Enter)
+→ Press 1 (instant select: "finish refactor")
+→ PR target: press 1 (instant select: "develop")
 ```
 
 ```bash
@@ -252,7 +252,7 @@ This tests creating a work branch from another work branch and verifying the PR 
 ```
 # On develop
 bflow
-→ Select: "start feature" (index 0, just press Enter)
+→ Press 1 (instant select: "start feature")
 → Input: "payment-system"
 ```
 
@@ -267,7 +267,7 @@ git commit -m "feat: add payment system base"
 ```
 # On feature/payment-system
 bflow
-→ Select: "start fix" (index 2, press ↓ twice then Enter)
+→ Press 3 (instant select: "start fix")
 → Input: "payment-validation"
 ```
 
@@ -285,8 +285,8 @@ Finish the child branch first (creates PR targeting parent):
 
 ```
 bflow
-→ Select: "finish fix" (index 0, just press Enter)
-→ PR target: verify "feature/payment-system" is the default (index 0), press Enter
+→ Press 1 (instant select: "finish fix")
+→ PR target: verify "feature/payment-system" is option 1, press 1
 ```
 
 **Verify:** The child PR targets `feature/payment-system`, not `develop`.
@@ -306,8 +306,8 @@ git checkout feature/payment-system
 
 ```
 bflow
-→ Select: "finish feature" (index 0, just press Enter)
-→ PR target: verify "develop" is the default (index 0), press Enter
+→ Press 1 (instant select: "finish feature")
+→ PR target: verify "develop" is option 1, press 1
 ```
 
 ### Step 2.5.4: Retarget Child PR and Merge Both
@@ -339,7 +339,7 @@ git merge origin/develop
 ```
 # On develop
 bflow
-→ Select: "start release fix" (index 5, press ↓ five times then Enter)
+→ Press 6 (instant select: "start release fix")
 → (bflow auto-creates release/1.1 from develop, tags 1.1.0)
 → Input: "payment-bug"
 ```
@@ -369,7 +369,7 @@ git merge origin/release/1.1
 ```
 # On release/1.1
 bflow
-→ Select: "bump version" (index 0, just press Enter)
+→ Press 1 (instant select: "bump version")
 → (bflow auto-bumps 1.1.0 → 1.1.1, creates and pushes tag)
 ```
 
@@ -378,7 +378,7 @@ bflow
 ```
 # Still on release/1.1
 bflow
-→ Select: "sync with develop" (index 1, press ↓ once then Enter)
+→ Press 2 (instant select: "sync with develop")
 → (bflow merges release/1.1 into develop, pushes, returns to release/1.1)
 ```
 
@@ -391,7 +391,7 @@ git pull
 
 ```
 bflow
-→ Select: "start release fix" (index 5, press ↓ five times then Enter)
+→ Press 6 (instant select: "start release fix")
 → (bflow detects existing release/1.1, uses it)
 → Input: "validation-error"
 ```
@@ -419,7 +419,7 @@ git merge origin/release/1.1
 ```
 # On release/1.1
 bflow
-→ Select: "bump version" (index 0, just press Enter)
+→ Press 1 (instant select: "bump version")
 → (bflow auto-bumps 1.1.1 → 1.1.2, creates and pushes tag)
 ```
 
@@ -428,7 +428,7 @@ bflow
 ```
 # On release/1.1
 bflow
-→ Select: "finish release" (index 2, press ↓ twice then Enter)
+→ Press 3 (instant select: "finish release")
 → (bflow merges into main, merges into develop, deletes release/1.1)
 ```
 
@@ -448,7 +448,7 @@ git merge origin/main
 
 ```
 bflow
-→ Select: "start hotfix fix" (index 0, just press Enter)
+→ Press 1 (instant select: "start hotfix fix")
 → (bflow auto-creates hotfix/1.1.3 from main, bumps patch from 1.1.2)
 → Input: "critical-crash"
 ```
@@ -478,7 +478,7 @@ git merge origin/hotfix/1.1.3
 ```
 # On hotfix/1.1.3
 bflow
-→ Select: "finish hotfix" (index 0, just press Enter)
+→ Press 1 (instant select: "finish hotfix")
 → (bflow merges into main, tags 1.1.3, merges into develop, deletes hotfix/1.1.3)
 ```
 
