@@ -45,6 +45,18 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         .max()
         .ok_or_else(|| "No version tag found on this release branch. Run 'bump version' first.".to_string())?;
 
+    // Auto-bump if there are commits since the latest tag
+    let commits_since_tag = git.rev_list_count(&latest_tag.to_string(), &release_branch)?;
+    let latest_tag = if commits_since_tag > 0 {
+        let next = latest_tag.bump_patch();
+        println!("Commits found since {latest_tag}, bumping to {next}...");
+        git.create_tag(&next.to_string(), &format!("chore: bump version to {next}"))?;
+        git.push_tag(&next.to_string())?;
+        next
+    } else {
+        latest_tag
+    };
+
     println!("Finishing release {release_branch} (tag: {latest_tag})...");
 
     println!("Merging into main...");
