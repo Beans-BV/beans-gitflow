@@ -68,35 +68,30 @@ pub enum StartKind {
     },
 }
 
+fn start_work_branch(prefix: &str, name: String, base: String) -> Result<Action, String> {
+    menu::validate_branch_name(&name)?;
+    Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base })
+}
+
+fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
+    if !matches!(branch_type, BranchType::Release { .. }) {
+        return Err("This command is only valid on a release branch.".to_string());
+    }
+    Ok(())
+}
+
 pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Action, String> {
     match command {
         Commands::Start { kind } => match kind {
-            StartKind::Feature { name, base } => {
-                menu::validate_branch_name(&name)?;
-                Ok(Action::StartWorkBranch { prefix: "feature".to_string(), name, from: base })
-            }
-            StartKind::Fix { name, base } => {
-                menu::validate_branch_name(&name)?;
-                Ok(Action::StartWorkBranch { prefix: "fix".to_string(), name, from: base })
-            }
-            StartKind::Chore { name, base } => {
-                menu::validate_branch_name(&name)?;
-                Ok(Action::StartWorkBranch { prefix: "chore".to_string(), name, from: base })
-            }
-            StartKind::Docs { name, base } => {
-                menu::validate_branch_name(&name)?;
-                Ok(Action::StartWorkBranch { prefix: "docs".to_string(), name, from: base })
-            }
-            StartKind::Refactor { name, base } => {
-                menu::validate_branch_name(&name)?;
-                Ok(Action::StartWorkBranch { prefix: "refactor".to_string(), name, from: base })
-            }
+            StartKind::Feature { name, base } => start_work_branch("feature", name, base),
+            StartKind::Fix { name, base } => start_work_branch("fix", name, base),
+            StartKind::Chore { name, base } => start_work_branch("chore", name, base),
+            StartKind::Docs { name, base } => start_work_branch("docs", name, base),
+            StartKind::Refactor { name, base } => start_work_branch("refactor", name, base),
             StartKind::Release => Ok(Action::StartRelease),
             StartKind::ReleaseFix { name } => {
                 menu::validate_branch_name(&name)?;
-                if !matches!(branch_type, BranchType::Release { .. }) {
-                    return Err("This command is only valid on a release branch.".to_string());
-                }
+                require_release_branch(branch_type)?;
                 Ok(Action::StartReleaseFix { name })
             }
             StartKind::HotfixFix { name } => {
@@ -124,15 +119,11 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             }
         },
         Commands::Bump => {
-            if !matches!(branch_type, BranchType::Release { .. }) {
-                return Err("This command is only valid on a release branch.".to_string());
-            }
+            require_release_branch(branch_type)?;
             Ok(Action::BumpVersion)
         }
         Commands::Sync => {
-            if !matches!(branch_type, BranchType::Release { .. }) {
-                return Err("This command is only valid on a release branch.".to_string());
-            }
+            require_release_branch(branch_type)?;
             Ok(Action::SyncWithDevelop)
         }
     }
