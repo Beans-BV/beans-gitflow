@@ -384,3 +384,15 @@ pub enum Action {
     BumpVersion,
     SyncWithDevelop,
 }
+
+impl Action {
+    pub fn is_start(&self) -> bool {
+        matches!(
+            self,
+            Action::StartWorkBranch { .. }
+                | Action::StartRelease
+                | Action::StartReleaseFix { .. }
+                | Action::StartHotfixFix { .. }
+        )
+    }
+}
