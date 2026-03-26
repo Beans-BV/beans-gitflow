@@ -129,7 +129,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout develop
-git pull
+git fetch origin develop
+git merge origin/develop
 ```
 
 ### Step 2.2: Fix
@@ -155,7 +156,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout develop
-git pull
+git fetch origin develop
+git merge origin/develop
 ```
 
 ### Step 2.3: Chore
@@ -181,7 +183,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout develop
-git pull
+git fetch origin develop
+git merge origin/develop
 ```
 
 ### Step 2.4: Docs
@@ -207,7 +210,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout develop
-git pull
+git fetch origin develop
+git merge origin/develop
 ```
 
 ### Step 2.5: Refactor
@@ -233,7 +237,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout develop
-git pull
+git fetch origin develop
+git merge origin/develop
 ```
 
 ---
@@ -305,34 +310,24 @@ bflow
 → PR target: verify "develop" is the default (index 0), press Enter
 ```
 
-### Step 2.5.4: Merge Parent PR First
+### Step 2.5.4: Retarget Child PR and Merge Both
+
+Retarget the child PR to develop *before* merging the parent to prevent GitHub from auto-closing it when `--delete-branch` removes `feature/payment-system`:
 
 ```bash
+# Retarget child PR BEFORE merging parent
+gh pr edit "$CHILD_PR_NUMBER" --base develop
+
+# Now merge parent
 gh pr merge --squash --delete-branch
 git checkout develop
-git pull
-```
+git fetch origin develop
+git merge origin/develop
 
-### Step 2.5.5: Retarget Child PR to Develop and Merge
-
-The parent branch is now merged and deleted. Retarget the child PR from `feature/payment-system` to `develop`:
-
-```bash
-gh pr edit "$CHILD_PR_NUMBER" --base develop
-```
-
-**Verify:** The child PR now targets `develop`.
-
-```bash
-gh pr view "$CHILD_PR_NUMBER" --json baseRefName --jq '.baseRefName'
-```
-
-**Expected:** `develop`
-
-```bash
+# Merge child (already retargeted to develop)
 gh pr merge "$CHILD_PR_NUMBER" --squash --delete-branch
-git checkout develop
-git pull
+git fetch origin develop
+git merge origin/develop
 ```
 
 ---
@@ -365,7 +360,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout release/1.1
-git pull
+git fetch origin release/1.1
+git merge origin/release/1.1
 ```
 
 ### Step 3.2: Bump Version (first bump)
@@ -414,7 +410,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout release/1.1
-git pull
+git fetch origin release/1.1
+git merge origin/release/1.1
 ```
 
 ### Step 3.5: Bump Version (second bump)
@@ -445,7 +442,8 @@ You should now be on `develop`.
 
 ```bash
 git checkout main
-git pull
+git fetch origin main
+git merge origin/main
 ```
 
 ```
@@ -471,7 +469,8 @@ bflow
 ```bash
 gh pr merge --squash --delete-branch
 git checkout hotfix/1.1.3
-git pull
+git fetch origin hotfix/1.1.3
+git merge origin/hotfix/1.1.3
 ```
 
 ### Step 4.2: Finish Hotfix
