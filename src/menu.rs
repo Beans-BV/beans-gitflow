@@ -102,7 +102,7 @@ fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Res
             )?;
         }
         if i < items.len() - 1 {
-            queue!(out, cursor::MoveToNextLine(1))?;
+            queue!(out, style::Print("\r\n"))?;
         }
     }
     out.flush()?;
