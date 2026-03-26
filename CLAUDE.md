@@ -53,3 +53,7 @@ For non-trivial changes: pause and ask "is there a more elegant way?"
 # Reminder
 
 REMEMBER to ALWAYS keep things KISS, DRY and SOLID.
+
+# README Sync
+
+With every change you make make sure to always update the README.md if needed.
