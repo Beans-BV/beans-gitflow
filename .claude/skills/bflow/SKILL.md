@@ -81,6 +81,12 @@ bflow start feature --name login --base feature/auth
 | `hotfix/{major}.{minor}.{patch}` | main | main + develop |
 | `hotfix-fix/{v}/{name}` | hotfix/{v} | hotfix/{v} (PR) |
 
+## Non-Interactive Environments (AI agents, CI, scripts)
+
+`bflow` without arguments is **interactive** and requires a TTY for its menu prompts. However, when all required arguments are provided (as shown in the Command Reference above), `bflow` runs **non-interactively** and is safe to use from AI agents, CI pipelines, and scripts.
+
+**Rule:** Always provide all required arguments so the command runs non-interactively. Never run bare `bflow` without arguments from a non-interactive context.
+
 ## Prerequisites
 
 bflow runs preflight checks automatically:
