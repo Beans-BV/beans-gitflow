@@ -71,20 +71,20 @@ impl WorkBranchOption {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ReleaseOption {
-    StartReleaseFix, BumpVersion, SyncWithDevelop, FinishRelease,
+    FinishRelease, StartReleaseFix, BumpVersion, SyncWithDevelop,
 }
 
 impl ReleaseOption {
     pub fn label(&self) -> &'static str {
         match self {
+            Self::FinishRelease => "finish release",
             Self::StartReleaseFix => "start release fix",
             Self::BumpVersion => "bump version",
             Self::SyncWithDevelop => "sync with develop",
-            Self::FinishRelease => "finish release",
         }
     }
 
-    const ALL: [Self; 4] = [Self::StartReleaseFix, Self::BumpVersion, Self::SyncWithDevelop, Self::FinishRelease];
+    const ALL: [Self; 4] = [Self::FinishRelease, Self::StartReleaseFix, Self::BumpVersion, Self::SyncWithDevelop];
 }
 
 fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Result<()> {
