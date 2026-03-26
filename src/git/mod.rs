@@ -73,7 +73,7 @@ impl Git for GitCli {
         let output = self.run(&["status", "--porcelain"])?;
         Ok(output.is_empty())
     }
-    fn delete_branch_local(&self, branch: &str) -> Result<()> { self.run(&["branch", "-d", branch]).map(|_| ()) }
+    fn delete_branch_local(&self, branch: &str) -> Result<()> { self.run(&["branch", "-D", branch]).map(|_| ()) }
     fn delete_branch_remote(&self, branch: &str) -> Result<()> { self.run(&["push", "origin", "--delete", branch]).map(|_| ()) }
     fn tags_on_branch(&self, branch: &str) -> Result<Vec<String>> {
         let output = self.run(&["tag", "--merged", branch])?;
