@@ -98,6 +98,5 @@ fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
     let tags = git.list_tags()?;
     let mut versions: Vec<SemVer> = tags.iter().filter_map(|t| SemVer::parse(t)).collect();
     versions.sort();
-    versions.last().cloned()
-        .ok_or_else(|| "No semver tags found. Create an initial tag first (e.g. 0.0.0).".to_string())
+    Ok(versions.last().cloned().unwrap_or(SemVer { major: 0, minor: 0, patch: 0 }))
 }
