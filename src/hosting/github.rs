@@ -20,7 +20,7 @@ impl GitHub {
 
 impl HostingPlatform for GitHub {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str) -> Result<String> {
-        let existing = self.run_gh(&["pr", "view", head, "--json", "url", "--jq", ".url"]);
+        let existing = self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]);
         if let Ok(url) = existing {
             if !url.is_empty() { return Ok(url); }
         }
