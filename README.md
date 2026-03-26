@@ -89,6 +89,14 @@ gitGraph
 
 Run `bflow` in any git repository. The tool detects your current branch and shows the appropriate menu.
 
+### Uncommitted Changes
+
+When you run `bflow start` with uncommitted changes (staged, unstaged, or untracked files), bflow automatically stashes your changes, creates the new branch, and restores them on the new branch. No flags or prompts needed — your work-in-progress follows you.
+
+If restoring changes causes conflicts with the target branch, bflow leaves the conflicts for you to resolve manually (the stash is preserved as a safety net).
+
+Finish commands (`bflow finish`, `bflow bump`, `bflow sync`) still require a clean working tree.
+
 ### On `develop`
 
 ```
