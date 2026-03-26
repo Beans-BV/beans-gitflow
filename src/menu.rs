@@ -358,7 +358,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             show_select("What would you like to do?", &["finish hotfix fix"])?;
             Ok(Action::FinishHotfixFix)
         }
-        BranchType::Hotfix { .. } => Ok(Action::FinishHotfix),
+        BranchType::Hotfix { .. } => {
+            show_select("What would you like to do?", &["finish hotfix"])?;
+            Ok(Action::FinishHotfix)
+        }
         BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
     }
 }
