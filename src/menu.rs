@@ -89,6 +89,7 @@ impl ReleaseOption {
 fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Result<()> {
     for (i, item) in items.iter().enumerate() {
         let number = i + 1;
+        queue!(out, cursor::MoveToColumn(0), terminal::Clear(terminal::ClearType::CurrentLine))?;
         if i == selected {
             queue!(
                 out,
@@ -121,7 +122,7 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
         out,
         style::PrintStyledContent("? ".green().bold()),
         style::Print(prompt),
-        cursor::MoveToNextLine(1),
+        style::Print("\n"),
     ).map_err(|e| format!("Menu error: {e}"))?;
 
     terminal::enable_raw_mode().map_err(|e| format!("Menu error: {e}"))?;
