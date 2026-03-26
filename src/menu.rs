@@ -193,21 +193,86 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
     Ok(result)
 }
 
+fn validate_branch_name(input: &str) -> Result<(), String> {
+    if input.is_empty() {
+        return Err("Name cannot be empty".to_string());
+    }
+    if input.contains("..") || input.contains('~') || input.contains('^') || input.contains(':') || input.contains('\\') {
+        return Err("Invalid branch name. Avoid special characters (.. ~ ^ : \\)".to_string());
+    }
+    Ok(())
+}
+
 pub fn prompt_name(prompt: &str) -> Result<String, String> {
-    let name: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt(prompt)
-        .validate_with(|input: &String| -> std::result::Result<(), String> {
-            if input.is_empty() {
-                return Err("Name cannot be empty".to_string());
+    loop {
+        let mut out = io::stderr();
+        let mut input = String::new();
+
+        // Print prompt
+        execute!(
+            out,
+            style::PrintStyledContent("? ".green().bold()),
+            style::Print(format!("{prompt}: ")),
+        ).map_err(|e| format!("Input error: {e}"))?;
+
+        terminal::enable_raw_mode().map_err(|e| format!("Input error: {e}"))?;
+
+        let result = loop {
+            let ev = event::read().map_err(|e| {
+                let _ = terminal::disable_raw_mode();
+                format!("Input error: {e}")
+            })?;
+
+            match ev {
+                Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
+                Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => {
+                    let _ = terminal::disable_raw_mode();
+                    return Err("Aborted".to_string());
+                }
+                Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                    break input.clone();
+                }
+                Event::Key(KeyEvent { code: KeyCode::Backspace, .. }) => {
+                    if input.pop().is_some() {
+                        let _ = execute!(
+                            out,
+                            cursor::MoveLeft(1),
+                            style::Print(" "),
+                            cursor::MoveLeft(1),
+                        );
+                    }
+                }
+                Event::Key(KeyEvent { code: KeyCode::Char(c), .. }) => {
+                    let ch = if c == ' ' { '-' } else { c };
+                    // Collapse consecutive hyphens: skip if last char is already '-' and new char is '-'
+                    if ch == '-' && input.ends_with('-') {
+                        continue;
+                    }
+                    input.push(ch);
+                    let _ = execute!(out, style::Print(ch));
+                }
+                _ => {}
             }
-            if input.contains(' ') || input.contains("..") || input.contains('~') || input.contains('^') || input.contains(':') || input.contains('\\') {
-                return Err("Invalid branch name. Avoid spaces and special characters (.. ~ ^ : \\)".to_string());
+        };
+
+        let _ = execute!(out, cursor::MoveToNextLine(1));
+        let _ = terminal::disable_raw_mode();
+
+        // Trim leading/trailing hyphens
+        let trimmed = result.trim_matches('-').to_string();
+
+        match validate_branch_name(&trimmed) {
+            Ok(()) => return Ok(trimmed),
+            Err(e) => {
+                let _ = execute!(
+                    out,
+                    style::PrintStyledContent(format!("  {e}").red()),
+                    cursor::MoveToNextLine(1),
+                );
+                // Loop to re-prompt
             }
-            Ok(())
-        })
-        .interact_text()
-        .map_err(|e| format!("Input error: {e}"))?;
-    Ok(name)
+        }
+    }
 }
 
 pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Action, String> {
