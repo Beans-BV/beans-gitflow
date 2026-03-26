@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod flows;
 pub mod git;
 pub mod hosting;
