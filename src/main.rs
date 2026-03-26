@@ -48,9 +48,13 @@ fn run(command: Option<Commands>) -> Result<(), String> {
 
     let branch_type = BranchType::parse(&branch_name);
 
-    if branch_type != BranchType::Other && !git.is_working_tree_clean()? {
-        return Err("Working tree is not clean. Commit or stash your changes first.".to_string());
-    }
+    let stashed = if branch_type != BranchType::Other && !git.is_working_tree_clean()? {
+        println!("Stashing uncommitted changes...");
+        git.stash_push()?;
+        true
+    } else {
+        false
+    };
 
     // Pull latest changes into current branch
     git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
@@ -59,6 +63,12 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         None => menu::show_menu(&branch_type, &branch_name)?,
         Some(cmd) => resolve_action(cmd, &branch_type)?,
     };
+
+    if stashed && !action.is_start() {
+        println!("Restoring uncommitted changes...");
+        git.stash_pop()?;
+        return Err("Working tree is not clean. Commit or stash your changes first.".to_string());
+    }
 
     match action {
         Action::StartWorkBranch { prefix, name, from } => {
@@ -112,6 +122,11 @@ fn run(command: Option<Commands>) -> Result<(), String> {
             };
             finish_hotfix::finish_hotfix(&git, major, minor, patch)?;
         }
+    }
+
+    if stashed {
+        println!("Restoring uncommitted changes...");
+        git.stash_pop()?;
     }
 
     Ok(())
