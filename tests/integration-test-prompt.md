@@ -13,10 +13,10 @@
 
 bflow uses interactive terminal menus. Here's how to interact:
 
-- **Select menus**: Items are numbered 1-9. Press a number key to instantly select that option (no Enter needed), or use arrow keys (↓/↑) to navigate and Enter to confirm. Default is always the first item (index 0).
+- **Select menus**: Items are numbered 1-9. Press a number key to instantly select that option (no Enter needed), or use arrow keys (↓/↑) to navigate and Enter to confirm. Default is always the first item (key 1).
 - **Text input**: Type the name, press Enter. Spaces are automatically converted to hyphens as you type.
 - **Auto-dispatch**: On release-fix and hotfix-fix branches, bflow auto-executes the finish action with no menu — just run `bflow` and it goes.
-- **Work branches**: On work branches (feature/fix/chore/docs/refactor), bflow shows a menu with finish as default (index 0) plus start options. Pressing Enter or 1 finishes the branch. A PR target selection prompt follows.
+- **Work branches**: On work branches (feature/fix/chore/docs/refactor), bflow shows a menu with finish as default (key 1) plus start options. Pressing Enter or 1 finishes the branch. A PR target selection prompt follows.
 
 ### Menu key reference
 
