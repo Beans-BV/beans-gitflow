@@ -172,6 +172,12 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
                     let idx = digit as usize;
                     if idx >= 1 && idx <= items.len() && idx <= 9 {
                         selected = idx - 1;
+                        // Re-render to show selection highlighted before returning
+                        if items.len() > 1 {
+                            let _ = execute!(out, cursor::MoveUp((items.len() - 1) as u16));
+                        }
+                        let _ = execute!(out, cursor::MoveToColumn(0));
+                        let _ = render_menu(&mut out, items, selected);
                         break selected;
                     }
                 }
@@ -200,7 +206,7 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
     };
 
     // Cleanup: show cursor, disable raw mode, move past menu
-    let _ = execute!(out, cursor::Show, cursor::MoveToNextLine(1));
+    let _ = execute!(out, cursor::Show, style::Print("\r\n"));
     let _ = terminal::disable_raw_mode();
 
     Ok(result)
