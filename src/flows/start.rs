@@ -25,13 +25,31 @@ pub fn start_release(git: &dyn Git) -> Result<(), String> {
     Ok(())
 }
 
-pub fn start_release_fix(git: &dyn Git, name: &str) -> Result<(), String> {
-    let current = git.current_branch()?;
-    let version = current.strip_prefix("release/")
-        .ok_or("Not on a release branch")?;
+pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<(), String> {
+    let release_branch = if no_checkout {
+        let branches = git.list_branches_matching("release/*")?;
+        let release_branches: Vec<&String> = branches.iter()
+            .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
+            .collect();
+        release_branches.first()
+            .ok_or("No release branch found. Create one with 'bflow start release' first.")?
+            .to_string()
+    } else {
+        let current = git.current_branch()?;
+        if current.strip_prefix("release/").is_none() {
+            return Err("Not on a release branch".to_string());
+        }
+        current
+    };
+
+    let version = release_branch.strip_prefix("release/").unwrap();
     let branch = format!("release-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    git.create_branch(&branch, &current)?;
+    if no_checkout {
+        git.create_branch_no_checkout(&branch, &release_branch)?;
+    } else {
+        git.create_branch(&branch, &release_branch)?;
+    }
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
     Ok(())

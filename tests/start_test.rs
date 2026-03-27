@@ -81,7 +81,7 @@ fn start_release_fix_creates_and_pushes() {
     let mut git = MockGit::new();
     git.current_branch = "release/1.2".to_string();
 
-    start_release_fix(&git, "broken-login").unwrap();
+    start_release_fix(&git, "broken-login", false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
@@ -133,4 +133,28 @@ fn start_work_branch_no_checkout_creates_without_switching() {
         "create_branch_no_checkout:feature/login-page:develop",
         "push:feature/login-page",
     ]);
+}
+
+#[test]
+fn start_release_fix_no_checkout_discovers_release_branch() {
+    let mut git = MockGit::new();
+    git.current_branch = "develop".to_string();
+    git.branches_matching = vec!["release/1.2".to_string()];
+
+    start_release_fix(&git, "broken-login", true).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "create_branch_no_checkout:release-fix/1.2/broken-login:release/1.2",
+        "push:release-fix/1.2/broken-login",
+    ]);
+}
+
+#[test]
+fn start_release_fix_no_checkout_errors_when_no_release_branch() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+
+    let result = start_release_fix(&git, "broken-login", true);
+    assert!(result.is_err());
 }

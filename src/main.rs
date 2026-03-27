@@ -96,8 +96,8 @@ fn run_flow(
         Action::StartRelease => {
             start::start_release(git)?;
         }
-        Action::StartReleaseFix { name, .. } => {
-            start::start_release_fix(git, &name)?;
+        Action::StartReleaseFix { name, no_checkout } => {
+            start::start_release_fix(git, &name, no_checkout)?;
         }
         Action::StartHotfixFix { name, .. } => {
             start::start_hotfix_fix(git, &name)?;
