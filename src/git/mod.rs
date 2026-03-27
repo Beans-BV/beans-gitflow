@@ -9,6 +9,7 @@ pub trait Git {
     fn fetch(&self) -> Result<()>;
     fn checkout(&self, branch: &str) -> Result<()>;
     fn create_branch(&self, branch: &str, from: &str) -> Result<()>;
+    fn create_branch_no_checkout(&self, branch: &str, from: &str) -> Result<()>;
     fn push(&self, branch: &str) -> Result<()>;
     fn push_tag(&self, tag: &str) -> Result<()>;
     fn create_tag(&self, tag: &str, message: &str) -> Result<()>;
@@ -48,6 +49,7 @@ impl Git for GitCli {
     fn fetch(&self) -> Result<()> { self.run(&["fetch", "--all", "--prune"]).map(|_| ()) }
     fn checkout(&self, branch: &str) -> Result<()> { self.run(&["checkout", branch]).map(|_| ()) }
     fn create_branch(&self, branch: &str, from: &str) -> Result<()> { self.run(&["checkout", "-b", branch, from]).map(|_| ()) }
+    fn create_branch_no_checkout(&self, branch: &str, from: &str) -> Result<()> { self.run(&["branch", branch, from]).map(|_| ()) }
     fn push(&self, branch: &str) -> Result<()> { self.run(&["push", "-u", "origin", branch]).map(|_| ()) }
     fn push_tag(&self, tag: &str) -> Result<()> { self.run(&["push", "origin", tag]).map(|_| ()) }
     fn create_tag(&self, tag: &str, message: &str) -> Result<()> { self.run(&["tag", "-a", tag, "-m", message]).map(|_| ()) }

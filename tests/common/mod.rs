@@ -53,6 +53,11 @@ impl Git for MockGit {
         Ok(())
     }
 
+    fn create_branch_no_checkout(&self, branch: &str, from: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("create_branch_no_checkout:{branch}:{from}"));
+        Ok(())
+    }
+
     fn push(&self, branch: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("push:{branch}"));
         Ok(())
