@@ -48,7 +48,14 @@ fn run(command: Option<Commands>) -> Result<(), String> {
 
     let branch_type = BranchType::parse(&branch_name);
 
-    let stashed = if branch_type != BranchType::Other && !git.is_working_tree_clean()? {
+    let action = match command {
+        None => menu::show_menu(&branch_type, &branch_name)?,
+        Some(cmd) => resolve_action(cmd, &branch_type)?,
+    };
+
+    let no_checkout = action.no_checkout();
+
+    let stashed = if !no_checkout && branch_type != BranchType::Other && !git.is_working_tree_clean()? {
         println!("Stashing uncommitted changes...");
         git.stash_push()?;
         true
@@ -56,7 +63,7 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         false
     };
 
-    let result = run_flow(&git, &hosting, &branch_type, &branch_name, command, stashed);
+    let result = run_flow(&git, &hosting, &branch_type, &branch_name, action, stashed, no_checkout);
 
     if stashed {
         println!("Restoring uncommitted changes...");
@@ -74,16 +81,13 @@ fn run_flow(
     hosting: &GitHub,
     branch_type: &BranchType,
     branch_name: &str,
-    command: Option<Commands>,
+    action: Action,
     stashed: bool,
+    no_checkout: bool,
 ) -> Result<(), String> {
-    // Pull latest changes into current branch
-    git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
-
-    let action = match command {
-        None => menu::show_menu(branch_type, branch_name)?,
-        Some(cmd) => resolve_action(cmd, branch_type)?,
-    };
+    if !no_checkout {
+        git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
+    }
 
     if stashed && !action.is_start() {
         return Err("Working tree is not clean. Commit your changes before finishing.".to_string());
