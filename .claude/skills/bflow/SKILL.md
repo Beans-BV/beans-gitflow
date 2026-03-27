@@ -92,4 +92,4 @@ bflow start feature --name login --base feature/auth
 bflow runs preflight checks automatically:
 - `git` and `gh` must be installed
 - `gh auth login` must be completed
-- Working tree must be clean (commit or stash first)
+- Uncommitted changes are auto-stashed and restored after the operation
