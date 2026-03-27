@@ -247,3 +247,25 @@ fn start_hotfix_fix_with_no_checkout_flag() {
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::StartHotfixFix { no_checkout: true, .. }));
 }
+
+#[test]
+fn start_release_fix_no_checkout_skips_branch_check() {
+    let cmd = Commands::Start { kind: StartKind::ReleaseFix {
+        name: "broken-login".to_string(),
+        opts: StartOptions { no_checkout: true },
+    }};
+    let branch_type = BranchType::Develop;
+    let action = resolve_action(cmd, &branch_type).unwrap();
+    assert!(matches!(action, Action::StartReleaseFix { no_checkout: true, .. }));
+}
+
+#[test]
+fn start_hotfix_fix_no_checkout_skips_branch_check() {
+    let cmd = Commands::Start { kind: StartKind::HotfixFix {
+        name: "urgent".to_string(),
+        opts: StartOptions { no_checkout: true },
+    }};
+    let branch_type = BranchType::Develop;
+    let action = resolve_action(cmd, &branch_type).unwrap();
+    assert!(matches!(action, Action::StartHotfixFix { no_checkout: true, .. }));
+}

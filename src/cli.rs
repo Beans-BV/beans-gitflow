@@ -112,12 +112,14 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             StartKind::Release => Ok(Action::StartRelease),
             StartKind::ReleaseFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
-                require_release_branch(branch_type)?;
+                if !opts.no_checkout {
+                    require_release_branch(branch_type)?;
+                }
                 Ok(Action::StartReleaseFix { name, no_checkout: opts.no_checkout })
             }
             StartKind::HotfixFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
-                if !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. }) {
+                if !opts.no_checkout && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. }) {
                     return Err("This command is only valid on a main or hotfix branch.".to_string());
                 }
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout })
