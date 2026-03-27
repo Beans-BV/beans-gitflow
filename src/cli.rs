@@ -1,4 +1,4 @@
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 use crate::git::branch::BranchType;
 use crate::menu::{self, Action};
 
@@ -17,6 +17,13 @@ pub enum Commands {
     Sync,
 }
 
+#[derive(Args, Debug, Clone)]
+pub struct StartOptions {
+    /// Create and push the branch without checking it out
+    #[arg(long)]
+    pub no_checkout: bool,
+}
+
 #[derive(Subcommand)]
 pub enum StartKind {
     /// Start a new feature branch
@@ -25,6 +32,8 @@ pub enum StartKind {
         name: String,
         #[arg(long, default_value = "develop")]
         base: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
     /// Start a new fix branch
     Fix {
@@ -32,6 +41,8 @@ pub enum StartKind {
         name: String,
         #[arg(long, default_value = "develop")]
         base: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
     /// Start a new chore branch
     Chore {
@@ -39,6 +50,8 @@ pub enum StartKind {
         name: String,
         #[arg(long, default_value = "develop")]
         base: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
     /// Start a new docs branch
     Docs {
@@ -46,6 +59,8 @@ pub enum StartKind {
         name: String,
         #[arg(long, default_value = "develop")]
         base: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
     /// Start a new refactor branch
     Refactor {
@@ -53,6 +68,8 @@ pub enum StartKind {
         name: String,
         #[arg(long, default_value = "develop")]
         base: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
     /// Start a new release branch (or resume existing)
     Release,
@@ -60,17 +77,21 @@ pub enum StartKind {
     ReleaseFix {
         #[arg(long)]
         name: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
     /// Start a hotfix fix branch (must be on main or hotfix branch)
     HotfixFix {
         #[arg(long)]
         name: String,
+        #[command(flatten)]
+        opts: StartOptions,
     },
 }
 
-fn start_work_branch(prefix: &str, name: String, base: String) -> Result<Action, String> {
+fn start_work_branch(prefix: &str, name: String, base: String, no_checkout: bool) -> Result<Action, String> {
     menu::validate_branch_name(&name)?;
-    Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base })
+    Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base, no_checkout })
 }
 
 fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
@@ -83,23 +104,23 @@ fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
 pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Action, String> {
     match command {
         Commands::Start { kind } => match kind {
-            StartKind::Feature { name, base } => start_work_branch("feature", name, base),
-            StartKind::Fix { name, base } => start_work_branch("fix", name, base),
-            StartKind::Chore { name, base } => start_work_branch("chore", name, base),
-            StartKind::Docs { name, base } => start_work_branch("docs", name, base),
-            StartKind::Refactor { name, base } => start_work_branch("refactor", name, base),
+            StartKind::Feature { name, base, opts } => start_work_branch("feature", name, base, opts.no_checkout),
+            StartKind::Fix { name, base, opts } => start_work_branch("fix", name, base, opts.no_checkout),
+            StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout),
+            StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout),
+            StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout),
             StartKind::Release => Ok(Action::StartRelease),
-            StartKind::ReleaseFix { name } => {
+            StartKind::ReleaseFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
                 require_release_branch(branch_type)?;
-                Ok(Action::StartReleaseFix { name })
+                Ok(Action::StartReleaseFix { name, no_checkout: opts.no_checkout })
             }
-            StartKind::HotfixFix { name } => {
+            StartKind::HotfixFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
                 if !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. }) {
                     return Err("This command is only valid on a main or hotfix branch.".to_string());
                 }
-                Ok(Action::StartHotfixFix { name })
+                Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout })
             }
         },
         Commands::Finish => match branch_type {

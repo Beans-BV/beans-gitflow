@@ -301,7 +301,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let labels = &["start hotfix fix"];
             show_select("What would you like to do?", labels)?;
             let name = prompt_name("Name for hotfix-fix branch")?;
-            Ok(Action::StartHotfixFix { name })
+            Ok(Action::StartHotfixFix { name, no_checkout: false })
         }
         BranchType::Develop => {
             let labels: Vec<&str> = DevelopOption::ALL.iter().map(|o| o.label()).collect();
@@ -311,7 +311,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                 DevelopOption::StartRelease => Ok(Action::StartRelease),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string() })
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false })
                 }
             }
         }
@@ -337,7 +337,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                     let base_options: &[&str] = &[&current_label, "develop"];
                     let base_idx = show_select("Base branch", base_options)?;
                     let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from })
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false })
                 }
             }
         }
@@ -351,7 +351,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             match ReleaseOption::ALL[idx] {
                 ReleaseOption::StartReleaseFix => {
                     let name = prompt_name("Name for release-fix branch")?;
-                    Ok(Action::StartReleaseFix { name })
+                    Ok(Action::StartReleaseFix { name, no_checkout: false })
                 }
                 ReleaseOption::BumpVersion => Ok(Action::BumpVersion),
                 ReleaseOption::SyncWithDevelop => Ok(Action::SyncWithDevelop),
@@ -372,10 +372,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
-    StartWorkBranch { prefix: String, name: String, from: String },
+    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool },
     StartRelease,
-    StartReleaseFix { name: String },
-    StartHotfixFix { name: String },
+    StartReleaseFix { name: String, no_checkout: bool },
+    StartHotfixFix { name: String, no_checkout: bool },
     FinishWorkBranch,
     FinishReleaseFix,
     FinishRelease,
@@ -394,5 +394,14 @@ impl Action {
                 | Action::StartReleaseFix { .. }
                 | Action::StartHotfixFix { .. }
         )
+    }
+
+    pub fn no_checkout(&self) -> bool {
+        match self {
+            Action::StartWorkBranch { no_checkout, .. } => *no_checkout,
+            Action::StartReleaseFix { no_checkout, .. } => *no_checkout,
+            Action::StartHotfixFix { no_checkout, .. } => *no_checkout,
+            _ => false,
+        }
     }
 }

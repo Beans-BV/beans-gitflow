@@ -90,16 +90,16 @@ fn run_flow(
     }
 
     match action {
-        Action::StartWorkBranch { prefix, name, from } => {
+        Action::StartWorkBranch { prefix, name, from, .. } => {
             start::start_work_branch(git, &prefix, &name, &from)?;
         }
         Action::StartRelease => {
             start::start_release(git)?;
         }
-        Action::StartReleaseFix { name } => {
+        Action::StartReleaseFix { name, .. } => {
             start::start_release_fix(git, &name)?;
         }
-        Action::StartHotfixFix { name } => {
+        Action::StartHotfixFix { name, .. } => {
             start::start_hotfix_fix(git, &name)?;
         }
         Action::FinishWorkBranch => {
