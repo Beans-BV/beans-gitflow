@@ -25,15 +25,14 @@ Everything else branch-related → use `bflow`.
 ### Start a branch
 
 ```bash
-bflow start feature --name <name> # from develop (default)
-bflow start fix --name <name> # from develop
-bflow start chore --name <name> # from develop
-bflow start docs --name <name> # from develop
-bflow start refactor --name <name> # from develop
-bflow start feature --name <name> --base <branch> # from custom base for work branch stacking (see below)
-bflow start release # from develop, auto-versions
-bflow start release-fix --name <name> # must be on release/* branch
-bflow start hotfix-fix --name <name> # must be on main or hotfix/* branch
+bflow start feature --name <name> [--base <branch>] [--no-checkout]
+bflow start fix --name <name> [--base <branch>] [--no-checkout]
+bflow start chore --name <name> [--base <branch>] [--no-checkout]
+bflow start docs --name <name> [--base <branch>] [--no-checkout]
+bflow start refactor --name <name> [--base <branch>] [--no-checkout]
+bflow start release # from develop, auto-versions (no --no-checkout)
+bflow start release-fix --name <name> [--no-checkout]
+bflow start hotfix-fix --name <name> [--no-checkout]
 ```
 
 ### Finish current branch
@@ -66,6 +65,12 @@ bflow start feature --name login --base feature/auth
 ```
 
 `--base` is **not available** for `release`, `release-fix`, or `hotfix-fix` — those have fixed base branches.
+
+### When to use `--no-checkout`
+
+Creates and pushes the branch without switching to it. Designed for git worktree workflows where the branch will be opened in a separate worktree. With `--no-checkout`: stash/merge of current branch is skipped, and branch-type validation is relaxed for `release-fix` and `hotfix-fix` (the target branch is discovered automatically).
+
+Not available for `start release`.
 
 ## Branch Model Quick Reference
 
