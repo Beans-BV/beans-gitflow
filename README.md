@@ -168,17 +168,19 @@ All commands can be invoked directly via subcommands, bypassing the interactive 
 ### Start commands
 
 ```bash
-bflow start feature --name <name> [--base <branch>]
-bflow start fix --name <name> [--base <branch>]
-bflow start chore --name <name> [--base <branch>]
-bflow start docs --name <name> [--base <branch>]
-bflow start refactor --name <name> [--base <branch>]
+bflow start feature --name <name> [--base <branch>] [--no-checkout]
+bflow start fix --name <name> [--base <branch>] [--no-checkout]
+bflow start chore --name <name> [--base <branch>] [--no-checkout]
+bflow start docs --name <name> [--base <branch>] [--no-checkout]
+bflow start refactor --name <name> [--base <branch>] [--no-checkout]
 bflow start release
-bflow start release-fix --name <name>    # must be on a release branch
-bflow start hotfix-fix --name <name>     # must be on main or hotfix branch
+bflow start release-fix --name <name> [--no-checkout]    # must be on a release branch
+bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
+
+`--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Designed for [git worktree](https://git-scm.com/docs/git-worktree) workflows. Not available for `start release`.
 
 ### Finish
 
