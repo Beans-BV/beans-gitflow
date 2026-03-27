@@ -55,12 +55,16 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result
     Ok(())
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str) -> Result<(), String> {
-    let hotfix_branch = resolve_or_create_hotfix(git)?;
+pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<(), String> {
+    let hotfix_branch = resolve_or_create_hotfix(git, no_checkout)?;
     let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
     let branch = format!("hotfix-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    git.create_branch(&branch, &hotfix_branch)?;
+    if no_checkout {
+        git.create_branch_no_checkout(&branch, &hotfix_branch)?;
+    } else {
+        git.create_branch(&branch, &hotfix_branch)?;
+    }
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
     Ok(())
@@ -95,7 +99,7 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     Ok(branch)
 }
 
-fn resolve_or_create_hotfix(git: &dyn Git) -> Result<String, String> {
+fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, String> {
     let branches = git.list_branches_matching("hotfix/*")?;
     let hotfix_branches: Vec<&String> = branches.iter()
         .filter(|b| b.starts_with("hotfix/") && !b.starts_with("hotfix-fix/"))
@@ -103,7 +107,9 @@ fn resolve_or_create_hotfix(git: &dyn Git) -> Result<String, String> {
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");
-        git.checkout(branch)?;
+        if !no_checkout {
+            git.checkout(branch)?;
+        }
         return Ok(branch.to_string());
     }
 
@@ -112,8 +118,12 @@ fn resolve_or_create_hotfix(git: &dyn Git) -> Result<String, String> {
     let branch = next.hotfix_branch();
 
     println!("Creating hotfix branch: {branch}");
-    git.checkout("main")?;
-    git.create_branch(&branch, "main")?;
+    if no_checkout {
+        git.create_branch_no_checkout(&branch, "main")?;
+    } else {
+        git.checkout("main")?;
+        git.create_branch(&branch, "main")?;
+    }
     git.push(&branch)?;
 
     Ok(branch)

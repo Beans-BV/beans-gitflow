@@ -95,7 +95,7 @@ fn start_hotfix_fix_creates_and_pushes_existing_hotfix() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["hotfix/1.0.1".to_string()];
 
-    start_hotfix_fix(&git, "urgent-crash").unwrap();
+    start_hotfix_fix(&git, "urgent-crash", false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
@@ -111,7 +111,7 @@ fn start_hotfix_fix_creates_hotfix_branch_when_none_exists() {
     git.branches_matching = vec![];
     git.tags = vec!["1.0.0".to_string()];
 
-    start_hotfix_fix(&git, "urgent-crash").unwrap();
+    start_hotfix_fix(&git, "urgent-crash", false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
@@ -157,4 +157,36 @@ fn start_release_fix_no_checkout_errors_when_no_release_branch() {
 
     let result = start_release_fix(&git, "broken-login", true);
     assert!(result.is_err());
+}
+
+#[test]
+fn start_hotfix_fix_no_checkout_existing_hotfix() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["hotfix/1.0.1".to_string()];
+
+    start_hotfix_fix(&git, "urgent-crash", true).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*",
+        "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
+        "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
+}
+
+#[test]
+fn start_hotfix_fix_no_checkout_creates_hotfix_branch_when_none_exists() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+
+    start_hotfix_fix(&git, "urgent-crash", true).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*",
+        "list_tags",
+        "create_branch_no_checkout:hotfix/1.0.1:main",
+        "push:hotfix/1.0.1",
+        "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
+        "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
 }
