@@ -90,8 +90,8 @@ fn run_flow(
     }
 
     match action {
-        Action::StartWorkBranch { prefix, name, from, .. } => {
-            start::start_work_branch(git, &prefix, &name, &from)?;
+        Action::StartWorkBranch { prefix, name, from, no_checkout } => {
+            start::start_work_branch(git, &prefix, &name, &from, no_checkout)?;
         }
         Action::StartRelease => {
             start::start_release(git)?;

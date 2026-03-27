@@ -1,10 +1,14 @@
 use crate::git::Git;
 use crate::version::SemVer;
 
-pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str) -> Result<(), String> {
+pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     println!("Creating branch: {branch}");
-    git.create_branch(&branch, from).map_err(|e| {
+    if no_checkout {
+        git.create_branch_no_checkout(&branch, from)
+    } else {
+        git.create_branch(&branch, from)
+    }.map_err(|e| {
         if e.contains("not a commit") {
             format!("Branch '{from}' does not exist. Use --base to specify a different base branch.")
         } else {

@@ -6,7 +6,7 @@ use bflow::flows::start::{start_work_branch, start_release, start_release_fix, s
 #[test]
 fn start_work_branch_creates_and_pushes() {
     let git = MockGit::new();
-    start_work_branch(&git, "feature", "login-page", "develop").unwrap();
+    start_work_branch(&git, "feature", "login-page", "develop", false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "create_branch:feature/login-page:develop",
@@ -17,7 +17,7 @@ fn start_work_branch_creates_and_pushes() {
 #[test]
 fn start_work_branch_with_fix_prefix() {
     let git = MockGit::new();
-    start_work_branch(&git, "fix", "broken-auth", "main").unwrap();
+    start_work_branch(&git, "fix", "broken-auth", "main", false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "create_branch:fix/broken-auth:main",
@@ -121,5 +121,16 @@ fn start_hotfix_fix_creates_hotfix_branch_when_none_exists() {
         "push:hotfix/1.0.1",
         "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
         "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
+}
+
+#[test]
+fn start_work_branch_no_checkout_creates_without_switching() {
+    let git = MockGit::new();
+    start_work_branch(&git, "feature", "login-page", "develop", true).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "create_branch_no_checkout:feature/login-page:develop",
+        "push:feature/login-page",
     ]);
 }
