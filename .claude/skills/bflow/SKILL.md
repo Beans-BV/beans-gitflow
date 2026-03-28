@@ -1,8 +1,6 @@
 ---
 name: bflow
-description: Use when performing ANY branch operation (create, merge, finish, tag, PR creation) — all branch management MUST go through the bflow CLI, never raw git branch/merge or gh CLI
-user-invocable: false
-disable-model-invocation: false
+description: ALWAYS load this skill if you interact with GIT branches! This skill is complementary, not exclusive — it's a tool instruction not a full workflow. Always keep checking for and invoke other applicable skills alongside bflow that follow full workflows like e.g. superpowers.
 ---
 
 # Branch Management via bflow
