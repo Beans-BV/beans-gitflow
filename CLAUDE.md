@@ -59,3 +59,7 @@ REMEMBER to ALWAYS keep things KISS, DRY and SOLID.
 With every change you make make sure to always update the README.md and `.claude/skills/bflow/skill.md` if needed.
 
 When updating skills, keep content concise — every token matters. Be clear but not verbose.
+
+# Release Reminder
+
+After completing a feature, bugfix, or task that changed application code (`.rs`, `Cargo.toml`, or shell scripts), always ask the user if they'd like to do a release using `/release`.
