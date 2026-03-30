@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 use crossterm::{
-    cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    cursor, event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute, queue,
     style::{self, Stylize},
     terminal,
@@ -118,9 +118,11 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
     let mut out = io::stderr();
     let mut selected: usize = 0;
 
-    // Print prompt
+    // Print prompt (clear line first to avoid ghost text from previous prompts)
     execute!(
         out,
+        cursor::MoveToColumn(0),
+        terminal::Clear(terminal::ClearType::CurrentLine),
         style::PrintStyledContent("? ".green().bold()),
         style::Print(prompt),
         style::Print("\n"),
@@ -148,27 +150,31 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
             format!("Menu error: {e}")
         })?;
 
-        match ev {
-            Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
-            Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => {
+        // On Windows, crossterm emits Press + Release events; only handle Press
+        let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
+            continue;
+        };
+
+        match (code, modifiers) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
                 let _ = execute!(out, cursor::Show);
                 let _ = terminal::disable_raw_mode();
                 return Err("Aborted".to_string());
             }
-            Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+            (KeyCode::Enter, _) => {
                 break selected;
             }
-            Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
+            (KeyCode::Up, _) => {
                 if selected > 0 {
                     selected -= 1;
                 }
             }
-            Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
+            (KeyCode::Down, _) => {
                 if selected < items.len() - 1 {
                     selected += 1;
                 }
             }
-            Event::Key(KeyEvent { code: KeyCode::Char(c), modifiers: KeyModifiers::NONE, .. }) => {
+            (KeyCode::Char(c), KeyModifiers::NONE) => {
                 if let Some(digit) = c.to_digit(10) {
                     let idx = digit as usize;
                     if idx >= 1 && idx <= items.len() && idx <= 9 {
@@ -243,16 +249,20 @@ pub fn prompt_name(prompt: &str) -> Result<String, String> {
                 format!("Input error: {e}")
             })?;
 
-            match ev {
-                Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
-                Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => {
+            // On Windows, crossterm emits Press + Release events; only handle Press
+            let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
+                continue;
+            };
+
+            match (code, modifiers) {
+                (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
                     let _ = terminal::disable_raw_mode();
                     return Err("Aborted".to_string());
                 }
-                Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                (KeyCode::Enter, _) => {
                     break input.clone();
                 }
-                Event::Key(KeyEvent { code: KeyCode::Backspace, .. }) => {
+                (KeyCode::Backspace, _) => {
                     if input.pop().is_some() {
                         let _ = execute!(
                             out,
@@ -262,7 +272,7 @@ pub fn prompt_name(prompt: &str) -> Result<String, String> {
                         );
                     }
                 }
-                Event::Key(KeyEvent { code: KeyCode::Char(c), .. }) => {
+                (KeyCode::Char(c), _) => {
                     let ch = if c == ' ' { '-' } else { c };
                     // Collapse consecutive hyphens: skip if last char is already '-' and new char is '-'
                     if ch == '-' && input.ends_with('-') {
