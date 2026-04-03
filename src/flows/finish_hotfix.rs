@@ -9,7 +9,7 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
     println!("Merging into main...");
     git.checkout("main")?;
     git.pull("origin/main")?;
-    git.merge(&hotfix_branch, &format!("chore: finish hotfix {tag}"))?;
+    git.merge(&hotfix_branch, &format!("chore: merge hotfix {tag} into main"))?;
 
     println!("Tagging: {tag}");
     git.create_tag(&tag, &format!("chore: hotfix {tag}"))?;

@@ -63,7 +63,7 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     println!("Merging into main...");
     git.checkout("main")?;
     git.pull("origin/main")?;
-    git.merge(&release_branch, &format!("chore: finish release {major}.{minor}"))?;
+    git.merge(&release_branch, &format!("chore: merge release {major}.{minor} into main"))?;
     git.push("main")?;
 
     println!("Merging into develop...");
