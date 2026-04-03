@@ -78,6 +78,11 @@ impl Git for MockGit {
         Ok(())
     }
 
+    fn pull(&self, branch: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("pull:{branch}"));
+        Ok(())
+    }
+
     fn list_tags(&self) -> Result<Vec<String>, String> {
         self.calls.borrow_mut().push("list_tags".to_string());
         Ok(self.tags.clone())

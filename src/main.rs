@@ -86,7 +86,11 @@ fn run_flow(
     no_checkout: bool,
 ) -> Result<(), String> {
     if !no_checkout {
-        git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
+        if let Err(e) = git.pull(&format!("origin/{branch_name}")) {
+            if !e.contains("not something we can merge") {
+                return Err(e);
+            }
+        }
     }
 
     if stashed && !action.is_start() {

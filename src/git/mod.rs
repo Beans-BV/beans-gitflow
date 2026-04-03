@@ -14,6 +14,7 @@ pub trait Git {
     fn push_tag(&self, tag: &str) -> Result<()>;
     fn create_tag(&self, tag: &str, message: &str) -> Result<()>;
     fn merge(&self, branch: &str, message: &str) -> Result<()>;
+    fn pull(&self, branch: &str) -> Result<()>;
     fn list_tags(&self) -> Result<Vec<String>>;
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>>;
     fn is_working_tree_clean(&self) -> Result<bool>;
@@ -54,6 +55,7 @@ impl Git for GitCli {
     fn push_tag(&self, tag: &str) -> Result<()> { self.run(&["push", "origin", tag]).map(|_| ()) }
     fn create_tag(&self, tag: &str, message: &str) -> Result<()> { self.run(&["tag", "-a", tag, "-m", message]).map(|_| ()) }
     fn merge(&self, branch: &str, message: &str) -> Result<()> { self.run(&["merge", branch, "--no-ff", "-m", message]).map(|_| ()) }
+    fn pull(&self, branch: &str) -> Result<()> { self.run(&["merge", branch, "--ff-only"]).map(|_| ()) }
     fn list_tags(&self) -> Result<Vec<String>> {
         let output = self.run(&["tag", "--list"])?;
         Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
