@@ -86,7 +86,7 @@ fn run_flow(
     no_checkout: bool,
 ) -> Result<(), String> {
     if !no_checkout {
-        git.merge(&format!("origin/{branch_name}"), &format!("chore: pull latest {branch_name}"))?;
+        git.pull(&format!("origin/{branch_name}"))?;
     }
 
     if stashed && !action.is_start() {

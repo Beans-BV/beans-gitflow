@@ -11,13 +11,13 @@ fn finish_hotfix_full_sequence() {
 
     assert_eq!(git.calls(), vec![
         "checkout:main",
-        "merge:origin/main:chore: pull latest main",
+        "pull:origin/main",
         "merge:hotfix/1.0.1:chore: finish hotfix 1.0.1",
         "create_tag:1.0.1:chore: hotfix 1.0.1",
         "push:main",
         "push_tag:1.0.1",
         "checkout:develop",
-        "merge:origin/develop:chore: pull latest develop",
+        "pull:origin/develop",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into develop",
         "push:develop",
         "delete_branch_local:hotfix/1.0.1",
@@ -33,13 +33,13 @@ fn finish_hotfix_different_version() {
 
     assert_eq!(git.calls(), vec![
         "checkout:main",
-        "merge:origin/main:chore: pull latest main",
+        "pull:origin/main",
         "merge:hotfix/2.3.4:chore: finish hotfix 2.3.4",
         "create_tag:2.3.4:chore: hotfix 2.3.4",
         "push:main",
         "push_tag:2.3.4",
         "checkout:develop",
-        "merge:origin/develop:chore: pull latest develop",
+        "pull:origin/develop",
         "merge:hotfix/2.3.4:chore: merge hotfix 2.3.4 into develop",
         "push:develop",
         "delete_branch_local:hotfix/2.3.4",

@@ -27,7 +27,7 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
 
     println!("Merging {release_branch} into develop...");
     git.checkout("develop")?;
-    git.merge("origin/develop", "chore: pull latest develop")?;
+    git.pull("origin/develop")?;
     git.merge(&release_branch, &format!("chore: sync release {major}.{minor} with develop"))?;
     git.push("develop")?;
 
@@ -62,13 +62,13 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
 
     println!("Merging into main...");
     git.checkout("main")?;
-    git.merge("origin/main", "chore: pull latest main")?;
+    git.pull("origin/main")?;
     git.merge(&release_branch, &format!("chore: finish release {major}.{minor}"))?;
     git.push("main")?;
 
     println!("Merging into develop...");
     git.checkout("develop")?;
-    git.merge("origin/develop", "chore: pull latest develop")?;
+    git.pull("origin/develop")?;
     git.merge(&release_branch, &format!("chore: merge release {major}.{minor} into develop"))?;
     git.push("develop")?;
 
