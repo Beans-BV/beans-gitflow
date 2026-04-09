@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-04-09
+
+### Changed
+- Added `iconUrl`, `packageSourceUrl`, `summary`, and `releaseNotes` fields to Chocolatey nuspec for faster package review approval
+
+## [1.2.0] - 2026-04-09
+
+### Added
+- `pull` method on `Git` trait using `--ff-only` for silent fast-forward syncs
+
+### Changed
+- Remote sync ("pull latest") operations now fast-forward silently instead of creating merge commits
+- Merge commit messages use consistent format: `chore: merge <branch> into <target>` for both main and develop
+- Gracefully skip pull when remote branch does not exist (local-only branches)
+
+## [1.1.1] - 2026-04-01
+
+### Fixed
+- Windows keyboard input handling for interactive prompts
+
 ## [1.1.0] - 2026-03-30
 
 ### Added
@@ -55,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[1.2.1]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/Beans-BV/beans-gitflow/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v0.2.1...v1.0.0
 [0.2.1]: https://github.com/Beans-BV/beans-gitflow/compare/v0.2.0...v0.2.1
