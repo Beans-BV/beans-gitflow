@@ -49,10 +49,16 @@ When no version or bump level is specified:
 
 1. **Update version in `Cargo.toml`** — bump the `version` field
 2. **Update version in `packaging/chocolatey/bflow.nuspec`** — bump the `<version>` field to match
-3. **Run tests** — `cargo test --all` must pass (use `~/.cargo/bin/cargo` if `cargo` is not in PATH)
-4. **Commit** all version files: `git add Cargo.toml Cargo.lock packaging/chocolatey/bflow.nuspec && git commit -m "chore: bump version to X.Y.Z"`
-5. **Tag** with `v` prefix: `git tag vX.Y.Z`
-6. **Push** commit and tag: `git push && git push origin vX.Y.Z`
+3. **Update `CHANGELOG.md`** — follows [Keep a Changelog](https://keepachangelog.com/) format:
+   - Add a new `## [X.Y.Z] - YYYY-MM-DD` section at the top (below the header)
+   - Categorize commits since last tag into: `### Added`, `### Changed`, `### Fixed`, `### Removed` (only include sections that have entries)
+   - Write human-readable descriptions (not raw commit messages)
+   - Add a comparison link at the bottom: `[X.Y.Z]: https://github.com/Beans-BV/beans-gitflow/compare/vPREVIOUS...vX.Y.Z`
+   - Update the previous version's link if needed
+4. **Run tests** — `cargo test --all` must pass (use `~/.cargo/bin/cargo` if `cargo` is not in PATH)
+5. **Commit** all version files: `git add Cargo.toml Cargo.lock packaging/chocolatey/bflow.nuspec CHANGELOG.md && git commit -m "chore: bump version to X.Y.Z"`
+6. **Tag** with `v` prefix: `git tag vX.Y.Z`
+7. **Push** commit and tag: `git push && git push origin vX.Y.Z`
 
 ## What happens automatically
 
