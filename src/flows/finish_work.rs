@@ -72,12 +72,37 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
     Ok(candidates[idx].0.clone())
 }
 
-pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
+pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, breaking: Option<bool>) -> Result<(), String> {
     let commit_type = branch_type.commit_type().ok_or("Cannot finish: not on a work branch")?;
     let name = branch_type.name().ok_or("Cannot finish: branch has no name")?;
     let current = git.current_branch()?;
     let base = detect_parent_branch(git, &current)?;
-    push_and_create_pr(git, hosting, &base, &format!("{commit_type}: {name}"))
+
+    let bang = if can_be_breaking(commit_type) {
+        match breaking {
+            Some(b) => b,
+            None => prompt_breaking_change()?,
+        }
+    } else {
+        false
+    };
+
+    let title = if bang {
+        format!("{commit_type}!: {name}")
+    } else {
+        format!("{commit_type}: {name}")
+    };
+
+    push_and_create_pr(git, hosting, &base, &title)
+}
+
+fn can_be_breaking(commit_type: &str) -> bool {
+    matches!(commit_type, "feat" | "fix" | "refactor")
+}
+
+fn prompt_breaking_change() -> Result<bool, String> {
+    let idx = menu::show_select("Contains breaking changes?", &["no", "yes"])?;
+    Ok(idx == 1)
 }
 
 pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, major: u32, minor: u32, patch: u32, name: &str) -> Result<(), String> {
