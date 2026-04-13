@@ -37,9 +37,9 @@ fn start_release_creates_new_when_no_release_exists_with_tags() {
         "list_branches_matching:release/*",
         "list_tags",
         "checkout:develop",
-        "create_branch:release/1.1:develop",
-        "push:release/1.1",
-        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1",
+        "create_branch:release/1.1.0:develop",
+        "push:release/1.1.0",
+        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
         "push_tag:v1.1.0-rc.1",
     ]);
 }
@@ -56,9 +56,9 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
         "list_branches_matching:release/*",
         "list_tags",
         "checkout:develop",
-        "create_branch:release/0.1:develop",
-        "push:release/0.1",
-        "create_tag:v0.1.0-rc.1:chore: create release branch 0.1",
+        "create_branch:release/0.1.0:develop",
+        "push:release/0.1.0",
+        "create_tag:v0.1.0-rc.1:chore: create release branch 0.1.0",
         "push_tag:v0.1.0-rc.1",
     ]);
 }
@@ -66,27 +66,27 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
 #[test]
 fn start_release_checks_out_existing_release_branch() {
     let mut git = MockGit::new();
-    git.branches_matching = vec!["release/1.1".to_string()];
+    git.branches_matching = vec!["release/1.1.0".to_string()];
 
     start_release(&git).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
-        "checkout:release/1.1",
+        "checkout:release/1.1.0",
     ]);
 }
 
 #[test]
 fn start_release_fix_creates_and_pushes() {
     let mut git = MockGit::new();
-    git.current_branch = "release/1.2".to_string();
+    git.current_branch = "release/1.2.0".to_string();
 
     start_release_fix(&git, "broken-login", false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
-        "create_branch:release-fix/1.2/broken-login:release/1.2",
-        "push:release-fix/1.2/broken-login",
+        "create_branch:release-fix/1.2.0/broken-login:release/1.2.0",
+        "push:release-fix/1.2.0/broken-login",
     ]);
 }
 
@@ -139,14 +139,14 @@ fn start_work_branch_no_checkout_creates_without_switching() {
 fn start_release_fix_no_checkout_discovers_release_branch() {
     let mut git = MockGit::new();
     git.current_branch = "develop".to_string();
-    git.branches_matching = vec!["release/1.2".to_string()];
+    git.branches_matching = vec!["release/1.2.0".to_string()];
 
     start_release_fix(&git, "broken-login", true).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
-        "create_branch_no_checkout:release-fix/1.2/broken-login:release/1.2",
-        "push:release-fix/1.2/broken-login",
+        "create_branch_no_checkout:release-fix/1.2.0/broken-login:release/1.2.0",
+        "push:release-fix/1.2.0/broken-login",
     ]);
 }
 
@@ -203,9 +203,9 @@ fn start_release_ignores_rc_tags_when_determining_next_version() {
         "list_branches_matching:release/*",
         "list_tags",
         "checkout:develop",
-        "create_branch:release/1.1:develop",
-        "push:release/1.1",
-        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1",
+        "create_branch:release/1.1.0:develop",
+        "push:release/1.1.0",
+        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
         "push_tag:v1.1.0-rc.1",
     ]);
 }

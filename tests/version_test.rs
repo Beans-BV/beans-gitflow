@@ -115,7 +115,7 @@ fn semver_ordering_pre_release_before_release() {
 
 #[test]
 fn release_branch_name() {
-    assert_eq!(SemVer::new(2, 6, 0).release_branch(), "release/2.6");
+    assert_eq!(SemVer::new(2, 6, 0).release_branch(), "release/2.6.0");
 }
 
 #[test]

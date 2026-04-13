@@ -90,7 +90,7 @@ Not available for `start release`.
 | `chore/{name}` | develop | develop (PR) |
 | `docs/{name}` | develop | develop (PR) |
 | `refactor/{name}` | develop | develop (PR) |
-| `release/{major}.{minor}` | develop | main + develop |
+| `release/{major}.{minor}.{patch}` | develop | main + develop |
 | `release-fix/{v}/{name}` | release/{v} | release/{v} (PR) |
 | `hotfix/{major}.{minor}.{patch}` | main | main + develop |
 | `hotfix-fix/{v}/{name}` | hotfix/{v} | hotfix/{v} (PR) |

@@ -65,7 +65,7 @@ impl SemVer {
     pub fn to_release(&self) -> Self { Self::new(self.major, self.minor, self.patch) }
     pub fn is_pre_release(&self) -> bool { self.pre.is_some() }
     pub fn tag_name(&self) -> String { format!("v{self}") }
-    pub fn release_branch(&self) -> String { format!("release/{}.{}", self.major, self.minor) }
+    pub fn release_branch(&self) -> String { format!("release/{}.{}.{}", self.major, self.minor, self.patch) }
     pub fn hotfix_branch(&self) -> String { format!("hotfix/{}", self.to_release()) }
 }
 

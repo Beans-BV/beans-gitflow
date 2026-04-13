@@ -94,7 +94,7 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     git.push(&branch)?;
 
     println!("Tagging: {tag}");
-    git.create_tag(&tag, &format!("chore: create release branch {}.{}", next.major, next.minor))?;
+    git.create_tag(&tag, &format!("chore: create release branch {}.{}.0", next.major, next.minor))?;
     git.push_tag(&tag)?;
 
     Ok(branch)

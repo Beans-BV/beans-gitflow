@@ -2,7 +2,7 @@ use crate::git::Git;
 use crate::version::SemVer;
 
 pub fn bump_version(git: &dyn Git, major: u32, minor: u32) -> Result<(), String> {
-    let branch = format!("release/{major}.{minor}");
+    let branch = format!("release/{major}.{minor}.0");
     let tags = git.tags_on_branch(&branch)?;
 
     let latest = tags.iter().filter_map(|t| SemVer::parse(t))
@@ -22,13 +22,13 @@ pub fn bump_version(git: &dyn Git, major: u32, minor: u32) -> Result<(), String>
 }
 
 pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), String> {
-    let release_branch = format!("release/{major}.{minor}");
+    let release_branch = format!("release/{major}.{minor}.0");
     let current = git.current_branch()?;
 
     println!("Merging {release_branch} into develop...");
     git.checkout("develop")?;
     git.pull("origin/develop")?;
-    git.merge(&release_branch, &format!("chore: sync release {major}.{minor} with develop"))?;
+    git.merge(&release_branch, &format!("chore: sync release {major}.{minor}.0 with develop"))?;
     git.push("develop")?;
 
     git.checkout(&current)?;
@@ -38,7 +38,7 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
 }
 
 pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), String> {
-    let release_branch = format!("release/{major}.{minor}");
+    let release_branch = format!("release/{major}.{minor}.0");
 
     let tags = git.tags_on_branch(&release_branch)?;
     let latest_rc = tags.iter().filter_map(|t| SemVer::parse(t))
@@ -59,13 +59,13 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     println!("Merging into main...");
     git.checkout("main")?;
     git.pull("origin/main")?;
-    git.merge(&release_branch, &format!("chore: merge release {major}.{minor} into main"))?;
+    git.merge(&release_branch, &format!("chore: merge release {major}.{minor}.0 into main"))?;
     git.push("main")?;
 
     println!("Merging into develop...");
     git.checkout("develop")?;
     git.pull("origin/develop")?;
-    git.merge(&release_branch, &format!("chore: merge release {major}.{minor} into develop"))?;
+    git.merge(&release_branch, &format!("chore: merge release {major}.{minor}.0 into develop"))?;
     git.push("develop")?;
 
     println!("Cleaning up release branch...");

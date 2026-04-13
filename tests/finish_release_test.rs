@@ -11,7 +11,7 @@ fn bump_version_increments_rc() {
     bump_version(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/1.1",
+        "tags_on_branch:release/1.1.0",
         "create_tag:v1.1.0-rc.2:chore: bump version to v1.1.0-rc.2",
         "push_tag:v1.1.0-rc.2",
     ]);
@@ -25,7 +25,7 @@ fn bump_version_multiple_rcs() {
     bump_version(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/1.1",
+        "tags_on_branch:release/1.1.0",
         "create_tag:v1.1.0-rc.3:chore: bump version to v1.1.0-rc.3",
         "push_tag:v1.1.0-rc.3",
     ]);
@@ -44,7 +44,7 @@ fn bump_version_errors_when_no_matching_tags() {
 #[test]
 fn sync_with_develop_merges_and_returns_to_current() {
     let mut git = MockGit::new();
-    git.current_branch = "release/1.1".to_string();
+    git.current_branch = "release/1.1.0".to_string();
 
     sync_with_develop(&git, 1, 1).unwrap();
 
@@ -52,9 +52,9 @@ fn sync_with_develop_merges_and_returns_to_current() {
         "current_branch",
         "checkout:develop",
         "pull:origin/develop",
-        "merge:release/1.1:chore: sync release 1.1 with develop",
+        "merge:release/1.1.0:chore: sync release 1.1.0 with develop",
         "push:develop",
-        "checkout:release/1.1",
+        "checkout:release/1.1.0",
     ]);
 }
 
@@ -66,19 +66,19 @@ fn finish_release_creates_clean_tag_from_rc() {
     finish_release(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/1.1",
+        "tags_on_branch:release/1.1.0",
         "create_tag:v1.1.0:chore: release 1.1.0",
         "push_tag:v1.1.0",
         "checkout:main",
         "pull:origin/main",
-        "merge:release/1.1:chore: merge release 1.1 into main",
+        "merge:release/1.1.0:chore: merge release 1.1.0 into main",
         "push:main",
         "checkout:develop",
         "pull:origin/develop",
-        "merge:release/1.1:chore: merge release 1.1 into develop",
+        "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
         "push:develop",
-        "delete_branch_local:release/1.1",
-        "delete_branch_remote:release/1.1",
+        "delete_branch_local:release/1.1.0",
+        "delete_branch_remote:release/1.1.0",
     ]);
 }
 
@@ -90,18 +90,18 @@ fn finish_release_single_rc() {
     finish_release(&git, 2, 0).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/2.0",
+        "tags_on_branch:release/2.0.0",
         "create_tag:v2.0.0:chore: release 2.0.0",
         "push_tag:v2.0.0",
         "checkout:main",
         "pull:origin/main",
-        "merge:release/2.0:chore: merge release 2.0 into main",
+        "merge:release/2.0.0:chore: merge release 2.0.0 into main",
         "push:main",
         "checkout:develop",
         "pull:origin/develop",
-        "merge:release/2.0:chore: merge release 2.0 into develop",
+        "merge:release/2.0.0:chore: merge release 2.0.0 into develop",
         "push:develop",
-        "delete_branch_local:release/2.0",
-        "delete_branch_remote:release/2.0",
+        "delete_branch_local:release/2.0.0",
+        "delete_branch_remote:release/2.0.0",
     ]);
 }
