@@ -4,30 +4,30 @@ use common::MockGit;
 use bflow::flows::finish_release::{bump_version, sync_with_develop, finish_release};
 
 #[test]
-fn bump_version_finds_latest_and_bumps_patch() {
+fn bump_version_increments_rc() {
     let mut git = MockGit::new();
-    git.tags_on_branch = vec!["1.1.0".to_string(), "1.1.1".to_string()];
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
 
     bump_version(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1",
-        "create_tag:1.1.2:chore: bump version to 1.1.2",
-        "push_tag:1.1.2",
+        "create_tag:v1.1.0-rc.2:chore: bump version to v1.1.0-rc.2",
+        "push_tag:v1.1.0-rc.2",
     ]);
 }
 
 #[test]
-fn bump_version_single_tag() {
+fn bump_version_multiple_rcs() {
     let mut git = MockGit::new();
-    git.tags_on_branch = vec!["2.0.0".to_string()];
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    bump_version(&git, 2, 0).unwrap();
+    bump_version(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/2.0",
-        "create_tag:2.0.1:chore: bump version to 2.0.1",
-        "push_tag:2.0.1",
+        "tags_on_branch:release/1.1",
+        "create_tag:v1.1.0-rc.3:chore: bump version to v1.1.0-rc.3",
+        "push_tag:v1.1.0-rc.3",
     ]);
 }
 
@@ -59,16 +59,16 @@ fn sync_with_develop_merges_and_returns_to_current() {
 }
 
 #[test]
-fn finish_release_no_commits_since_last_tag() {
+fn finish_release_creates_clean_tag_from_rc() {
     let mut git = MockGit::new();
-    git.tags_on_branch = vec!["1.1.0".to_string(), "1.1.1".to_string()];
-    git.rev_list_count_result = 0; // no commits since last tag
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
     finish_release(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1",
-        "rev_list_count:1.1.1:release/1.1",
+        "create_tag:v1.1.0:chore: release 1.1.0",
+        "push_tag:v1.1.0",
         "checkout:main",
         "pull:origin/main",
         "merge:release/1.1:chore: merge release 1.1 into main",
@@ -83,27 +83,25 @@ fn finish_release_no_commits_since_last_tag() {
 }
 
 #[test]
-fn finish_release_with_commits_since_last_tag_auto_bumps() {
+fn finish_release_single_rc() {
     let mut git = MockGit::new();
-    git.tags_on_branch = vec!["1.1.0".to_string()];
-    git.rev_list_count_result = 3; // commits since last tag
+    git.tags_on_branch = vec!["v2.0.0-rc.1".to_string()];
 
-    finish_release(&git, 1, 1).unwrap();
+    finish_release(&git, 2, 0).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/1.1",
-        "rev_list_count:1.1.0:release/1.1",
-        "create_tag:1.1.1:chore: bump version to 1.1.1",
-        "push_tag:1.1.1",
+        "tags_on_branch:release/2.0",
+        "create_tag:v2.0.0:chore: release 2.0.0",
+        "push_tag:v2.0.0",
         "checkout:main",
         "pull:origin/main",
-        "merge:release/1.1:chore: merge release 1.1 into main",
+        "merge:release/2.0:chore: merge release 2.0 into main",
         "push:main",
         "checkout:develop",
         "pull:origin/develop",
-        "merge:release/1.1:chore: merge release 1.1 into develop",
+        "merge:release/2.0:chore: merge release 2.0 into develop",
         "push:develop",
-        "delete_branch_local:release/1.1",
-        "delete_branch_remote:release/1.1",
+        "delete_branch_local:release/2.0",
+        "delete_branch_remote:release/2.0",
     ]);
 }

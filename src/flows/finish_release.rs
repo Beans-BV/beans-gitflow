@@ -10,8 +10,8 @@ pub fn bump_version(git: &dyn Git, major: u32, minor: u32) -> Result<(), String>
         .max()
         .ok_or_else(|| format!("No tags found on branch {branch}"))?;
 
-    let next = latest.bump_patch();
-    let tag = next.to_string();
+    let next = latest.bump_rc();
+    let tag = next.tag_name();
 
     println!("Bumping version: {latest} → {next}");
     git.create_tag(&tag, &format!("chore: bump version to {tag}"))?;
@@ -41,24 +41,20 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     let release_branch = format!("release/{major}.{minor}");
 
     let tags = git.tags_on_branch(&release_branch)?;
-    let latest_tag = tags.iter().filter_map(|t| SemVer::parse(t))
+    let latest_rc = tags.iter().filter_map(|t| SemVer::parse(t))
         .filter(|v| v.major == major && v.minor == minor)
         .max()
         .ok_or_else(|| "No version tag found on this release branch. Run 'bump version' first.".to_string())?;
 
-    // Auto-bump if there are commits since the latest tag
-    let commits_since_tag = git.rev_list_count(&latest_tag.to_string(), &release_branch)?;
-    let latest_tag = if commits_since_tag > 0 {
-        let next = latest_tag.bump_patch();
-        println!("Commits found since {latest_tag}, bumping to {next}...");
-        git.create_tag(&next.to_string(), &format!("chore: bump version to {next}"))?;
-        git.push_tag(&next.to_string())?;
-        next
-    } else {
-        latest_tag
-    };
+    // Create clean release tag
+    let release_version = latest_rc.to_release();
+    let tag = release_version.tag_name();
 
-    println!("Finishing release {release_branch} (tag: {latest_tag})...");
+    println!("Creating release tag: {tag}");
+    git.create_tag(&tag, &format!("chore: release {release_version}"))?;
+    git.push_tag(&tag)?;
+
+    println!("Finishing release {release_branch} (tag: {tag})...");
 
     println!("Merging into main...");
     git.checkout("main")?;
@@ -76,6 +72,6 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     git.delete_branch_local(&release_branch)?;
     git.delete_branch_remote(&release_branch)?;
 
-    println!("Release {latest_tag} complete.");
+    println!("Release {release_version} complete.");
     Ok(())
 }
