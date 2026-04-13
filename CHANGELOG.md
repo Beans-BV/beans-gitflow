@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **BREAKING:** Tags now use `v` prefix (e.g., `v1.2.0` instead of `1.2.0`)
+- **BREAKING:** Release start creates RC tags (`v1.2.0-rc.1`) instead of clean tags
+- **BREAKING:** `bflow bump` increments RC number (`v1.2.0-rc.2`) instead of patch version
+- Release finish creates clean production tag (`v1.2.0`) from latest RC
+- SemVer parsing supports pre-release identifiers (`-rc.N`)
+
+### Added
+- CI Integration guide in README with GitHub Actions examples for staging and production
+- Mobile app (Flutter) CI guidance with version extraction and build number patterns
+
 ## [1.2.1] - 2026-04-09
 
 ### Changed

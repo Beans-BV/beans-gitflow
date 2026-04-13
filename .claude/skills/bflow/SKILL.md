@@ -47,9 +47,20 @@ bflow finish # infers action from current branch type
 ### Release-only commands
 
 ```bash
-bflow bump # bump patch version and retag (on release/* only)
+bflow bump # create next RC tag (on release/* only)
 bflow sync # merge release into develop (on release/* only)
 ```
+
+### Tag Strategy
+
+bflow uses SemVer pre-release tags for CI integration:
+
+- **Release start** → `v{X}.{Y}.0-rc.1` (RC tag — triggers staging deploy)
+- **Bump version** → `v{X}.{Y}.0-rc.{N+1}` (next RC — triggers staging deploy)
+- **Finish release** → `v{X}.{Y}.0` (clean tag — triggers production deploy)
+- **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag — triggers production deploy)
+
+All tags use the `v` prefix. CI systems filter on `v*-rc.*` for staging and clean `v*` (no hyphen) for production.
 
 ### When to use `--base`
 
