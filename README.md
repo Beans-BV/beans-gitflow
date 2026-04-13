@@ -240,6 +240,8 @@ sequenceDiagram
 
 #### Release commands
 
+When starting a release, bflow scans commits since the last release for breaking changes ([Conventional Commits](https://www.conventionalcommits.org/) `!` in title or `BREAKING CHANGE` in body) and preselects major or minor accordingly.
+
 | Command | What it does |
 |---------|-------------|
 | **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) |

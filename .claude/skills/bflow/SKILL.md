@@ -28,7 +28,7 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout]
 bflow start chore --name <name> [--base <branch>] [--no-checkout]
 bflow start docs --name <name> [--base <branch>] [--no-checkout]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout]
-bflow start release # from develop, auto-versions (no --no-checkout)
+bflow start release # from develop, prompts major/minor (preselects based on breaking changes)
 bflow start release-fix --name <name> [--no-checkout]
 bflow start hotfix-fix --name <name> [--no-checkout]
 ```
