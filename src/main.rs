@@ -110,8 +110,8 @@ fn run_flow(
         Action::StartHotfixFix { name, no_checkout } => {
             start::start_hotfix_fix(git, &name, no_checkout)?;
         }
-        Action::FinishWorkBranch => {
-            finish_work::finish_work_branch(git, hosting, branch_type, None)?;
+        Action::FinishWorkBranch { breaking } => {
+            finish_work::finish_work_branch(git, hosting, branch_type, breaking)?;
         }
         Action::FinishReleaseFix => {
             let BranchType::ReleaseFix { major, minor, patch, name, .. } = branch_type else {

@@ -340,7 +340,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let idx = show_select("What would you like to do?", &label_refs)?;
             let option = WorkBranchOption::ALL[idx];
             match option {
-                WorkBranchOption::Finish => Ok(Action::FinishWorkBranch),
+                WorkBranchOption::Finish => Ok(Action::FinishWorkBranch { breaking: None }),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
                     let current_label = format!("{current_branch} (current)");
@@ -386,7 +386,7 @@ pub enum Action {
     StartRelease,
     StartReleaseFix { name: String, no_checkout: bool },
     StartHotfixFix { name: String, no_checkout: bool },
-    FinishWorkBranch,
+    FinishWorkBranch { breaking: Option<bool> },
     FinishReleaseFix,
     FinishRelease,
     FinishHotfix,

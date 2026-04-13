@@ -36,10 +36,10 @@ bflow start hotfix-fix --name <name> [--no-checkout]
 ### Finish current branch
 
 ```bash
-bflow finish # infers action from current branch type
+bflow finish [--breaking] # infers action from current branch type
 ```
 
-- **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`)
+- **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`). Use `--breaking` flag in non-interactive mode to skip the prompt.
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch
 - **Release** → merges to main + develop, tags, cleans up
 - **Hotfix** → merges to main + develop, tags, cleans up
