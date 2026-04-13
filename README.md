@@ -242,9 +242,9 @@ sequenceDiagram
 
 | Command | What it does |
 |---------|-------------|
-| **bump version** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) |
-| **sync with develop** | Merges release changes into `develop` for fixes needed immediately |
-| **finish release** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch |
+| **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) |
+| **bflow sync** | Merges release changes into `develop` for fixes needed immediately |
+| **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch |
 
 ### Hotfix
 

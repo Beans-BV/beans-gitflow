@@ -135,16 +135,12 @@ fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
     let all: Vec<SemVer> = tags.iter().filter_map(|t| SemVer::parse(t)).collect();
 
     // Prefer clean release tags
-    let mut clean: Vec<&SemVer> = all.iter().filter(|v| !v.is_pre_release()).collect();
-    clean.sort();
-    if let Some(v) = clean.last() {
-        return Ok((*v).clone());
+    if let Some(v) = all.iter().filter(|v| !v.is_pre_release()).max() {
+        return Ok(v.clone());
     }
 
     // Fall back to highest RC tag (stripped to release) if no clean tags exist
-    let mut rcs: Vec<&SemVer> = all.iter().filter(|v| v.is_rc()).collect();
-    rcs.sort();
-    if let Some(v) = rcs.last() {
+    if let Some(v) = all.iter().filter(|v| v.is_rc()).max() {
         return Ok(v.to_release());
     }
 
