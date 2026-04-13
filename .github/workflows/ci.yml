@@ -20,7 +20,7 @@ jobs:
       - run: cargo build --release
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: test
     permissions:
       contents: write
@@ -59,7 +59,7 @@ jobs:
           path: ${{ matrix.artifact }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
   create-release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: release
     runs-on: ubuntu-latest
     permissions:
@@ -78,7 +78,7 @@ jobs:
             artifacts/bflow-windows-x86_64/bflow-windows-x86_64.exe
 
   update-homebrew:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: create-release
     runs-on: ubuntu-latest
     steps:
@@ -140,7 +140,7 @@ jobs:
           }
 
   publish-chocolatey:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: create-release
     runs-on: windows-latest
     steps:

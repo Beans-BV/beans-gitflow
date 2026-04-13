@@ -85,7 +85,8 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     let latest = find_latest_tag(git)?;
     let next = latest.bump_minor();
     let branch = next.release_branch();
-    let tag = format!("{}.{}.0", next.major, next.minor);
+    let rc = next.with_rc(1);
+    let tag = rc.tag_name();
 
     println!("Creating release branch: {branch}");
     git.checkout("develop")?;
@@ -93,7 +94,7 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     git.push(&branch)?;
 
     println!("Tagging: {tag}");
-    git.create_tag(&tag, &format!("chore: create release branch {}.{}", next.major, next.minor))?;
+    git.create_tag(&tag, &format!("chore: create release branch {}.{}.0", next.major, next.minor))?;
     git.push_tag(&tag)?;
 
     Ok(branch)
@@ -131,7 +132,17 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, 
 
 fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
     let tags = git.list_tags()?;
-    let mut versions: Vec<SemVer> = tags.iter().filter_map(|t| SemVer::parse(t)).collect();
-    versions.sort();
-    Ok(versions.last().cloned().unwrap_or(SemVer { major: 0, minor: 0, patch: 0 }))
+    let all: Vec<SemVer> = tags.iter().filter_map(|t| SemVer::parse(t)).collect();
+
+    // Prefer clean release tags
+    if let Some(v) = all.iter().filter(|v| !v.is_pre_release()).max() {
+        return Ok(v.clone());
+    }
+
+    // Fall back to highest RC tag (stripped to release) if no clean tags exist
+    if let Some(v) = all.iter().filter(|v| v.is_rc()).max() {
+        return Ok(v.to_release());
+    }
+
+    Ok(SemVer::new(0, 0, 0))
 }

@@ -114,10 +114,10 @@ fn run_flow(
             finish_work::finish_work_branch(git, hosting, branch_type)?;
         }
         Action::FinishReleaseFix => {
-            let BranchType::ReleaseFix { major, minor, name, .. } = branch_type else {
+            let BranchType::ReleaseFix { major, minor, patch, name, .. } = branch_type else {
                 unreachable!("FinishReleaseFix action only from ReleaseFix branch");
             };
-            finish_work::finish_release_fix(git, hosting, *major, *minor, name)?;
+            finish_work::finish_release_fix(git, hosting, *major, *minor, *patch, name)?;
         }
         Action::FinishHotfixFix => {
             let BranchType::HotfixFix { major, minor, patch, name, .. } = branch_type else {
@@ -126,19 +126,19 @@ fn run_flow(
             finish_work::finish_hotfix_fix(git, hosting, *major, *minor, *patch, name)?;
         }
         Action::BumpVersion => {
-            let BranchType::Release { major, minor } = branch_type else {
+            let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("BumpVersion action only from Release branch");
             };
             finish_release::bump_version(git, *major, *minor)?;
         }
         Action::SyncWithDevelop => {
-            let BranchType::Release { major, minor } = branch_type else {
+            let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("SyncWithDevelop action only from Release branch");
             };
             finish_release::sync_with_develop(git, *major, *minor)?;
         }
         Action::FinishRelease => {
-            let BranchType::Release { major, minor } = branch_type else {
+            let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("FinishRelease action only from Release branch");
             };
             finish_release::finish_release(git, *major, *minor)?;

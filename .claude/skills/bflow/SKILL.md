@@ -47,9 +47,20 @@ bflow finish # infers action from current branch type
 ### Release-only commands
 
 ```bash
-bflow bump # bump patch version and retag (on release/* only)
+bflow bump # create next RC tag (on release/* only)
 bflow sync # merge release into develop (on release/* only)
 ```
+
+### Tag Strategy
+
+bflow uses SemVer pre-release tags for CI integration:
+
+- **Release start** → `v{X}.{Y}.0-rc.1` (RC tag — triggers staging deploy)
+- **Bump version** → `v{X}.{Y}.0-rc.{N+1}` (next RC — triggers staging deploy)
+- **Finish release** → `v{X}.{Y}.0` (clean tag — triggers production deploy)
+- **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag — triggers production deploy)
+
+All tags use the `v` prefix. CI systems filter on `v*-rc.*` for staging and clean `v*` (no hyphen) for production.
 
 ### When to use `--base`
 
@@ -79,7 +90,7 @@ Not available for `start release`.
 | `chore/{name}` | develop | develop (PR) |
 | `docs/{name}` | develop | develop (PR) |
 | `refactor/{name}` | develop | develop (PR) |
-| `release/{major}.{minor}` | develop | main + develop |
+| `release/{major}.{minor}.{patch}` | develop | main + develop |
 | `release-fix/{v}/{name}` | release/{v} | release/{v} (PR) |
 | `hotfix/{major}.{minor}.{patch}` | main | main + develop |
 | `hotfix-fix/{v}/{name}` | hotfix/{v} | hotfix/{v} (PR) |
