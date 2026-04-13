@@ -54,7 +54,7 @@ fn bump_version_errors_when_no_matching_tags() {
 
     let result = bump_version(&git, 1, 1);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("No tags found"));
+    assert!(result.unwrap_err().contains("No RC tags found"));
 }
 
 #[test]

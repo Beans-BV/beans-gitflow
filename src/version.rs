@@ -36,7 +36,9 @@ impl SemVer {
                 if pre_parts.len() != 2 { return None; }
                 let label = pre_parts[0];
                 if label.is_empty() { return None; }
-                let number = pre_parts[1].parse().ok()?;
+                let num_str = pre_parts[1];
+                if num_str.len() > 1 && num_str.starts_with('0') { return None; }
+                let number = num_str.parse().ok()?;
                 Some(PreRelease { label: label.to_string(), number })
             }
             None => None,

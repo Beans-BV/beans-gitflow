@@ -132,10 +132,21 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, 
 
 fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
     let tags = git.list_tags()?;
-    let mut versions: Vec<SemVer> = tags.iter()
-        .filter_map(|t| SemVer::parse(t))
-        .filter(|v| !v.is_pre_release())
-        .collect();
-    versions.sort();
-    Ok(versions.last().cloned().unwrap_or(SemVer::new(0, 0, 0)))
+    let all: Vec<SemVer> = tags.iter().filter_map(|t| SemVer::parse(t)).collect();
+
+    // Prefer clean release tags
+    let mut clean: Vec<&SemVer> = all.iter().filter(|v| !v.is_pre_release()).collect();
+    clean.sort();
+    if let Some(v) = clean.last() {
+        return Ok((*v).clone());
+    }
+
+    // Fall back to highest RC tag (stripped to release) if no clean tags exist
+    let mut all_sorted = all.clone();
+    all_sorted.sort();
+    if let Some(v) = all_sorted.last() {
+        return Ok(v.to_release());
+    }
+
+    Ok(SemVer::new(0, 0, 0))
 }

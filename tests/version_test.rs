@@ -34,6 +34,14 @@ fn parse_rejects_empty_pre_release_label() {
 }
 
 #[test]
+fn parse_rejects_leading_zeros_in_pre_release() {
+    assert_eq!(SemVer::parse("1.2.0-rc.01"), None);
+    assert_eq!(SemVer::parse("1.2.0-rc.00"), None);
+    // Single zero is valid
+    assert!(SemVer::parse("1.2.0-rc.0").is_some());
+}
+
+#[test]
 fn parse_rejects_pre_release_without_number() {
     assert_eq!(SemVer::parse("1.2.0-rc"), None);
 }

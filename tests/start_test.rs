@@ -192,6 +192,26 @@ fn start_hotfix_fix_no_checkout_creates_hotfix_branch_when_none_exists() {
 }
 
 #[test]
+fn start_release_falls_back_to_rc_tags_when_no_clean_tags() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
+
+    start_release(&git).unwrap();
+
+    // Should use 1.1.0 (from RC tags) as base, bump to 1.2
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "checkout:develop",
+        "create_branch:release/1.2.0:develop",
+        "push:release/1.2.0",
+        "create_tag:v1.2.0-rc.1:chore: create release branch 1.2.0",
+        "push_tag:v1.2.0-rc.1",
+    ]);
+}
+
+#[test]
 fn start_release_ignores_rc_tags_when_determining_next_version() {
     let mut git = MockGit::new();
     git.branches_matching = vec![];

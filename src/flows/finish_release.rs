@@ -7,9 +7,9 @@ pub fn bump_version(git: &dyn Git, major: u32, minor: u32) -> Result<(), String>
     let tags = git.tags_on_branch(&branch)?;
 
     let latest = tags.iter().filter_map(|t| SemVer::parse(t))
-        .filter(|v| v.major == major && v.minor == minor && v.patch == 0)
+        .filter(|v| v.major == major && v.minor == minor && v.patch == 0 && v.is_pre_release())
         .max()
-        .ok_or_else(|| format!("No tags found on branch {branch}"))?;
+        .ok_or_else(|| format!("No RC tags found on branch {branch}. Run 'bflow start release' first."))?;
 
     let next = latest.bump_rc();
     let tag = next.tag_name();
@@ -45,9 +45,9 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
 
     let tags = git.tags_on_branch(&release_branch)?;
     let latest_rc = tags.iter().filter_map(|t| SemVer::parse(t))
-        .filter(|v| v.major == major && v.minor == minor && v.patch == 0)
+        .filter(|v| v.major == major && v.minor == minor && v.patch == 0 && v.is_pre_release())
         .max()
-        .ok_or_else(|| "No version tag found on this release branch. Run 'bump version' first.".to_string())?;
+        .ok_or_else(|| "No RC tag found on this release branch. Run 'bflow bump' first.".to_string())?;
 
     let release_version = latest_rc.to_release();
     let tag = release_version.tag_name();
