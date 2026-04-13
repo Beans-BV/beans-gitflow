@@ -48,6 +48,21 @@ fn bump_version_ignores_mismatched_patch_tags() {
 }
 
 #[test]
+fn bump_version_ignores_non_rc_pre_release_tags() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-beta.5".to_string()];
+
+    bump_version(&git, 1, 1).unwrap();
+
+    // Should bump from rc.1, ignoring the beta tag
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "create_tag:v1.1.0-rc.2:chore: bump version to v1.1.0-rc.2",
+        "push_tag:v1.1.0-rc.2",
+    ]);
+}
+
+#[test]
 fn bump_version_errors_when_no_matching_tags() {
     let mut git = MockGit::new();
     git.tags_on_branch = vec![];

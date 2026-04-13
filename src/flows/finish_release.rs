@@ -7,7 +7,7 @@ pub fn bump_version(git: &dyn Git, major: u32, minor: u32) -> Result<(), String>
     let tags = git.tags_on_branch(&branch)?;
 
     let latest = tags.iter().filter_map(|t| SemVer::parse(t))
-        .filter(|v| v.major == major && v.minor == minor && v.patch == 0 && v.is_pre_release())
+        .filter(|v| v.major == major && v.minor == minor && v.patch == 0 && v.is_rc())
         .max()
         .ok_or_else(|| format!("No RC tags found on branch {branch}. Run 'bflow start release' first."))?;
 
@@ -45,7 +45,7 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
 
     let tags = git.tags_on_branch(&release_branch)?;
     let latest_rc = tags.iter().filter_map(|t| SemVer::parse(t))
-        .filter(|v| v.major == major && v.minor == minor && v.patch == 0 && v.is_pre_release())
+        .filter(|v| v.major == major && v.minor == minor && v.patch == 0 && v.is_rc())
         .max()
         .ok_or_else(|| "No RC tag found on this release branch. Run 'bflow bump' first.".to_string())?;
 

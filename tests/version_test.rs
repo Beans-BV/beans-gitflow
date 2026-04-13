@@ -73,6 +73,15 @@ fn bump_rc_on_clean_version() {
 }
 
 #[test]
+fn is_rc() {
+    assert!(SemVer::new(1, 2, 0).with_rc(1).is_rc());
+    assert!(!SemVer::new(1, 2, 0).is_rc());
+    // Non-rc pre-release
+    let beta = SemVer::parse("1.2.0-beta.1").unwrap();
+    assert!(!beta.is_rc());
+}
+
+#[test]
 fn with_rc() {
     let v = SemVer::new(1, 2, 0).with_rc(3);
     assert_eq!(v.to_string(), "1.2.0-rc.3");
