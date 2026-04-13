@@ -101,11 +101,6 @@ impl BranchType {
     fn new_docs(name: String) -> Self { Self::Docs { name } }
     fn new_refactor(name: String) -> Self { Self::Refactor { name } }
 
-    fn parse_major_minor(s: &str) -> Option<(u32, u32)> {
-        let (major, minor) = s.split_once('.')?;
-        Some((major.parse().ok()?, minor.parse().ok()?))
-    }
-
     fn parse_major_minor_patch(s: &str) -> Option<(u32, u32, u32)> {
         let parts: Vec<&str> = s.splitn(3, '.').collect();
         if parts.len() != 3 { return None; }

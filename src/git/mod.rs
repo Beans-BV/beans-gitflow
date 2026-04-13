@@ -26,6 +26,7 @@ pub trait Git {
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32>;
     fn stash_push(&self) -> Result<()>;
     fn stash_pop(&self) -> Result<()>;
+    fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>>;
 }
 
 pub struct GitCli;
@@ -103,4 +104,12 @@ impl Git for GitCli {
     }
     fn stash_push(&self) -> Result<()> { self.run(&["stash", "push", "-u"]).map(|_| ()) }
     fn stash_pop(&self) -> Result<()> { self.run(&["stash", "pop"]).map(|_| ()) }
+    fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>> {
+        let range = format!("{from}..{to}");
+        let output = self.run(&["log", &range, "--format=%B---END---"])?;
+        Ok(output.split("---END---")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect())
+    }
 }

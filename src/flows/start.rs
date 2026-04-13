@@ -1,5 +1,12 @@
 use crate::git::Git;
+use crate::menu;
 use crate::version::SemVer;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReleaseType {
+    Major,
+    Minor,
+}
 
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
@@ -20,8 +27,8 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     Ok(())
 }
 
-pub fn start_release(git: &dyn Git) -> Result<(), String> {
-    resolve_or_create_release(git)?;
+pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, release_type)?;
     Ok(())
 }
 
@@ -70,7 +77,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<
     Ok(())
 }
 
-fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
+fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<String, String> {
     let branches = git.list_branches_matching("release/*")?;
     let release_branches: Vec<&String> = branches.iter()
         .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
@@ -83,7 +90,15 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     }
 
     let latest = find_latest_tag(git)?;
-    let next = latest.bump_minor();
+    let next = match release_type {
+        Some(ReleaseType::Major) => latest.bump_major(),
+        Some(ReleaseType::Minor) => latest.bump_minor(),
+        None => {
+            let has_breaking = detect_breaking_changes(git, &latest);
+            prompt_release_type(&latest, has_breaking)?
+        }
+    };
+
     let branch = next.release_branch();
     let rc = next.with_rc(1);
     let tag = rc.tag_name();
@@ -94,10 +109,58 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     git.push(&branch)?;
 
     println!("Tagging: {tag}");
-    git.create_tag(&tag, &format!("chore: create release branch {}.{}.0", next.major, next.minor))?;
+    git.create_tag(&tag, &format!("chore: create release branch {next}"))?;
     git.push_tag(&tag)?;
 
     Ok(branch)
+}
+
+pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
+    let tag = latest.tag_name();
+    let messages = match git.commit_messages(&tag, "HEAD") {
+        Ok(msgs) => msgs,
+        Err(_) => return false,
+    };
+
+    for msg in &messages {
+        let first_line = msg.lines().next().unwrap_or("");
+
+        // Conventional commits: "feat!:", "fix!:", "refactor(scope)!:" etc.
+        if let Some(colon_pos) = first_line.find(':') {
+            let before_colon = &first_line[..colon_pos];
+            if before_colon.ends_with('!') {
+                return true;
+            }
+        }
+
+        // "BREAKING CHANGE" or "breaking change" anywhere in the message body
+        if msg.to_lowercase().contains("breaking change") {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, String> {
+    let major_label = format!("major (v{} → v{})", latest, latest.bump_major());
+    let minor_label = format!("minor (v{} → v{})", latest, latest.bump_minor());
+
+    let items: Vec<&str> = if has_breaking {
+        println!("Breaking changes detected since last release.");
+        vec![&major_label, &minor_label]
+    } else {
+        vec![&minor_label, &major_label]
+    };
+
+    let idx = menu::show_select("Release type", &items)?;
+    let selected = items[idx];
+
+    if selected.starts_with("major") {
+        Ok(latest.bump_major())
+    } else {
+        Ok(latest.bump_minor())
+    }
 }
 
 fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, String> {

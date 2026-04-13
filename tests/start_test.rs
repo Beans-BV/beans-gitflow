@@ -1,7 +1,8 @@
 mod common;
 
 use common::MockGit;
-use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix};
+use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
+use bflow::version::SemVer;
 
 #[test]
 fn start_work_branch_creates_and_pushes() {
@@ -31,7 +32,7 @@ fn start_release_creates_new_when_no_release_exists_with_tags() {
     git.branches_matching = vec![]; // no existing release branches
     git.tags = vec!["v1.0.0".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -50,7 +51,7 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
     git.branches_matching = vec![];
     git.tags = vec![];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -68,7 +69,7 @@ fn start_release_checks_out_existing_release_branch() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["release/1.1.0".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -197,7 +198,7 @@ fn start_release_falls_back_to_rc_tags_when_no_clean_tags() {
     git.branches_matching = vec![];
     git.tags = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     // Should use 1.1.0 (from RC tags) as base, bump to 1.2
     assert_eq!(git.calls(), vec![
@@ -212,12 +213,31 @@ fn start_release_falls_back_to_rc_tags_when_no_clean_tags() {
 }
 
 #[test]
+fn start_release_major_bumps_major_version() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.5.0".to_string()];
+
+    start_release(&git, Some(ReleaseType::Major)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "checkout:develop",
+        "create_branch:release/2.0.0:develop",
+        "push:release/2.0.0",
+        "create_tag:v2.0.0-rc.1:chore: create release branch 2.0.0",
+        "push_tag:v2.0.0-rc.1",
+    ]);
+}
+
+#[test]
 fn start_release_ignores_rc_tags_when_determining_next_version() {
     let mut git = MockGit::new();
     git.branches_matching = vec![];
     git.tags = vec!["v1.0.0".to_string(), "v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -228,4 +248,56 @@ fn start_release_ignores_rc_tags_when_determining_next_version() {
         "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
         "push_tag:v1.1.0-rc.1",
     ]);
+}
+
+// --- Breaking change detection tests ---
+
+#[test]
+fn detect_breaking_changes_with_bang_in_title() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec!["feat!: remove legacy API".to_string()];
+
+    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
+}
+
+#[test]
+fn detect_breaking_changes_with_scope_and_bang() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec!["refactor(auth)!: rewrite token handling".to_string()];
+
+    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
+}
+
+#[test]
+fn detect_breaking_changes_in_body() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec!["feat: new auth flow\n\nBREAKING CHANGE: old tokens are invalidated".to_string()];
+
+    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
+}
+
+#[test]
+fn detect_breaking_changes_case_insensitive() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec!["feat: update API\n\nbreaking change: removed endpoint".to_string()];
+
+    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
+}
+
+#[test]
+fn detect_no_breaking_changes() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec![
+        "feat: add login page".to_string(),
+        "fix: correct typo".to_string(),
+        "chore: update deps".to_string(),
+    ];
+
+    assert!(!detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
+}
+
+#[test]
+fn detect_breaking_changes_empty_history() {
+    let git = MockGit::new();
+    assert!(!detect_breaking_changes(&git, &SemVer::new(0, 0, 0)));
 }

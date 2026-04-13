@@ -47,6 +47,12 @@ fn parse_rejects_pre_release_without_number() {
 }
 
 #[test]
+fn bump_major() {
+    let v = SemVer::new(2, 5, 3);
+    assert_eq!(v.bump_major(), SemVer::new(3, 0, 0));
+}
+
+#[test]
 fn bump_minor() {
     let v = SemVer::new(2, 5, 3);
     assert_eq!(v.bump_minor(), SemVer::new(2, 6, 0));
