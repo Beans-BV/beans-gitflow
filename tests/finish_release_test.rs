@@ -67,12 +67,12 @@ fn finish_release_creates_clean_tag_from_rc() {
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1.0",
-        "create_tag:v1.1.0:chore: release 1.1.0",
-        "push_tag:v1.1.0",
         "checkout:main",
         "pull:origin/main",
         "merge:release/1.1.0:chore: merge release 1.1.0 into main",
+        "create_tag:v1.1.0:chore: release 1.1.0",
         "push:main",
+        "push_tag:v1.1.0",
         "checkout:develop",
         "pull:origin/develop",
         "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
@@ -91,12 +91,12 @@ fn finish_release_single_rc() {
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/2.0.0",
-        "create_tag:v2.0.0:chore: release 2.0.0",
-        "push_tag:v2.0.0",
         "checkout:main",
         "pull:origin/main",
         "merge:release/2.0.0:chore: merge release 2.0.0 into main",
+        "create_tag:v2.0.0:chore: release 2.0.0",
         "push:main",
+        "push_tag:v2.0.0",
         "checkout:develop",
         "pull:origin/develop",
         "merge:release/2.0.0:chore: merge release 2.0.0 into develop",

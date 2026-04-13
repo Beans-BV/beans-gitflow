@@ -46,13 +46,8 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         .max()
         .ok_or_else(|| "No version tag found on this release branch. Run 'bump version' first.".to_string())?;
 
-    // Create clean release tag
     let release_version = latest_rc.to_release();
     let tag = release_version.tag_name();
-
-    println!("Creating release tag: {tag}");
-    git.create_tag(&tag, &format!("chore: release {release_version}"))?;
-    git.push_tag(&tag)?;
 
     println!("Finishing release {release_branch} (tag: {tag})...");
 
@@ -60,7 +55,11 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     git.checkout("main")?;
     git.pull("origin/main")?;
     git.merge(&release_branch, &format!("chore: merge release {major}.{minor}.0 into main"))?;
+
+    println!("Tagging main: {tag}");
+    git.create_tag(&tag, &format!("chore: release {release_version}"))?;
     git.push("main")?;
+    git.push_tag(&tag)?;
 
     println!("Merging into develop...");
     git.checkout("develop")?;
