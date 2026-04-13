@@ -29,6 +29,11 @@ fn parse_semver_with_v_prefix_and_pre_release() {
 }
 
 #[test]
+fn parse_rejects_empty_pre_release_label() {
+    assert_eq!(SemVer::parse("1.2.0-.1"), None);
+}
+
+#[test]
 fn parse_rejects_pre_release_without_number() {
     assert_eq!(SemVer::parse("1.2.0-rc"), None);
 }

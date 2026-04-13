@@ -34,8 +34,10 @@ impl SemVer {
             Some(p) => {
                 let pre_parts: Vec<&str> = p.splitn(2, '.').collect();
                 if pre_parts.len() != 2 { return None; }
+                let label = pre_parts[0];
+                if label.is_empty() { return None; }
                 let number = pre_parts[1].parse().ok()?;
-                Some(PreRelease { label: pre_parts[0].to_string(), number })
+                Some(PreRelease { label: label.to_string(), number })
             }
             None => None,
         };
