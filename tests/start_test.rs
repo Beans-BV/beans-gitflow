@@ -29,7 +29,7 @@ fn start_work_branch_with_fix_prefix() {
 fn start_release_creates_new_when_no_release_exists_with_tags() {
     let mut git = MockGit::new();
     git.branches_matching = vec![]; // no existing release branches
-    git.tags = vec!["1.0.0".to_string()];
+    git.tags = vec!["v1.0.0".to_string()];
 
     start_release(&git).unwrap();
 
@@ -39,8 +39,8 @@ fn start_release_creates_new_when_no_release_exists_with_tags() {
         "checkout:develop",
         "create_branch:release/1.1:develop",
         "push:release/1.1",
-        "create_tag:1.1.0:chore: create release branch 1.1",
-        "push_tag:1.1.0",
+        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1",
+        "push_tag:v1.1.0-rc.1",
     ]);
 }
 
@@ -58,8 +58,8 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
         "checkout:develop",
         "create_branch:release/0.1:develop",
         "push:release/0.1",
-        "create_tag:0.1.0:chore: create release branch 0.1",
-        "push_tag:0.1.0",
+        "create_tag:v0.1.0-rc.1:chore: create release branch 0.1",
+        "push_tag:v0.1.0-rc.1",
     ]);
 }
 
@@ -188,5 +188,24 @@ fn start_hotfix_fix_no_checkout_creates_hotfix_branch_when_none_exists() {
         "push:hotfix/1.0.1",
         "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
         "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
+}
+
+#[test]
+fn start_release_ignores_rc_tags_when_determining_next_version() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.0.0".to_string(), "v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
+
+    start_release(&git).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "checkout:develop",
+        "create_branch:release/1.1:develop",
+        "push:release/1.1",
+        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1",
+        "push_tag:v1.1.0-rc.1",
     ]);
 }
