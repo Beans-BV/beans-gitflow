@@ -38,12 +38,12 @@ fn parse_refactor() {
 
 #[test]
 fn parse_release() {
-    assert_eq!(BranchType::parse("release/2.6"), BranchType::Release { major: 2, minor: 6 });
+    assert_eq!(BranchType::parse("release/2.6.0"), BranchType::Release { major: 2, minor: 6, patch: 0 });
 }
 
 #[test]
 fn parse_release_fix() {
-    assert_eq!(BranchType::parse("release-fix/2.6/payment-error"), BranchType::ReleaseFix { major: 2, minor: 6, name: "payment-error".to_string() });
+    assert_eq!(BranchType::parse("release-fix/2.6.0/payment-error"), BranchType::ReleaseFix { major: 2, minor: 6, patch: 0, name: "payment-error".to_string() });
 }
 
 #[test]

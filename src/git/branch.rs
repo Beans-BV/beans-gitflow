@@ -7,8 +7,8 @@ pub enum BranchType {
     Chore { name: String },
     Docs { name: String },
     Refactor { name: String },
-    Release { major: u32, minor: u32 },
-    ReleaseFix { major: u32, minor: u32, name: String },
+    Release { major: u32, minor: u32, patch: u32 },
+    ReleaseFix { major: u32, minor: u32, patch: u32, name: String },
     Hotfix { major: u32, minor: u32, patch: u32 },
     HotfixFix { major: u32, minor: u32, patch: u32, name: String },
     Other,
@@ -37,16 +37,16 @@ impl BranchType {
         }
 
         if let Some(version) = branch.strip_prefix("release/") {
-            if let Some((major, minor)) = Self::parse_major_minor(version) {
-                return Self::Release { major, minor };
+            if let Some((major, minor, patch)) = Self::parse_major_minor_patch(version) {
+                return Self::Release { major, minor, patch };
             }
         }
 
         if let Some(rest) = branch.strip_prefix("release-fix/") {
             if let Some((version, name)) = rest.split_once('/') {
-                if let Some((major, minor)) = Self::parse_major_minor(version) {
+                if let Some((major, minor, patch)) = Self::parse_major_minor_patch(version) {
                     if !name.is_empty() {
-                        return Self::ReleaseFix { major, minor, name: name.to_string() };
+                        return Self::ReleaseFix { major, minor, patch, name: name.to_string() };
                     }
                 }
             }

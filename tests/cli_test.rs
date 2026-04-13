@@ -33,7 +33,7 @@ fn start_feature_rejects_invalid_name() {
 #[test]
 fn start_release_fix_on_release_branch() {
     let cmd = Commands::Start { kind: StartKind::ReleaseFix { name: "broken-login".to_string(), opts: StartOptions { no_checkout: false } } };
-    let branch_type = BranchType::Release { major: 1, minor: 2 };
+    let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::StartReleaseFix { name, .. } if name == "broken-login"));
 }
@@ -85,7 +85,7 @@ fn finish_on_feature_branch() {
 #[test]
 fn finish_on_release_branch() {
     let cmd = Commands::Finish;
-    let branch_type = BranchType::Release { major: 1, minor: 2 };
+    let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::FinishRelease));
 }
@@ -135,7 +135,7 @@ fn start_release_returns_start_release_action() {
 #[test]
 fn finish_on_release_fix_branch() {
     let cmd = Commands::Finish;
-    let branch_type = BranchType::ReleaseFix { major: 1, minor: 2, name: "broken-login".to_string() };
+    let branch_type = BranchType::ReleaseFix { major: 1, minor: 2, patch: 0, name: "broken-login".to_string() };
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::FinishReleaseFix));
 }
@@ -185,7 +185,7 @@ fn start_refactor_returns_start_work_branch_action() {
 #[test]
 fn bump_on_release_branch() {
     let cmd = Commands::Bump;
-    let branch_type = BranchType::Release { major: 1, minor: 2 };
+    let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::BumpVersion));
 }
@@ -201,7 +201,7 @@ fn bump_on_wrong_branch() {
 #[test]
 fn sync_on_release_branch() {
     let cmd = Commands::Sync;
-    let branch_type = BranchType::Release { major: 1, minor: 2 };
+    let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::SyncWithDevelop));
 }
@@ -232,7 +232,7 @@ fn start_release_fix_with_no_checkout_flag() {
         name: "broken-login".to_string(),
         opts: StartOptions { no_checkout: true },
     }};
-    let branch_type = BranchType::Release { major: 1, minor: 2 };
+    let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
     let action = resolve_action(cmd, &branch_type).unwrap();
     assert!(matches!(action, Action::StartReleaseFix { no_checkout: true, .. }));
 }

@@ -80,8 +80,8 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     push_and_create_pr(git, hosting, &base, &format!("{commit_type}: {name}"))
 }
 
-pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, major: u32, minor: u32, name: &str) -> Result<(), String> {
-    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}"), &format!("fix: {name}"))
+pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, major: u32, minor: u32, patch: u32, name: &str) -> Result<(), String> {
+    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &format!("fix: {name}"))
 }
 
 pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, major: u32, minor: u32, patch: u32, name: &str) -> Result<(), String> {
