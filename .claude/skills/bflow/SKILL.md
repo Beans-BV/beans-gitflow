@@ -39,7 +39,7 @@ bflow start hotfix-fix --name <name> [--no-checkout]
 bflow finish # infers action from current branch type
 ```
 
-- **Work branches** (feature/fix/chore/docs/refactor) → creates PR to base branch
+- **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`)
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch
 - **Release** → merges to main + develop, tags, cleans up
 - **Hotfix** → merges to main + develop, tags, cleans up
