@@ -133,5 +133,5 @@ fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
     let tags = git.list_tags()?;
     let mut versions: Vec<SemVer> = tags.iter().filter_map(|t| SemVer::parse(t)).collect();
     versions.sort();
-    Ok(versions.last().cloned().unwrap_or(SemVer { major: 0, minor: 0, patch: 0 }))
+    Ok(versions.last().cloned().unwrap_or(SemVer::new(0, 0, 0)))
 }
