@@ -106,8 +106,9 @@ impl Git for GitCli {
     fn stash_pop(&self) -> Result<()> { self.run(&["stash", "pop"]).map(|_| ()) }
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>> {
         let range = format!("{from}..{to}");
-        let output = self.run(&["log", &range, "--format=%B---END---"])?;
-        Ok(output.split("---END---")
+        // Use NUL byte as separator — guaranteed not to appear in commit messages
+        let output = self.run(&["log", &range, "--format=%B%x00"])?;
+        Ok(output.split('\0')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect())

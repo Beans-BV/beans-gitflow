@@ -1,8 +1,7 @@
 mod common;
 
 use common::MockGit;
-use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
-use bflow::version::SemVer;
+use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType};
 
 #[test]
 fn start_work_branch_creates_and_pushes() {
@@ -250,54 +249,5 @@ fn start_release_ignores_rc_tags_when_determining_next_version() {
     ]);
 }
 
-// --- Breaking change detection tests ---
-
-#[test]
-fn detect_breaking_changes_with_bang_in_title() {
-    let mut git = MockGit::new();
-    git.commit_messages = vec!["feat!: remove legacy API".to_string()];
-
-    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
-}
-
-#[test]
-fn detect_breaking_changes_with_scope_and_bang() {
-    let mut git = MockGit::new();
-    git.commit_messages = vec!["refactor(auth)!: rewrite token handling".to_string()];
-
-    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
-}
-
-#[test]
-fn detect_breaking_changes_in_body() {
-    let mut git = MockGit::new();
-    git.commit_messages = vec!["feat: new auth flow\n\nBREAKING CHANGE: old tokens are invalidated".to_string()];
-
-    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
-}
-
-#[test]
-fn detect_breaking_changes_case_insensitive() {
-    let mut git = MockGit::new();
-    git.commit_messages = vec!["feat: update API\n\nbreaking change: removed endpoint".to_string()];
-
-    assert!(detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
-}
-
-#[test]
-fn detect_no_breaking_changes() {
-    let mut git = MockGit::new();
-    git.commit_messages = vec![
-        "feat: add login page".to_string(),
-        "fix: correct typo".to_string(),
-        "chore: update deps".to_string(),
-    ];
-
-    assert!(!detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
-}
-
-#[test]
-fn detect_breaking_changes_empty_history() {
-    let git = MockGit::new();
-    assert!(!detect_breaking_changes(&git, &SemVer::new(0, 0, 0)));
-}
+// Note: breaking change detection logic is tested as unit tests
+// in src/flows/start.rs (see `message_is_breaking` tests).

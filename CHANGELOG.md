@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Smart major/minor release selection — `bflow start release` scans commits for breaking changes and preselects accordingly
+- `bflow finish` now asks about breaking changes on feature/fix/refactor branches and adds `!` to the PR title when confirmed (e.g., `feat!: name`)
+- `bflow finish --breaking[=true|false]` flag for non-interactive control over the breaking-change marker
 - CI Integration guide in README with GitHub Actions examples for staging and production
 - Mobile app (Flutter) CI guidance with version extraction and build number patterns
 
