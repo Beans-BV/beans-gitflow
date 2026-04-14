@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-04-14
 
 ### Changed
 - **BREAKING:** Tags now use `v` prefix (e.g., `v1.2.0` instead of `1.2.0`)
@@ -15,11 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SemVer parsing supports pre-release identifiers (`-rc.N`)
 
 ### Added
+- RC-head guard on `bflow finish`: rejects a release branch when HEAD has commits past the latest RC tag, enforcing that every commit merged to `main` was validated on staging via an RC deploy
 - Smart major/minor release selection — `bflow start release` scans commits for breaking changes and preselects accordingly
 - `bflow finish` now asks about breaking changes on feature/fix/refactor branches and adds `!` to the PR title when confirmed (e.g., `feat!: name`)
 - `bflow finish --breaking[=true|false]` flag for non-interactive control over the breaking-change marker
 - CI Integration guide in README with GitHub Actions examples for staging and production
 - Mobile app (Flutter) CI guidance with version extraction and build number patterns
+- Chocolatey package icon
 
 ## [1.2.1] - 2026-04-09
 
@@ -91,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[2.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.1...v2.0.0
 [1.2.1]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Beans-BV/beans-gitflow/compare/v1.1.0...v1.1.1
