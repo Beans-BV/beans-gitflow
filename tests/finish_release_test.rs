@@ -136,3 +136,24 @@ fn finish_release_single_rc() {
         "delete_branch_remote:release/2.0.0",
     ]);
 }
+
+#[test]
+fn finish_release_fails_when_head_past_latest_rc() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
+    git.rev_list_count_result = 2; // 2 commits on release/1.1.0 past v1.1.0-rc.2
+
+    let result = finish_release(&git, 1, 1);
+
+    assert!(result.is_err(), "expected guard to reject finish when HEAD is past latest RC");
+    let err = result.unwrap_err();
+    assert!(err.contains("v1.1.0-rc.2"), "error should name the latest RC tag; got: {err}");
+    assert!(err.contains("bflow bump"), "error should tell user to bump; got: {err}");
+    assert!(err.contains("2 commit"), "error should state how many commits past the RC; got: {err}");
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("checkout:main")),
+        "guard must abort before touching main; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("create_tag:")),
+        "guard must abort before tagging; calls: {calls:?}");
+}
