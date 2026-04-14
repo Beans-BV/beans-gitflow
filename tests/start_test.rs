@@ -1,7 +1,8 @@
 mod common;
 
 use common::MockGit;
-use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType};
+use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
+use bflow::version::SemVer;
 
 #[test]
 fn start_work_branch_creates_and_pushes() {
@@ -249,5 +250,50 @@ fn start_release_ignores_rc_tags_when_determining_next_version() {
     ]);
 }
 
-// Note: breaking change detection logic is tested as unit tests
-// in src/flows/start.rs (see `message_is_breaking` tests).
+// Note: the pure `message_is_breaking` string-matching logic is tested
+// as unit tests in src/flows/start.rs. These integration tests cover the
+// git interaction — which ref is queried, and the develop → origin/develop
+// fallback.
+
+#[test]
+fn detect_breaking_queries_develop_not_head() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec!["feat!: remove API".to_string()];
+
+    let result = detect_breaking_changes(&git, &SemVer::new(1, 0, 0));
+
+    assert!(result);
+    // Must query develop, not HEAD — so start release works from any branch
+    assert!(git.calls().iter().any(|c| c == "commit_messages:v1.0.0:develop"),
+        "Expected commit_messages to be called with 'develop', got: {:?}", git.calls());
+}
+
+#[test]
+fn detect_breaking_falls_back_to_origin_develop_when_develop_missing() {
+    let mut git = MockGit::new();
+    // Simulate a fresh clone / CI environment where local 'develop' doesn't exist
+    git.fail_commit_messages_for = vec!["develop".to_string()];
+    git.commit_messages = vec!["feat!: remove API".to_string()];
+
+    let result = detect_breaking_changes(&git, &SemVer::new(1, 0, 0));
+
+    assert!(result, "Fallback to origin/develop should detect the breaking change");
+    assert_eq!(git.calls(), vec![
+        "commit_messages:v1.0.0:develop",         // first attempt
+        "commit_messages:v1.0.0:origin/develop",  // fallback
+    ]);
+}
+
+#[test]
+fn detect_breaking_returns_false_when_neither_develop_nor_origin_exist() {
+    let mut git = MockGit::new();
+    git.fail_commit_messages_for = vec!["develop".to_string(), "origin/develop".to_string()];
+
+    let result = detect_breaking_changes(&git, &SemVer::new(1, 0, 0));
+
+    assert!(!result, "Should return false when no refs are accessible");
+    assert_eq!(git.calls(), vec![
+        "commit_messages:v1.0.0:develop",
+        "commit_messages:v1.0.0:origin/develop",
+    ]);
+}

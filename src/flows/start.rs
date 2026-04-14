@@ -115,7 +115,7 @@ fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -
     Ok(branch)
 }
 
-pub(crate) fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
+pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
     let tag = latest.tag_name();
     // Scan develop explicitly — start release may run from any branch
     let messages = match git.commit_messages(&tag, "develop") {
