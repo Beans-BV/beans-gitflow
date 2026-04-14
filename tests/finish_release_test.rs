@@ -93,11 +93,13 @@ fn sync_with_develop_merges_and_returns_to_current() {
 fn finish_release_creates_clean_tag_from_rc() {
     let mut git = MockGit::new();
     git.tags_on_branch = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
+    git.rev_list_count_result = 0;
 
     finish_release(&git, 1, 1).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1.0",
+        "rev_list_count:v1.1.0-rc.2:release/1.1.0",
         "checkout:main",
         "pull:origin/main",
         "merge:release/1.1.0:chore: merge release 1.1.0 into main",
@@ -117,11 +119,13 @@ fn finish_release_creates_clean_tag_from_rc() {
 fn finish_release_single_rc() {
     let mut git = MockGit::new();
     git.tags_on_branch = vec!["v2.0.0-rc.1".to_string()];
+    git.rev_list_count_result = 0;
 
     finish_release(&git, 2, 0).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/2.0.0",
+        "rev_list_count:v2.0.0-rc.1:release/2.0.0",
         "checkout:main",
         "pull:origin/main",
         "merge:release/2.0.0:chore: merge release 2.0.0 into main",
