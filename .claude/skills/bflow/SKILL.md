@@ -59,6 +59,7 @@ bflow uses SemVer pre-release tags for CI integration:
 - **Bump version** → `v{X}.{Y}.0-rc.{N+1}` (next RC — triggers staging deploy)
 - **Finish release** → `v{X}.{Y}.0` (clean tag — triggers production deploy)
 - **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag — triggers production deploy)
+- **Guard:** `bflow finish` rejects a release branch if HEAD is past the latest RC tag — prevents promoting unstaged commits to production. Fix by running `bflow bump` and waiting for staging.
 
 All tags use the `v` prefix. CI systems filter on `v*-rc.*` for staging and clean `v*` (no hyphen) for production.
 
