@@ -11,9 +11,11 @@ pub enum Commands {
     },
     /// Finish the current branch (infers action from branch type)
     Finish {
-        /// Mark PR as containing breaking changes (adds ! to commit type)
-        #[arg(long)]
-        breaking: bool,
+        /// Mark PR as containing breaking changes (adds ! to commit type).
+        /// Omit to prompt interactively. Use --breaking (true) or --breaking=false
+        /// to skip the prompt non-interactively.
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        breaking: Option<bool>,
     },
     /// Bump the patch version on the current release branch
     Bump,
@@ -135,7 +137,6 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             }
             BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
             | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
-                let breaking = if breaking { Some(true) } else { None };
                 Ok(Action::FinishWorkBranch { breaking })
             }
             BranchType::Release { .. } => Ok(Action::FinishRelease),

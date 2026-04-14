@@ -117,9 +117,13 @@ fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -
 
 pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
     let tag = latest.tag_name();
-    let messages = match git.commit_messages(&tag, "HEAD") {
+    // Scan develop explicitly — start release may run from any branch
+    let messages = match git.commit_messages(&tag, "develop") {
         Ok(msgs) => msgs,
-        Err(_) => return false,
+        Err(_) => match git.commit_messages(&tag, "origin/develop") {
+            Ok(msgs) => msgs,
+            Err(_) => return false,
+        },
     };
 
     for msg in &messages {

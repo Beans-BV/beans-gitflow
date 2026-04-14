@@ -78,13 +78,12 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     let current = git.current_branch()?;
     let base = detect_parent_branch(git, &current)?;
 
-    let bang = if can_be_breaking(commit_type) {
-        match breaking {
-            Some(b) => b,
-            None => prompt_breaking_change()?,
-        }
-    } else {
-        false
+    let bang = match breaking {
+        // Explicit flag always honored, for any work type
+        Some(b) => b,
+        // Prompt only for types that are commonly breaking
+        None if commonly_breaking(commit_type) => prompt_breaking_change()?,
+        None => false,
     };
 
     let title = if bang {
@@ -96,7 +95,7 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     push_and_create_pr(git, hosting, &base, &title)
 }
 
-fn can_be_breaking(commit_type: &str) -> bool {
+fn commonly_breaking(commit_type: &str) -> bool {
     matches!(commit_type, "feat" | "fix" | "refactor")
 }
 
