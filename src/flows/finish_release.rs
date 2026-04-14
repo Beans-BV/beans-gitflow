@@ -49,6 +49,17 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         .max()
         .ok_or_else(|| "No RC tag found on this release branch. Run 'bflow bump' first.".to_string())?;
 
+    let latest_rc_tag = latest_rc.tag_name();
+    let commits_past_rc = git.rev_list_count(&latest_rc_tag, &release_branch)?;
+    if commits_past_rc > 0 {
+        let noun = if commits_past_rc == 1 { "commit" } else { "commits" };
+        return Err(format!(
+            "HEAD of {release_branch} is {commits_past_rc} {noun} past {latest_rc_tag}.\n\
+             Every commit merged to main must be validated on staging via an RC deploy.\n\
+             Run 'bflow bump' to cut the next RC, wait for staging to pass, then 'bflow finish'."
+        ));
+    }
+
     let release_version = latest_rc.to_release();
     let tag = release_version.tag_name();
 
