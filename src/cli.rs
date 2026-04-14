@@ -10,7 +10,13 @@ pub enum Commands {
         kind: StartKind,
     },
     /// Finish the current branch (infers action from branch type)
-    Finish,
+    Finish {
+        /// Mark PR as containing breaking changes (adds ! to commit type).
+        /// Omit to prompt interactively. Use --breaking (true) or --breaking=false
+        /// to skip the prompt non-interactively.
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        breaking: Option<bool>,
+    },
     /// Bump the patch version on the current release branch
     Bump,
     /// Sync the current release branch into develop
@@ -125,13 +131,13 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout })
             }
         },
-        Commands::Finish => match branch_type {
+        Commands::Finish { breaking } => match branch_type {
             BranchType::Main | BranchType::Develop => {
                 Err("Nothing to finish on this branch.".to_string())
             }
             BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
             | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
-                Ok(Action::FinishWorkBranch)
+                Ok(Action::FinishWorkBranch { breaking })
             }
             BranchType::Release { .. } => Ok(Action::FinishRelease),
             BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),

@@ -16,7 +16,7 @@ fn start_actions_return_true() {
 #[test]
 fn finish_actions_return_false() {
     let actions: Vec<Action> = vec![
-        Action::FinishWorkBranch,
+        Action::FinishWorkBranch { breaking: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
         Action::FinishHotfix,
@@ -67,7 +67,7 @@ fn no_checkout_returns_true_for_start_hotfix_fix() {
 fn no_checkout_returns_false_for_non_start_actions() {
     let actions: Vec<Action> = vec![
         Action::StartRelease,
-        Action::FinishWorkBranch,
+        Action::FinishWorkBranch { breaking: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
         Action::FinishHotfix,

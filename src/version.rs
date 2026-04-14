@@ -46,6 +46,7 @@ impl SemVer {
         Some(Self { major, minor, patch, pre })
     }
 
+    pub fn bump_major(&self) -> Self { Self::new(self.major + 1, 0, 0) }
     pub fn bump_minor(&self) -> Self { Self::new(self.major, self.minor + 1, 0) }
     pub fn bump_patch(&self) -> Self { Self::new(self.major, self.minor, self.patch + 1) }
 

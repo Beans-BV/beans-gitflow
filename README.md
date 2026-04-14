@@ -185,10 +185,12 @@ bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or ho
 ### Finish
 
 ```bash
-bflow finish
+bflow finish [--breaking | --breaking=false]
 ```
 
 Infers the action from the current branch type (e.g., creates PR on work branches, merges + tags on release/hotfix branches).
+
+On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
 
 ### Release-only commands
 
@@ -239,6 +241,10 @@ sequenceDiagram
 ```
 
 #### Release commands
+
+When starting a release, bflow scans commits since the last release for breaking changes and preselects major or minor accordingly. A commit is considered breaking if its title has `!` before the colon (e.g. `feat!: drop legacy API`, `refactor(auth)!: rewrite`), or if the body contains a line starting with `BREAKING CHANGE:` or `BREAKING-CHANGE:` (case-insensitive, per [Conventional Commits](https://www.conventionalcommits.org/)).
+
+When finishing a feature, fix, or refactor branch, bflow asks whether the work contains breaking changes. If yes, the PR title gets a `!` suffix (e.g. `feat!: name`) so the signal carries into the commit history and gets picked up at the next release. For non-interactive use (scripts, CI, AI agents), pass `--breaking` (true) or `--breaking=false` to skip the prompt.
 
 | Command | What it does |
 |---------|-------------|

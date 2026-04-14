@@ -28,7 +28,7 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout]
 bflow start chore --name <name> [--base <branch>] [--no-checkout]
 bflow start docs --name <name> [--base <branch>] [--no-checkout]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout]
-bflow start release # from develop, auto-versions (no --no-checkout)
+bflow start release # from develop, prompts major/minor (preselects based on breaking changes)
 bflow start release-fix --name <name> [--no-checkout]
 bflow start hotfix-fix --name <name> [--no-checkout]
 ```
@@ -36,10 +36,10 @@ bflow start hotfix-fix --name <name> [--no-checkout]
 ### Finish current branch
 
 ```bash
-bflow finish # infers action from current branch type
+bflow finish [--breaking] # infers action from current branch type
 ```
 
-- **Work branches** (feature/fix/chore/docs/refactor) → creates PR to base branch
+- **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`). Use `--breaking` flag in non-interactive mode to skip the prompt.
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch
 - **Release** → merges to main + develop, tags, cleans up
 - **Hotfix** → merges to main + develop, tags, cleans up

@@ -11,6 +11,9 @@ pub struct MockGit {
     pub remote_branches: Vec<String>,
     pub merge_base_result: String,
     pub rev_list_count_result: u32,
+    pub commit_messages: Vec<String>,
+    /// Refs (the `to` arg) that should fail with an error. Used to simulate missing branches.
+    pub fail_commit_messages_for: Vec<String>,
 }
 
 impl MockGit {
@@ -24,6 +27,8 @@ impl MockGit {
             remote_branches: Vec::new(),
             merge_base_result: "abc123".to_string(),
             rev_list_count_result: 0,
+            commit_messages: Vec::new(),
+            fail_commit_messages_for: Vec::new(),
         }
     }
 
@@ -136,6 +141,14 @@ impl Git for MockGit {
     fn stash_pop(&self) -> Result<(), String> {
         self.calls.borrow_mut().push("stash_pop".to_string());
         Ok(())
+    }
+
+    fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>, String> {
+        self.calls.borrow_mut().push(format!("commit_messages:{from}:{to}"));
+        if self.fail_commit_messages_for.iter().any(|r| r == to) {
+            return Err(format!("ref not found: {to}"));
+        }
+        Ok(self.commit_messages.clone())
     }
 }
 

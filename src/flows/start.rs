@@ -1,5 +1,12 @@
 use crate::git::Git;
+use crate::menu;
 use crate::version::SemVer;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReleaseType {
+    Major,
+    Minor,
+}
 
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
@@ -20,8 +27,8 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     Ok(())
 }
 
-pub fn start_release(git: &dyn Git) -> Result<(), String> {
-    resolve_or_create_release(git)?;
+pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, release_type)?;
     Ok(())
 }
 
@@ -70,7 +77,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<
     Ok(())
 }
 
-fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
+fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<String, String> {
     let branches = git.list_branches_matching("release/*")?;
     let release_branches: Vec<&String> = branches.iter()
         .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
@@ -83,7 +90,15 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     }
 
     let latest = find_latest_tag(git)?;
-    let next = latest.bump_minor();
+    let next = match release_type {
+        Some(ReleaseType::Major) => latest.bump_major(),
+        Some(ReleaseType::Minor) => latest.bump_minor(),
+        None => {
+            let has_breaking = detect_breaking_changes(git, &latest);
+            prompt_release_type(&latest, has_breaking)?
+        }
+    };
+
     let branch = next.release_branch();
     let rc = next.with_rc(1);
     let tag = rc.tag_name();
@@ -94,10 +109,76 @@ fn resolve_or_create_release(git: &dyn Git) -> Result<String, String> {
     git.push(&branch)?;
 
     println!("Tagging: {tag}");
-    git.create_tag(&tag, &format!("chore: create release branch {}.{}.0", next.major, next.minor))?;
+    git.create_tag(&tag, &format!("chore: create release branch {next}"))?;
     git.push_tag(&tag)?;
 
     Ok(branch)
+}
+
+pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
+    let tag = latest.tag_name();
+    // Scan develop explicitly — start release may run from any branch
+    let messages = match git.commit_messages(&tag, "develop") {
+        Ok(msgs) => msgs,
+        Err(_) => match git.commit_messages(&tag, "origin/develop") {
+            Ok(msgs) => msgs,
+            Err(_) => return false,
+        },
+    };
+
+    for msg in &messages {
+        if message_is_breaking(msg) {
+            return true;
+        }
+    }
+
+    false
+}
+
+pub(crate) fn message_is_breaking(msg: &str) -> bool {
+    let mut lines = msg.lines();
+    let first_line = lines.next().unwrap_or("");
+
+    // Conventional commits: type or type(scope) followed by "!:" e.g. "feat!:", "refactor(auth)!:"
+    if let Some(colon_pos) = first_line.find(':') {
+        let before_colon = &first_line[..colon_pos];
+        if before_colon.ends_with('!') {
+            return true;
+        }
+    }
+
+    // Conventional commits footer: a line starting with "BREAKING CHANGE:" or "BREAKING-CHANGE:"
+    // (case-insensitive, followed by a colon and space per the spec)
+    for line in lines {
+        let trimmed = line.trim_start();
+        let upper = trimmed.to_uppercase();
+        if upper.starts_with("BREAKING CHANGE:") || upper.starts_with("BREAKING-CHANGE:") {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, String> {
+    let major_label = format!("major (v{} → v{})", latest, latest.bump_major());
+    let minor_label = format!("minor (v{} → v{})", latest, latest.bump_minor());
+
+    let items: Vec<&str> = if has_breaking {
+        println!("Breaking changes detected since last release.");
+        vec![&major_label, &minor_label]
+    } else {
+        vec![&minor_label, &major_label]
+    };
+
+    let idx = menu::show_select("Release type", &items)?;
+    let selected = items[idx];
+
+    if selected.starts_with("major") {
+        Ok(latest.bump_major())
+    } else {
+        Ok(latest.bump_minor())
+    }
 }
 
 fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, String> {
@@ -145,4 +226,65 @@ fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
     }
 
     Ok(SemVer::new(0, 0, 0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::message_is_breaking;
+
+    #[test]
+    fn bang_in_title() {
+        assert!(message_is_breaking("feat!: remove legacy API"));
+    }
+
+    #[test]
+    fn bang_with_scope() {
+        assert!(message_is_breaking("refactor(auth)!: rewrite token handling"));
+    }
+
+    #[test]
+    fn breaking_change_footer() {
+        let msg = "feat: new auth flow\n\nBREAKING CHANGE: old tokens are invalidated";
+        assert!(message_is_breaking(msg));
+    }
+
+    #[test]
+    fn breaking_change_footer_hyphenated() {
+        let msg = "feat: new auth\n\nBREAKING-CHANGE: old tokens invalidated";
+        assert!(message_is_breaking(msg));
+    }
+
+    #[test]
+    fn breaking_change_footer_case_insensitive() {
+        let msg = "feat: new auth\n\nbreaking change: old tokens invalidated";
+        assert!(message_is_breaking(msg));
+    }
+
+    #[test]
+    fn non_breaking_change_in_body_is_not_flagged() {
+        // This is the bug the reviewer caught — "non-breaking change" should NOT match
+        let msg = "feat: new feature\n\nThis is a non-breaking change to the API.";
+        assert!(!message_is_breaking(msg));
+    }
+
+    #[test]
+    fn breaking_change_mention_without_colon_is_not_flagged() {
+        // Only the footer format (with colon) should count
+        let msg = "feat: new feature\n\nWe discussed breaking change options earlier.";
+        assert!(!message_is_breaking(msg));
+    }
+
+    #[test]
+    fn plain_conventional_commit_is_not_breaking() {
+        assert!(!message_is_breaking("feat: add login page"));
+        assert!(!message_is_breaking("fix: correct typo"));
+        assert!(!message_is_breaking("chore: update deps"));
+    }
+
+    #[test]
+    fn bang_in_body_does_not_count() {
+        // The ! must be in the title before the colon, not in the body
+        let msg = "feat: add feature\n\nThis is great!\nReally awesome.";
+        assert!(!message_is_breaking(msg));
+    }
 }

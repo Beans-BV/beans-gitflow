@@ -1,7 +1,8 @@
 mod common;
 
 use common::MockGit;
-use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix};
+use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
+use bflow::version::SemVer;
 
 #[test]
 fn start_work_branch_creates_and_pushes() {
@@ -31,7 +32,7 @@ fn start_release_creates_new_when_no_release_exists_with_tags() {
     git.branches_matching = vec![]; // no existing release branches
     git.tags = vec!["v1.0.0".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -50,7 +51,7 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
     git.branches_matching = vec![];
     git.tags = vec![];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -68,7 +69,7 @@ fn start_release_checks_out_existing_release_branch() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["release/1.1.0".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -197,7 +198,7 @@ fn start_release_falls_back_to_rc_tags_when_no_clean_tags() {
     git.branches_matching = vec![];
     git.tags = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     // Should use 1.1.0 (from RC tags) as base, bump to 1.2
     assert_eq!(git.calls(), vec![
@@ -212,12 +213,31 @@ fn start_release_falls_back_to_rc_tags_when_no_clean_tags() {
 }
 
 #[test]
+fn start_release_major_bumps_major_version() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.5.0".to_string()];
+
+    start_release(&git, Some(ReleaseType::Major)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "checkout:develop",
+        "create_branch:release/2.0.0:develop",
+        "push:release/2.0.0",
+        "create_tag:v2.0.0-rc.1:chore: create release branch 2.0.0",
+        "push_tag:v2.0.0-rc.1",
+    ]);
+}
+
+#[test]
 fn start_release_ignores_rc_tags_when_determining_next_version() {
     let mut git = MockGit::new();
     git.branches_matching = vec![];
     git.tags = vec!["v1.0.0".to_string(), "v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    start_release(&git).unwrap();
+    start_release(&git, Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -227,5 +247,53 @@ fn start_release_ignores_rc_tags_when_determining_next_version() {
         "push:release/1.1.0",
         "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
         "push_tag:v1.1.0-rc.1",
+    ]);
+}
+
+// Note: the pure `message_is_breaking` string-matching logic is tested
+// as unit tests in src/flows/start.rs. These integration tests cover the
+// git interaction — which ref is queried, and the develop → origin/develop
+// fallback.
+
+#[test]
+fn detect_breaking_queries_develop_not_head() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec!["feat!: remove API".to_string()];
+
+    let result = detect_breaking_changes(&git, &SemVer::new(1, 0, 0));
+
+    assert!(result);
+    // Must query develop, not HEAD — so start release works from any branch
+    assert!(git.calls().iter().any(|c| c == "commit_messages:v1.0.0:develop"),
+        "Expected commit_messages to be called with 'develop', got: {:?}", git.calls());
+}
+
+#[test]
+fn detect_breaking_falls_back_to_origin_develop_when_develop_missing() {
+    let mut git = MockGit::new();
+    // Simulate a fresh clone / CI environment where local 'develop' doesn't exist
+    git.fail_commit_messages_for = vec!["develop".to_string()];
+    git.commit_messages = vec!["feat!: remove API".to_string()];
+
+    let result = detect_breaking_changes(&git, &SemVer::new(1, 0, 0));
+
+    assert!(result, "Fallback to origin/develop should detect the breaking change");
+    assert_eq!(git.calls(), vec![
+        "commit_messages:v1.0.0:develop",         // first attempt
+        "commit_messages:v1.0.0:origin/develop",  // fallback
+    ]);
+}
+
+#[test]
+fn detect_breaking_returns_false_when_neither_develop_nor_origin_exist() {
+    let mut git = MockGit::new();
+    git.fail_commit_messages_for = vec!["develop".to_string(), "origin/develop".to_string()];
+
+    let result = detect_breaking_changes(&git, &SemVer::new(1, 0, 0));
+
+    assert!(!result, "Should return false when no refs are accessible");
+    assert_eq!(git.calls(), vec![
+        "commit_messages:v1.0.0:develop",
+        "commit_messages:v1.0.0:origin/develop",
     ]);
 }
