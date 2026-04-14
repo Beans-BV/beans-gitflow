@@ -161,3 +161,14 @@ fn finish_release_fails_when_head_past_latest_rc() {
     assert!(!calls.iter().any(|c| c.starts_with("create_tag:")),
         "guard must abort before tagging; calls: {calls:?}");
 }
+
+#[test]
+fn finish_release_error_message_uses_singular_for_one_commit() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+    git.rev_list_count_result = 1;
+
+    let err = finish_release(&git, 1, 1).unwrap_err();
+    assert!(err.contains("1 commit past"), "expected singular 'commit'; got: {err}");
+    assert!(!err.contains("1 commits"), "should not use plural for 1; got: {err}");
+}
