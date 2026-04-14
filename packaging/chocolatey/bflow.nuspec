@@ -8,6 +8,7 @@
     <projectUrl>https://github.com/Beans-BV/beans-gitflow</projectUrl>
     <licenseUrl>https://github.com/Beans-BV/beans-gitflow/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <iconUrl>https://raw.githubusercontent.com/Beans-BV/beans-gitflow/main/packaging/chocolatey/icon.png</iconUrl>
     <packageSourceUrl>https://github.com/Beans-BV/beans-gitflow</packageSourceUrl>
     <summary>A cross-platform CLI tool for the Beans customized gitflow workflow.</summary>
     <description>A cross-platform CLI tool that implements the Beans customized gitflow workflow. Detects your current git branch, presents context-appropriate options, and handles branching, merging, tagging, and PR creation.</description>
