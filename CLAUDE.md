@@ -64,7 +64,11 @@ REMEMBER to ALWAYS keep things KISS, DRY and SOLID.
 
 ## Documentation Sync
 
-With every change you make make sure to always update the README.md and `.claude/skills/bflow/skill.md` if needed.
+With every change you make make sure to always update the README.md.
+
+## Skill Sync
+
+With every change you make make sure to always update the `.claude/skills/bflow/skill.md` if needed.
 
 When updating skills, keep content concise — every token matters. Be clear but not verbose.
 
