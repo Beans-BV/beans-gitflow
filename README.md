@@ -252,6 +252,8 @@ When finishing a feature, fix, or refactor branch, bflow asks whether the work c
 | **bflow sync** | Merges release changes into `develop` for fixes needed immediately |
 | **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch |
 
+> **RC-head guard:** `bflow finish` on a release branch is rejected if HEAD has commits past the latest RC tag. Every commit merged to `main` must have been validated on staging via an RC deploy. If the guard fires, run `bflow bump` to cut the next RC, wait for staging to pass, then `bflow finish`.
+
 ### Hotfix
 
 For urgent production fixes:
