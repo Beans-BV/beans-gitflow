@@ -14,6 +14,9 @@ pub struct MockGit {
     pub commit_messages: Vec<String>,
     /// Refs (the `to` arg) that should fail with an error. Used to simulate missing branches.
     pub fail_commit_messages_for: Vec<String>,
+    /// 1-indexed merge call to fail (simulates a merge conflict). None = never fail.
+    pub fail_nth_merge: Option<u32>,
+    merge_call_count: RefCell<u32>,
 }
 
 impl MockGit {
@@ -29,6 +32,8 @@ impl MockGit {
             rev_list_count_result: 0,
             commit_messages: Vec::new(),
             fail_commit_messages_for: Vec::new(),
+            fail_nth_merge: None,
+            merge_call_count: RefCell::new(0),
         }
     }
 
@@ -80,6 +85,11 @@ impl Git for MockGit {
 
     fn merge(&self, branch: &str, message: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("merge:{branch}:{message}"));
+        let mut count = self.merge_call_count.borrow_mut();
+        *count += 1;
+        if Some(*count) == self.fail_nth_merge {
+            return Err(format!("CONFLICT: merge of {branch} failed"));
+        }
         Ok(())
     }
 

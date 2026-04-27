@@ -42,7 +42,7 @@ bflow finish [--breaking] # infers action from current branch type
 - **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`). Use `--breaking` flag in non-interactive mode to skip the prompt.
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch
 - **Release** → merges to main + develop, tags, cleans up
-- **Hotfix** → merges to main + develop, tags, cleans up
+- **Hotfix** → merges to main + develop + every open `release/*`, tags, cleans up. If a release branch already exists, the hotfix is propagated into it so the upcoming release ships the fix; the operator must then run `bflow bump` to cut a new RC for staging validation.
 
 ### Release-only commands
 
@@ -93,7 +93,7 @@ Not available for `start release`.
 | `refactor/{name}` | develop | develop (PR) |
 | `release/{major}.{minor}.{patch}` | develop | main + develop |
 | `release-fix/{v}/{name}` | release/{v} | release/{v} (PR) |
-| `hotfix/{major}.{minor}.{patch}` | main | main + develop |
+| `hotfix/{major}.{minor}.{patch}` | main | main + develop + open `release/*` |
 | `hotfix-fix/{v}/{name}` | hotfix/{v} | hotfix/{v} (PR) |
 
 ## Non-Interactive Environments (AI agents, CI, scripts)
