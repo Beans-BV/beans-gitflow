@@ -101,8 +101,8 @@ fn run_flow(
         Action::StartWorkBranch { prefix, name, from, no_checkout } => {
             start::start_work_branch(git, &prefix, &name, &from, no_checkout)?;
         }
-        Action::StartRelease => {
-            start::start_release(git, None)?;
+        Action::StartRelease(release_type) => {
+            start::start_release(git, release_type)?;
         }
         Action::StartReleaseFix { name, no_checkout } => {
             start::start_release_fix(git, &name, no_checkout)?;

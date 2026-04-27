@@ -1,4 +1,5 @@
 use bflow::cli::{Commands, StartKind, StartOptions, resolve_action};
+use bflow::flows::start::ReleaseType;
 use bflow::git::branch::BranchType;
 use bflow::menu::Action;
 
@@ -142,10 +143,26 @@ fn finish_on_other_branch_errors() {
 
 #[test]
 fn start_release_returns_start_release_action() {
-    let cmd = Commands::Start { kind: StartKind::Release };
+    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: false } };
     let branch_type = BranchType::Develop;
     let action = resolve_action(cmd, &branch_type).unwrap();
-    assert!(matches!(action, Action::StartRelease));
+    assert!(matches!(action, Action::StartRelease(None)));
+}
+
+#[test]
+fn start_release_major_flag() {
+    let cmd = Commands::Start { kind: StartKind::Release { major: true, minor: false } };
+    let branch_type = BranchType::Develop;
+    let action = resolve_action(cmd, &branch_type).unwrap();
+    assert!(matches!(action, Action::StartRelease(Some(ReleaseType::Major))));
+}
+
+#[test]
+fn start_release_minor_flag() {
+    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: true } };
+    let branch_type = BranchType::Develop;
+    let action = resolve_action(cmd, &branch_type).unwrap();
+    assert!(matches!(action, Action::StartRelease(Some(ReleaseType::Minor))));
 }
 
 #[test]

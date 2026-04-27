@@ -173,12 +173,14 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout]
 bflow start chore --name <name> [--base <branch>] [--no-checkout]
 bflow start docs --name <name> [--base <branch>] [--no-checkout]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout]
-bflow start release
+bflow start release [--major | --minor]
 bflow start release-fix --name <name> [--no-checkout]    # must be on a release branch
 bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
+
+`--major` / `--minor` on `start release` skips the interactive prompt and forces the bump level. Useful for scripts and AI agents.
 
 `--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Designed for [git worktree](https://git-scm.com/docs/git-worktree) workflows. Not available for `start release`.
 

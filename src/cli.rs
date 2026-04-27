@@ -1,5 +1,6 @@
 use clap::{Args, Subcommand};
 use crate::git::branch::BranchType;
+use crate::flows::start::ReleaseType;
 use crate::menu::{self, Action};
 
 #[derive(Subcommand)]
@@ -78,7 +79,12 @@ pub enum StartKind {
         opts: StartOptions,
     },
     /// Start a new release branch (or resume existing)
-    Release,
+    Release {
+        #[arg(long, conflicts_with = "minor")]
+        major: bool,
+        #[arg(long, conflicts_with = "major")]
+        minor: bool,
+    },
     /// Start a release fix branch (must be on a release branch)
     ReleaseFix {
         #[arg(long)]
@@ -115,7 +121,12 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout),
             StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout),
             StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout),
-            StartKind::Release => Ok(Action::StartRelease),
+            StartKind::Release { major, minor } => {
+                let release_type = if major { Some(ReleaseType::Major) }
+                    else if minor { Some(ReleaseType::Minor) }
+                    else { None };
+                Ok(Action::StartRelease(release_type))
+            }
             StartKind::ReleaseFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
                 if !opts.no_checkout {
