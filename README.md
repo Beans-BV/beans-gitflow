@@ -188,11 +188,18 @@ bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or ho
 
 ```bash
 bflow finish [--breaking | --breaking=false]
+bflow finish --abort   # discard an in-progress release/hotfix finish
 ```
 
 Infers the action from the current branch type (e.g., creates PR on work branches, merges + tags on release/hotfix branches).
 
 On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
+
+#### Resuming after a merge conflict
+
+`bflow finish` on **release** and **hotfix** branches is **idempotent**: if a merge into `main`, `develop`, or an open `release/*` branch conflicts, resolve the conflict in your editor, `git commit` the merge, then re-run `bflow finish`. Steps that already completed (merges, tags, pushes, branch deletion) are detected from git state and skipped — the flow continues from the first incomplete step.
+
+State is tracked in `.git/bflow-finish.state` so re-runs work even after HEAD has moved off the source branch during conflict resolution. Use `bflow finish --abort` to discard the in-progress state and start fresh.
 
 ### Release-only commands
 
@@ -302,7 +309,7 @@ gitGraph
 
 The hotfix lands on `main` (production-tagged `v2.6.2`), `develop`, *and* `release/2.7.0`. Because the release branch advances past its previous RC tag, `bflow finish` on the release will refuse to run until the operator runs `bflow bump` to cut `v2.7.0-rc.6` — at which point staging redeploys the *combined* code, so the eventual `v2.7.0` production tag is validated end-to-end. This is the same RC-head guard that protects every release path: production never deploys a tree that hasn't been validated on staging.
 
-If the merge into a release branch conflicts, bflow surfaces the error and **keeps the hotfix branch alive** so you can resolve the conflict and retry. The merges into `main` and `develop` (and the production tag) have already completed at that point — the hotfix is shipped to production; only the propagation to the release branch is left to finish.
+If the merge into a release branch conflicts, bflow surfaces the error and **keeps the hotfix branch alive** so you can resolve the conflict and retry. The merges into `main` and `develop` (and the production tag) have already completed at that point — the hotfix is shipped to production; only the propagation to the release branch is left to finish. Resolve the conflict, `git commit` the merge, and re-run `bflow finish` — already-done steps are skipped and the propagation resumes.
 
 bflow already prevents the related "two open hotfixes" or "two open releases" cases at start-time: [`start.rs`](src/flows/start.rs) reuses an existing branch instead of creating a second one. The only concurrent state allowed is exactly this one — one release + one hotfix.
 
@@ -466,8 +473,9 @@ src/
 ├── flows/
 │   ├── start.rs         — Start work/release-fix/hotfix-fix
 │   ├── finish_work.rs   — PR creation for work branches
-│   ├── finish_release.rs — Bump, sync, finish release
-│   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases
+│   ├── finish_release.rs — Bump, sync, finish release (idempotent)
+│   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
+├── state.rs             — Persisted finish state for conflict recovery
 ├── version.rs           — SemVer parsing and bumping
 └── menu.rs              — Interactive menus via crossterm
 ```

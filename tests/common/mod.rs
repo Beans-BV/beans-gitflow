@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::path::PathBuf;
 use bflow::git::Git;
 use bflow::hosting::HostingPlatform;
 
@@ -17,6 +19,25 @@ pub struct MockGit {
     /// 1-indexed merge call to fail (simulates a merge conflict). None = never fail.
     pub fail_nth_merge: Option<u32>,
     merge_call_count: RefCell<u32>,
+
+    // Idempotency state — branches/tags considered "already done".
+    /// Pairs of (ancestor, descendant) where ancestor is treated as merged into descendant.
+    pub ancestors: HashSet<(String, String)>,
+    /// Existing local tags (idempotent skipping for tag creation).
+    pub existing_tags: HashSet<String>,
+    /// Existing remote tags.
+    pub existing_remote_tags: HashSet<String>,
+    /// Existing local branches.
+    pub existing_local_branches: HashSet<String>,
+    /// Existing remote branches.
+    pub existing_remote_branches: HashSet<String>,
+    /// Branches whose local SHA matches origin's (treated as pushed).
+    pub pushed_branches: HashSet<String>,
+    pub mid_merge: bool,
+    pub unmerged_paths: bool,
+    pub git_dir: PathBuf,
+    /// Stash messages currently in the stash list (most recent first).
+    pub stashes: RefCell<Vec<String>>,
 }
 
 impl MockGit {
@@ -34,6 +55,16 @@ impl MockGit {
             fail_commit_messages_for: Vec::new(),
             fail_nth_merge: None,
             merge_call_count: RefCell::new(0),
+            ancestors: HashSet::new(),
+            existing_tags: HashSet::new(),
+            existing_remote_tags: HashSet::new(),
+            existing_local_branches: HashSet::new(),
+            existing_remote_branches: HashSet::new(),
+            pushed_branches: HashSet::new(),
+            mid_merge: false,
+            unmerged_paths: false,
+            git_dir: PathBuf::from(".git"),
+            stashes: RefCell::new(Vec::new()),
         }
     }
 
@@ -159,6 +190,78 @@ impl Git for MockGit {
             return Err(format!("ref not found: {to}"));
         }
         Ok(self.commit_messages.clone())
+    }
+
+    fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("is_ancestor:{ancestor}:{descendant}"));
+        Ok(self.ancestors.contains(&(ancestor.to_string(), descendant.to_string())))
+    }
+
+    fn tag_exists(&self, tag: &str) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("tag_exists:{tag}"));
+        Ok(self.existing_tags.contains(tag))
+    }
+
+    fn local_branch_exists(&self, branch: &str) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("local_branch_exists:{branch}"));
+        Ok(self.existing_local_branches.contains(branch))
+    }
+
+    fn remote_branch_exists(&self, branch: &str) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("remote_branch_exists:{branch}"));
+        Ok(self.existing_remote_branches.contains(branch))
+    }
+
+    fn remote_tag_exists(&self, tag: &str) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("remote_tag_exists:{tag}"));
+        Ok(self.existing_remote_tags.contains(tag))
+    }
+
+    fn is_pushed(&self, branch: &str) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("is_pushed:{branch}"));
+        Ok(self.pushed_branches.contains(branch))
+    }
+
+    fn is_mid_merge(&self) -> Result<bool, String> {
+        self.calls.borrow_mut().push("is_mid_merge".to_string());
+        Ok(self.mid_merge)
+    }
+
+    fn has_unmerged_paths(&self) -> Result<bool, String> {
+        self.calls.borrow_mut().push("has_unmerged_paths".to_string());
+        Ok(self.unmerged_paths)
+    }
+
+    fn git_dir(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("git_dir".to_string());
+        Ok(self.git_dir.clone())
+    }
+
+    fn rev_parse(&self, refname: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("rev_parse:{refname}"));
+        Ok("abc123".to_string())
+    }
+
+    fn stash_push_with_message(&self, msg: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("stash_push_with_message:{msg}"));
+        self.stashes.borrow_mut().insert(0, msg.to_string());
+        Ok(())
+    }
+
+    fn find_stash_by_message(&self, msg: &str) -> Result<Option<String>, String> {
+        self.calls.borrow_mut().push(format!("find_stash_by_message:{msg}"));
+        let stashes = self.stashes.borrow();
+        for (i, m) in stashes.iter().enumerate() {
+            if m == msg {
+                return Ok(Some(format!("stash@{{{i}}}")));
+            }
+        }
+        Ok(None)
+    }
+
+    fn stash_pop_ref(&self, stash_ref: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("stash_pop_ref:{stash_ref}"));
+        Ok(())
     }
 }
 

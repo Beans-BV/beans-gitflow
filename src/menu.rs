@@ -392,6 +392,7 @@ pub enum Action {
     FinishRelease,
     FinishHotfix,
     FinishHotfixFix,
+    AbortFinish,
     BumpVersion,
     SyncWithDevelop,
 }
