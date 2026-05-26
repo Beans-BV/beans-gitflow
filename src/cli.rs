@@ -1,5 +1,6 @@
 use clap::{Args, Subcommand};
 use crate::git::branch::BranchType;
+use crate::flows::start::ReleaseType;
 use crate::menu::{self, Action};
 
 #[derive(Subcommand)]
@@ -9,13 +10,18 @@ pub enum Commands {
         #[command(subcommand)]
         kind: StartKind,
     },
-    /// Finish the current branch (infers action from branch type)
+    /// Finish the current branch (infers action from branch type).
+    /// If an in-progress release/hotfix finish was interrupted (e.g. by a merge
+    /// conflict), re-running this command resumes from the first incomplete step.
     Finish {
         /// Mark PR as containing breaking changes (adds ! to commit type).
         /// Omit to prompt interactively. Use --breaking (true) or --breaking=false
         /// to skip the prompt non-interactively.
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         breaking: Option<bool>,
+        /// Discard any in-progress finish state without running the flow.
+        #[arg(long, conflicts_with = "breaking")]
+        abort: bool,
     },
     /// Bump the patch version on the current release branch
     Bump,
@@ -78,7 +84,12 @@ pub enum StartKind {
         opts: StartOptions,
     },
     /// Start a new release branch (or resume existing)
-    Release,
+    Release {
+        #[arg(long, conflicts_with = "minor")]
+        major: bool,
+        #[arg(long, conflicts_with = "major")]
+        minor: bool,
+    },
     /// Start a release fix branch (must be on a release branch)
     ReleaseFix {
         #[arg(long)]
@@ -115,7 +126,12 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout),
             StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout),
             StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout),
-            StartKind::Release => Ok(Action::StartRelease),
+            StartKind::Release { major, minor } => {
+                let release_type = if major { Some(ReleaseType::Major) }
+                    else if minor { Some(ReleaseType::Minor) }
+                    else { None };
+                Ok(Action::StartRelease(release_type))
+            }
             StartKind::ReleaseFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
                 if !opts.no_checkout {
@@ -131,22 +147,27 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout })
             }
         },
-        Commands::Finish { breaking } => match branch_type {
-            BranchType::Main | BranchType::Develop => {
-                Err("Nothing to finish on this branch.".to_string())
+        Commands::Finish { breaking, abort } => {
+            if abort {
+                return Ok(Action::AbortFinish);
             }
-            BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
-            | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
-                Ok(Action::FinishWorkBranch { breaking })
+            match branch_type {
+                BranchType::Main | BranchType::Develop => {
+                    Err("Nothing to finish on this branch.".to_string())
+                }
+                BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
+                | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
+                    Ok(Action::FinishWorkBranch { breaking })
+                }
+                BranchType::Release { .. } => Ok(Action::FinishRelease),
+                BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),
+                BranchType::Hotfix { .. } => Ok(Action::FinishHotfix),
+                BranchType::HotfixFix { .. } => Ok(Action::FinishHotfixFix),
+                BranchType::Other => {
+                    Err("Not on a recognized gitflow branch.".to_string())
+                }
             }
-            BranchType::Release { .. } => Ok(Action::FinishRelease),
-            BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),
-            BranchType::Hotfix { .. } => Ok(Action::FinishHotfix),
-            BranchType::HotfixFix { .. } => Ok(Action::FinishHotfixFix),
-            BranchType::Other => {
-                Err("Not on a recognized gitflow branch.".to_string())
-            }
-        },
+        }
         Commands::Bump => {
             require_release_branch(branch_type)?;
             Ok(Action::BumpVersion)

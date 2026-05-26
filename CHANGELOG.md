@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-05-26
+
+### Added
+- Idempotent `bflow finish` for release and hotfix flows — re-running after a merge conflict resumes from the first incomplete step. Steps already completed (merges, tags, pushes, branch deletion) are detected from real git state and skipped.
+- `bflow finish --abort` discards an in-progress finish state.
+- Hotfix propagation into open `release/*` branches — when a hotfix is finished while a release branch exists, the fix is merged into the release too so the upcoming release ships it; the operator runs `bflow bump` afterward to cut a new RC.
+- `bflow start release --major` / `--minor` flags to skip the interactive prompt in non-interactive contexts (CI, AI agents, scripts).
+
+### Fixed
+- `bflow finish` on a release branch dispatches correctly after a develop-merge conflict — state file consultation now precedes the branch-eligibility check so resume works from any branch.
+- Release/hotfix cleanup switches off the source branch before deletion when HEAD is still on it (resume paths that skipped the develop merge).
+- Edge cases in the prior release finish flow ([#7](https://github.com/Beans-BV/beans-gitflow/pull/7)).
+
 ## [2.0.0] - 2026-04-14
 
 ### Changed
@@ -93,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[2.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.1...v2.0.0
 [1.2.1]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.1.1...v1.2.0

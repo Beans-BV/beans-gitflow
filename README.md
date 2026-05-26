@@ -82,7 +82,7 @@ gitGraph
 | `refactor/{name}` | `develop` | `develop` (PR) | Code restructuring |
 | `release/{major}.{minor}.{patch}` | `develop` | `main` + `develop` | Release preparation |
 | `release-fix/{v}/{name}` | `release/{v}` | `release/{v}` (PR) | Fixes during release |
-| `hotfix/{major}.{minor}.{patch}` | `main` | `main` + `develop` | Urgent production fix |
+| `hotfix/{major}.{minor}.{patch}` | `main` | `main` + `develop` + open `release/*` | Urgent production fix |
 | `hotfix-fix/{v}/{name}` | `hotfix/{v}` | `hotfix/{v}` (PR) | Fixes during hotfix |
 
 ## How It Works
@@ -173,12 +173,14 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout]
 bflow start chore --name <name> [--base <branch>] [--no-checkout]
 bflow start docs --name <name> [--base <branch>] [--no-checkout]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout]
-bflow start release
+bflow start release [--major | --minor]
 bflow start release-fix --name <name> [--no-checkout]    # must be on a release branch
 bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
+
+`--major` / `--minor` on `start release` skips the interactive prompt and forces the bump level. Useful for scripts and AI agents.
 
 `--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Designed for [git worktree](https://git-scm.com/docs/git-worktree) workflows. Not available for `start release`.
 
@@ -186,11 +188,18 @@ bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or ho
 
 ```bash
 bflow finish [--breaking | --breaking=false]
+bflow finish --abort   # discard an in-progress release/hotfix finish
 ```
 
 Infers the action from the current branch type (e.g., creates PR on work branches, merges + tags on release/hotfix branches).
 
 On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
+
+#### Resuming after a merge conflict
+
+`bflow finish` on **release** and **hotfix** branches is **idempotent**: if a merge into `main`, `develop`, or an open `release/*` branch conflicts, resolve the conflict in your editor, `git commit` the merge, then re-run `bflow finish`. Steps that already completed (merges, tags, pushes, branch deletion) are detected from git state and skipped — the flow continues from the first incomplete step.
+
+State is tracked in `.git/bflow-finish.state` so re-runs work even after HEAD has moved off the source branch during conflict resolution. Use `bflow finish --abort` to discard the in-progress state and start fresh.
 
 ### Release-only commands
 
@@ -275,6 +284,35 @@ sequenceDiagram
     Note over H: Branch deleted
 ```
 
+#### Hotfix while a release is in flight
+
+When a hotfix is finished and a `release/*` branch is open, bflow also propagates the fix into every open release branch (after `main` and `develop`, before cleanup). Without this, the upcoming release would ship a tree that was never validated on staging in its final form — staging deployed the release without the hotfix, and the release-into-main merge would produce a combined tree at production-tag time that no RC ever covered.
+
+```mermaid
+gitGraph
+    commit id: "v2.6.1" tag: "v2.6.1"
+    branch develop
+    commit id: "dev work"
+    branch release/2.7.0
+    commit id: "release prep" tag: "v2.7.0-rc.5"
+    checkout main
+    branch hotfix/2.6.2
+    commit id: "fix: prod crash"
+    checkout main
+    merge hotfix/2.6.2 tag: "v2.6.2"
+    checkout develop
+    merge hotfix/2.6.2
+    checkout release/2.7.0
+    merge hotfix/2.6.2
+    commit id: "bflow bump" tag: "v2.7.0-rc.6"
+```
+
+The hotfix lands on `main` (production-tagged `v2.6.2`), `develop`, *and* `release/2.7.0`. Because the release branch advances past its previous RC tag, `bflow finish` on the release will refuse to run until the operator runs `bflow bump` to cut `v2.7.0-rc.6` — at which point staging redeploys the *combined* code, so the eventual `v2.7.0` production tag is validated end-to-end. This is the same RC-head guard that protects every release path: production never deploys a tree that hasn't been validated on staging.
+
+If the merge into a release branch conflicts, bflow surfaces the error and **keeps the hotfix branch alive** so you can resolve the conflict and retry. The merges into `main` and `develop` (and the production tag) have already completed at that point — the hotfix is shipped to production; only the propagation to the release branch is left to finish. Resolve the conflict, `git commit` the merge, and re-run `bflow finish` — already-done steps are skipped and the propagation resumes.
+
+bflow already prevents the related "two open hotfixes" or "two open releases" cases at start-time: [`start.rs`](src/flows/start.rs) reuses an existing branch instead of creating a second one. The only concurrent state allowed is exactly this one — one release + one hotfix.
+
 ## Version Resolution
 
 When starting a release-fix or hotfix-fix, bflow automatically resolves the integration branch:
@@ -321,6 +359,7 @@ Merge commits and tags also follow the convention:
 - `chore: merge hotfix 2.5.4 into main`
 - `chore: hotfix 2.5.4` (tag message)
 - `chore: merge hotfix 2.5.4 into develop`
+- `chore: merge hotfix 2.5.4 into release/2.6.0` (when a release branch is open)
 
 ## CI Integration
 
@@ -434,8 +473,9 @@ src/
 ├── flows/
 │   ├── start.rs         — Start work/release-fix/hotfix-fix
 │   ├── finish_work.rs   — PR creation for work branches
-│   ├── finish_release.rs — Bump, sync, finish release
-│   └── finish_hotfix.rs — Finish hotfix with auto-tag
+│   ├── finish_release.rs — Bump, sync, finish release (idempotent)
+│   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
+├── state.rs             — Persisted finish state for conflict recovery
 ├── version.rs           — SemVer parsing and bumping
 └── menu.rs              — Interactive menus via crossterm
 ```

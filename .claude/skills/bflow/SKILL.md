@@ -28,7 +28,7 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout]
 bflow start chore --name <name> [--base <branch>] [--no-checkout]
 bflow start docs --name <name> [--base <branch>] [--no-checkout]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout]
-bflow start release # from develop, prompts major/minor (preselects based on breaking changes)
+bflow start release [--major | --minor] # from develop, prompts if no flag given
 bflow start release-fix --name <name> [--no-checkout]
 bflow start hotfix-fix --name <name> [--no-checkout]
 ```
@@ -36,13 +36,24 @@ bflow start hotfix-fix --name <name> [--no-checkout]
 ### Finish current branch
 
 ```bash
-bflow finish [--breaking] # infers action from current branch type
+bflow finish [--breaking]  # infers action from current branch type
+bflow finish --abort       # discard an in-progress release/hotfix finish
 ```
 
 - **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`). Use `--breaking` flag in non-interactive mode to skip the prompt.
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch
 - **Release** → merges to main + develop, tags, cleans up
-- **Hotfix** → merges to main + develop, tags, cleans up
+- **Hotfix** → merges to main + develop + every open `release/*`, tags, cleans up. If a release branch already exists, the hotfix is propagated into it so the upcoming release ships the fix; the operator must then run `bflow bump` to cut a new RC for staging validation.
+
+### Resuming after a merge conflict
+
+`bflow finish` for **release** and **hotfix** branches is **idempotent**: re-running it after a merge conflict resumes from the first incomplete step. Recovery procedure:
+
+1. Resolve the conflict in your editor.
+2. `git add` the resolved files and `git commit` to complete the merge.
+3. Re-run `bflow finish` — already-done steps (merges, tags, pushes, branch deletion) are detected and skipped.
+
+You may be on any branch when re-running (main, develop, a release branch); state is tracked in `.git/bflow-finish.state`. Use `bflow finish --abort` to discard the in-progress state if you want to bail out.
 
 ### Release-only commands
 
@@ -93,7 +104,7 @@ Not available for `start release`.
 | `refactor/{name}` | develop | develop (PR) |
 | `release/{major}.{minor}.{patch}` | develop | main + develop |
 | `release-fix/{v}/{name}` | release/{v} | release/{v} (PR) |
-| `hotfix/{major}.{minor}.{patch}` | main | main + develop |
+| `hotfix/{major}.{minor}.{patch}` | main | main + develop + open `release/*` |
 | `hotfix-fix/{v}/{name}` | hotfix/{v} | hotfix/{v} (PR) |
 
 ## Non-Interactive Environments (AI agents, CI, scripts)

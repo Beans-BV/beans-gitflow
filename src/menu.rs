@@ -5,6 +5,7 @@ use crossterm::{
     style::{self, Stylize},
     terminal,
 };
+use crate::flows::start::ReleaseType;
 use crate::git::branch::BranchType;
 
 #[derive(Debug, Clone, Copy)]
@@ -318,7 +319,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let idx = show_select("What would you like to do?", &labels)?;
             let option = DevelopOption::ALL[idx];
             match option {
-                DevelopOption::StartRelease => Ok(Action::StartRelease),
+                DevelopOption::StartRelease => Ok(Action::StartRelease(None)),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
                     Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false })
@@ -383,7 +384,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
 #[derive(Debug, PartialEq)]
 pub enum Action {
     StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool },
-    StartRelease,
+    StartRelease(Option<ReleaseType>),
     StartReleaseFix { name: String, no_checkout: bool },
     StartHotfixFix { name: String, no_checkout: bool },
     FinishWorkBranch { breaking: Option<bool> },
@@ -391,6 +392,7 @@ pub enum Action {
     FinishRelease,
     FinishHotfix,
     FinishHotfixFix,
+    AbortFinish,
     BumpVersion,
     SyncWithDevelop,
 }
@@ -400,7 +402,7 @@ impl Action {
         matches!(
             self,
             Action::StartWorkBranch { .. }
-                | Action::StartRelease
+                | Action::StartRelease(_)
                 | Action::StartReleaseFix { .. }
                 | Action::StartHotfixFix { .. }
         )

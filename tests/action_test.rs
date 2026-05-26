@@ -4,7 +4,7 @@ use bflow::menu::Action;
 fn start_actions_return_true() {
     let actions = vec![
         Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false },
-        Action::StartRelease,
+        Action::StartRelease(None),
         Action::StartReleaseFix { name: "x".into(), no_checkout: false },
         Action::StartHotfixFix { name: "x".into(), no_checkout: false },
     ];
@@ -66,7 +66,7 @@ fn no_checkout_returns_true_for_start_hotfix_fix() {
 #[test]
 fn no_checkout_returns_false_for_non_start_actions() {
     let actions: Vec<Action> = vec![
-        Action::StartRelease,
+        Action::StartRelease(None),
         Action::FinishWorkBranch { breaking: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
