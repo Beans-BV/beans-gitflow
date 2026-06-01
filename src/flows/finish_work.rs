@@ -3,14 +3,19 @@ use crate::git::branch::BranchType;
 use crate::hosting::HostingPlatform;
 use crate::menu;
 
-fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, title: &str) -> Result<(), String> {
+fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, title: &str, branch_type: &BranchType) -> Result<(), String> {
     let current = git.current_branch()?;
 
     println!("Pushing branch: {current}");
     git.push(&current)?;
 
+    let template = crate::hosting::template::resolve(branch_type);
+    if let Some(path) = &template {
+        println!("Using PR template: {}", path.display());
+    }
+
     println!("Creating PR: {title} → {base}");
-    let url = hosting.create_or_get_pr(&current, base, title)?;
+    let url = hosting.create_or_get_pr(&current, base, title, template.as_deref().and_then(|p| p.to_str()))?;
     println!("PR: {url}");
     hosting.open_url(&url)?;
 
@@ -92,7 +97,7 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
         format!("{commit_type}: {name}")
     };
 
-    push_and_create_pr(git, hosting, &base, &title)
+    push_and_create_pr(git, hosting, &base, &title, branch_type)
 }
 
 fn commonly_breaking(commit_type: &str) -> bool {
@@ -104,10 +109,16 @@ fn prompt_breaking_change() -> Result<bool, String> {
     Ok(idx == 1)
 }
 
-pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, major: u32, minor: u32, patch: u32, name: &str) -> Result<(), String> {
-    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &format!("fix: {name}"))
+pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
+    let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
+        return Err("Cannot finish: not on a release-fix branch".to_string());
+    };
+    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &format!("fix: {name}"), branch_type)
 }
 
-pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, major: u32, minor: u32, patch: u32, name: &str) -> Result<(), String> {
-    push_and_create_pr(git, hosting, &format!("hotfix/{major}.{minor}.{patch}"), &format!("fix: {name}"))
+pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
+    let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
+        return Err("Cannot finish: not on a hotfix-fix branch".to_string());
+    };
+    push_and_create_pr(git, hosting, &format!("hotfix/{major}.{minor}.{patch}"), &format!("fix: {name}"), branch_type)
 }
