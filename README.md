@@ -201,6 +201,26 @@ On feature, fix, and refactor branches, `bflow finish` asks whether the work con
 
 State is tracked in `.git/bflow-finish.state` so re-runs work even after HEAD has moved off the source branch during conflict resolution. Use `bflow finish --abort` to discard the in-progress state and start fresh.
 
+#### PR templates
+
+When `bflow finish` opens a PR, it picks the body template by branch type. Place templates in `.github/pr-templates/` named `bflow-<key>.md`. Resolution is most-specific first:
+
+1. **Branch-specific** — `bflow-<type>.md` (e.g. `bflow-release-fix.md`)
+2. **Group** — the fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`; every other type's group equals its own name
+3. **Default** — `bflow-default.md`
+4. **Git default** — the repo's own `.github/PULL_REQUEST_TEMPLATE.md` (and the other paths `gh` recognizes), else an empty body
+
+| File | Applies to |
+|------|-----------|
+| `bflow-feature.md` | `feature/*` |
+| `bflow-fix.md` | the fix family — `fix/*`, `release-fix/*`, `hotfix-fix/*` (unless overridden below) |
+| `bflow-release-fix.md` | only `release-fix/*` (overrides `bflow-fix.md`) |
+| `bflow-hotfix-fix.md` | only `hotfix-fix/*` (overrides `bflow-fix.md`) |
+| `bflow-chore.md` / `bflow-docs.md` / `bflow-refactor.md` | `chore/*` / `docs/*` / `refactor/*` |
+| `bflow-default.md` | any PR with no more specific match |
+
+The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls back to the existing git default behavior unchanged.
+
 ### Release-only commands
 
 ```bash

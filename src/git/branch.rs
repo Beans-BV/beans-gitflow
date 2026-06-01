@@ -95,6 +95,23 @@ impl BranchType {
         matches!(self, Self::Feature { .. } | Self::Fix { .. } | Self::Chore { .. } | Self::Docs { .. } | Self::Refactor { .. })
     }
 
+    /// PR-template lookup keys as `(specific, group)` for branch types that open a PR.
+    /// The fix family (`fix`, `release-fix`, `hotfix-fix`) shares the `fix` group; for
+    /// every other type the group equals the specific key. Returns `None` for branches
+    /// that never open a PR (main, develop, release, hotfix, other).
+    pub fn pr_template_keys(&self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Feature { .. } => Some(("feature", "feature")),
+            Self::Fix { .. } => Some(("fix", "fix")),
+            Self::Chore { .. } => Some(("chore", "chore")),
+            Self::Docs { .. } => Some(("docs", "docs")),
+            Self::Refactor { .. } => Some(("refactor", "refactor")),
+            Self::ReleaseFix { .. } => Some(("release-fix", "fix")),
+            Self::HotfixFix { .. } => Some(("hotfix-fix", "fix")),
+            _ => None,
+        }
+    }
+
     fn new_feature(name: String) -> Self { Self::Feature { name } }
     fn new_fix(name: String) -> Self { Self::Fix { name } }
     fn new_chore(name: String) -> Self { Self::Chore { name } }
@@ -105,5 +122,34 @@ impl BranchType {
         let parts: Vec<&str> = s.splitn(3, '.').collect();
         if parts.len() != 3 { return None; }
         Some((parts[0].parse().ok()?, parts[1].parse().ok()?, parts[2].parse().ok()?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pr_template_keys_for_work_branches() {
+        assert_eq!(BranchType::parse("feature/x").pr_template_keys(), Some(("feature", "feature")));
+        assert_eq!(BranchType::parse("fix/x").pr_template_keys(), Some(("fix", "fix")));
+        assert_eq!(BranchType::parse("chore/x").pr_template_keys(), Some(("chore", "chore")));
+        assert_eq!(BranchType::parse("docs/x").pr_template_keys(), Some(("docs", "docs")));
+        assert_eq!(BranchType::parse("refactor/x").pr_template_keys(), Some(("refactor", "refactor")));
+    }
+
+    #[test]
+    fn fix_family_shares_fix_group() {
+        assert_eq!(BranchType::parse("release-fix/1.2.0/x").pr_template_keys(), Some(("release-fix", "fix")));
+        assert_eq!(BranchType::parse("hotfix-fix/1.2.0/x").pr_template_keys(), Some(("hotfix-fix", "fix")));
+    }
+
+    #[test]
+    fn pr_template_keys_none_for_non_pr_branches() {
+        assert_eq!(BranchType::parse("main").pr_template_keys(), None);
+        assert_eq!(BranchType::parse("develop").pr_template_keys(), None);
+        assert_eq!(BranchType::parse("release/1.2.0").pr_template_keys(), None);
+        assert_eq!(BranchType::parse("hotfix/1.2.0").pr_template_keys(), None);
+        assert_eq!(BranchType::parse("whatever").pr_template_keys(), None);
     }
 }

@@ -55,6 +55,17 @@ bflow finish --abort       # discard an in-progress release/hotfix finish
 
 You may be on any branch when re-running (main, develop, a release branch); state is tracked in `.git/bflow-finish.state`. Use `bflow finish --abort` to discard the in-progress state if you want to bail out.
 
+### PR templates
+
+PR bodies resolve from `.github/pr-templates/bflow-<key>.md`, most-specific first:
+
+1. Branch-specific: `bflow-<type>.md` (e.g. `bflow-release-fix.md`)
+2. Group: the fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`; other types' group == their own name
+3. `bflow-default.md`
+4. Repo's git default (`.github/PULL_REQUEST_TEMPLATE.md` etc.), else empty body
+
+Opt-in: with no `.github/pr-templates/`, behavior is unchanged.
+
 ### Release-only commands
 
 ```bash

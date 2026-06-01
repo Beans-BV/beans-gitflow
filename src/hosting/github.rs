@@ -19,23 +19,27 @@ impl GitHub {
 }
 
 impl HostingPlatform for GitHub {
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str) -> Result<String> {
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
         let existing = self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]);
         if let Ok(url) = existing {
             if !url.is_empty() { return Ok(url); }
         }
 
-        let template_paths = [
+        // A bflow-resolved template (branch-specific/group/default) wins; otherwise fall
+        // back to the repository's own default PR template, then to an empty body.
+        let git_default_paths = [
             ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/pull_request_template.md",
             "PULL_REQUEST_TEMPLATE.md",
             "pull_request_template.md",
             "docs/pull_request_template.md",
         ];
-        let template = template_paths.iter().find(|p| std::path::Path::new(p).exists());
+        let body_file = template
+            .map(|p| p.to_string())
+            .or_else(|| git_default_paths.iter().find(|p| std::path::Path::new(p).exists()).map(|p| p.to_string()));
 
-        if let Some(path) = template {
-            self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body-file", path])
+        if let Some(path) = body_file {
+            self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body-file", &path])
         } else {
             self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body", ""])
         }

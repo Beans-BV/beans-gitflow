@@ -266,16 +266,10 @@ fn run_flow(
             finish_work::finish_work_branch(git, hosting, branch_type, *breaking)?;
         }
         Action::FinishReleaseFix => {
-            let BranchType::ReleaseFix { major, minor, patch, name, .. } = branch_type else {
-                unreachable!("FinishReleaseFix action only from ReleaseFix branch");
-            };
-            finish_work::finish_release_fix(git, hosting, *major, *minor, *patch, name)?;
+            finish_work::finish_release_fix(git, hosting, branch_type)?;
         }
         Action::FinishHotfixFix => {
-            let BranchType::HotfixFix { major, minor, patch, name, .. } = branch_type else {
-                unreachable!("FinishHotfixFix action only from HotfixFix branch");
-            };
-            finish_work::finish_hotfix_fix(git, hosting, *major, *minor, *patch, name)?;
+            finish_work::finish_hotfix_fix(git, hosting, branch_type)?;
         }
         Action::BumpVersion => {
             let BranchType::Release { major, minor, .. } = branch_type else {
