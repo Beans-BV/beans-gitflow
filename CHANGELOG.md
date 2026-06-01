@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-06-01
+
+### Added
+- Branch-aware PR templates — `bflow finish` selects the PR body by branch type, resolving most-specific first: branch-specific (`.github/pr-templates/bflow-<type>.md`) → group → `bflow-default.md` → the repo's existing git default. The fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`, with optional per-branch overrides like `bflow-release-fix.md`. Opt-in: with no `.github/pr-templates/` directory, behavior is unchanged ([#8](https://github.com/Beans-BV/beans-gitflow/pull/8)).
+
 ## [2.1.0] - 2026-05-26
 
 ### Added
@@ -106,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[2.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.1...v2.0.0
 [1.2.1]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.0...v1.2.1
