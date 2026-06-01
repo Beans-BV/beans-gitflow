@@ -284,8 +284,9 @@ impl MockHosting {
 }
 
 impl HostingPlatform for MockHosting {
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str) -> Result<String, String> {
-        self.calls.borrow_mut().push(format!("create_or_get_pr:{head}:{base}:{title}"));
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String, String> {
+        let suffix = template.map(|t| format!(":template={t}")).unwrap_or_default();
+        self.calls.borrow_mut().push(format!("create_or_get_pr:{head}:{base}:{title}{suffix}"));
         Ok(self.pr_url.clone())
     }
 

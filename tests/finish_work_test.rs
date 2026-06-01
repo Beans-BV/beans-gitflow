@@ -9,8 +9,9 @@ fn finish_release_fix_pushes_and_creates_pr() {
     let mut git = MockGit::new();
     git.current_branch = "release-fix/1.1.0/login-bug".to_string();
     let hosting = MockHosting::new();
+    let branch_type = BranchType::ReleaseFix { major: 1, minor: 1, patch: 0, name: "login-bug".to_string() };
 
-    finish_release_fix(&git, &hosting, 1, 1, 0, "login-bug").unwrap();
+    finish_release_fix(&git, &hosting, &branch_type).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
@@ -28,8 +29,9 @@ fn finish_hotfix_fix_pushes_and_creates_pr() {
     let mut git = MockGit::new();
     git.current_branch = "hotfix-fix/1.0.1/crash-fix".to_string();
     let hosting = MockHosting::new();
+    let branch_type = BranchType::HotfixFix { major: 1, minor: 0, patch: 1, name: "crash-fix".to_string() };
 
-    finish_hotfix_fix(&git, &hosting, 1, 0, 1, "crash-fix").unwrap();
+    finish_hotfix_fix(&git, &hosting, &branch_type).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
@@ -48,8 +50,9 @@ fn finish_release_fix_with_custom_pr_url() {
     git.current_branch = "release-fix/2.0.0/typo".to_string();
     let mut hosting = MockHosting::new();
     hosting.pr_url = "https://github.com/org/repo/pull/42".to_string();
+    let branch_type = BranchType::ReleaseFix { major: 2, minor: 0, patch: 0, name: "typo".to_string() };
 
-    finish_release_fix(&git, &hosting, 2, 0, 0, "typo").unwrap();
+    finish_release_fix(&git, &hosting, &branch_type).unwrap();
 
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:release-fix/2.0.0/typo:release/2.0.0:fix: typo",
