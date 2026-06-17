@@ -256,3 +256,26 @@ fn finish_release_fully_idempotent_no_op_on_second_run() {
     assert!(!calls.iter().any(|c| c.starts_with("push:")));
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")));
 }
+
+// --- Conflict guidance: every merge step must tell the user to switch back ---
+
+#[test]
+fn finish_release_main_merge_conflict_names_source_branch_to_switch_back() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
+    git.fail_nth_merge = Some(1); // main merge
+
+    let err = finish_release(&git, 1, 1).unwrap_err();
+    assert!(err.contains("git switch release/1.1.0"),
+        "main conflict should tell user to switch back to the release branch; got: {err}");
+    assert!(err.contains("bflow finish"), "should mention re-running bflow finish; got: {err}");
+}
+
+#[test]
+fn finish_release_develop_merge_conflict_names_source_branch_to_switch_back() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
+    git.fail_nth_merge = Some(2); // develop merge
+
+    let err = finish_release(&git, 1, 1).unwrap_err();
+    assert!(err.contains("git switch release/1.1.0"),
+        "develop conflict should tell user to switch back to the release branch; got: {err}");
+}

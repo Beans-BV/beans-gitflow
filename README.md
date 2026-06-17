@@ -197,9 +197,16 @@ On feature, fix, and refactor branches, `bflow finish` asks whether the work con
 
 #### Resuming after a merge conflict
 
-`bflow finish` on **release** and **hotfix** branches is **idempotent**: if a merge into `main`, `develop`, or an open `release/*` branch conflicts, resolve the conflict in your editor, `git commit` the merge, then re-run `bflow finish`. Steps that already completed (merges, tags, pushes, branch deletion) are detected from git state and skipped — the flow continues from the first incomplete step.
+`bflow finish` on **release** and **hotfix** branches is **idempotent**: if a merge into `main`, `develop`, or an open `release/*` branch conflicts, resolve the conflict in your editor and `git commit` the merge. A conflict usually leaves HEAD on the target branch (e.g. `develop`), so to continue you **switch back to the source branch and re-run `bflow finish`**:
 
-State is tracked in `.git/bflow-finish.state` so re-runs work even after HEAD has moved off the source branch during conflict resolution. Use `bflow finish --abort` to discard the in-progress state and start fresh.
+```bash
+git switch hotfix/2.5.2   # back to the branch that started the finish
+bflow finish              # resumes; already-done steps are skipped
+```
+
+Steps that already completed (merges, tags, pushes, branch deletion) are detected from git state and skipped — the flow continues from the first incomplete step. The conflict message names the exact branch to switch back to.
+
+**Resume is branch-scoped.** Each in-progress finish is tracked in its own file under `.git/bflow-finish/` (e.g. `hotfix-2.5.2.state`), keyed by the source branch. bflow only resumes when you are standing on that source branch — from `develop`, `main`, or any `feature/*` branch it behaves normally, so a stalled finish never blocks other work. Two finishes (e.g. a release and a hotfix) can be in progress at once without colliding. Use `bflow finish --abort` from the source branch to discard its in-progress state and start fresh.
 
 #### PR templates
 

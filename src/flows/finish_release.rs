@@ -1,3 +1,4 @@
+use crate::flows::resume_hint;
 use crate::git::Git;
 use crate::version::SemVer;
 
@@ -69,7 +70,8 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         println!("Merging into main...");
         git.checkout("main")?;
         git.pull("origin/main")?;
-        git.merge(&release_branch, &format!("chore: merge release {release} into main"))?;
+        git.merge(&release_branch, &format!("chore: merge release {release} into main"))
+            .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
     } else {
         println!("↷ skipped: merge into main (already merged)");
     }
@@ -101,7 +103,8 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         println!("Merging into develop...");
         git.checkout("develop")?;
         git.pull("origin/develop")?;
-        git.merge(&release_branch, &format!("chore: merge release {release} into develop"))?;
+        git.merge(&release_branch, &format!("chore: merge release {release} into develop"))
+            .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
     } else {
         println!("↷ skipped: merge into develop (already merged)");
     }

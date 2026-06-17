@@ -328,3 +328,26 @@ fn finish_hotfix_resume_when_branch_already_deleted_is_idempotent() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "deletions should be skipped; calls: {calls:?}");
 }
+
+// --- Conflict guidance: every merge step must tell the user to switch back ---
+
+#[test]
+fn finish_hotfix_main_merge_conflict_names_source_branch_to_switch_back() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.fail_nth_merge = Some(1); // main merge
+
+    let err = finish_hotfix(&git, 1, 0, 1).unwrap_err();
+    assert!(err.contains("git switch hotfix/1.0.1"),
+        "main conflict should tell user to switch back to the hotfix branch; got: {err}");
+    assert!(err.contains("bflow finish"), "should mention re-running bflow finish; got: {err}");
+}
+
+#[test]
+fn finish_hotfix_develop_merge_conflict_names_source_branch_to_switch_back() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.fail_nth_merge = Some(2); // develop merge
+
+    let err = finish_hotfix(&git, 1, 0, 1).unwrap_err();
+    assert!(err.contains("git switch hotfix/1.0.1"),
+        "develop conflict should tell user to switch back to the hotfix branch; got: {err}");
+}
