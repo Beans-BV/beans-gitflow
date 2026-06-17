@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-06-17
+
+### Changed
+- `bflow finish` resume state is now scoped per source branch. An interrupted release/hotfix finish is tracked in its own file under `.git/bflow-finish/` (e.g. `hotfix-2.5.2.state`) and only resumes when you are standing on that source branch. From `develop`, `main`, or any `feature/*` branch, bflow behaves normally — a stalled finish no longer hijacks every command. Two finishes can be in progress at once without colliding, and `bflow finish --abort` is likewise branch-scoped ([#10](https://github.com/Beans-BV/beans-gitflow/pull/10)).
+- Every merge step in the release and hotfix finish flows now appends recovery guidance on conflict, naming the exact source branch to `git switch` back to before re-running `bflow finish`.
+
+### Added
+- Pre-2.4 global `.git/bflow-finish.state` files are migrated automatically into the per-branch folder on first run.
+
 ## [2.3.0] - 2026-06-17
 
 ### Fixed
@@ -116,6 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[2.4.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.0.0...v2.1.0
