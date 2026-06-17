@@ -51,9 +51,10 @@ bflow finish --abort       # discard an in-progress release/hotfix finish
 
 1. Resolve the conflict in your editor.
 2. `git add` the resolved files and `git commit` to complete the merge.
-3. Re-run `bflow finish` — already-done steps (merges, tags, pushes, branch deletion) are detected and skipped.
+3. **Switch back to the source branch** (`git switch <release|hotfix branch>`) — a conflict usually leaves HEAD on the target branch (e.g. develop). The conflict message names the branch.
+4. Re-run `bflow finish` — already-done steps (merges, tags, pushes, branch deletion) are detected and skipped.
 
-You may be on any branch when re-running (main, develop, a release branch); state is tracked in `.git/bflow-finish.state`. Use `bflow finish --abort` to discard the in-progress state if you want to bail out.
+**Resume is branch-scoped.** Each in-progress finish is tracked in its own file under `.git/bflow-finish/` (e.g. `hotfix-2.5.2.state`), keyed by the source branch. bflow resumes **only when you are on that source branch** — from develop/main/feature it behaves normally, so a stalled finish never blocks other work. Two finishes (release + hotfix) can be in progress at once. Run `bflow finish --abort` from the source branch to discard its state. Legacy pre-2.4 `.git/bflow-finish.state` files are migrated automatically.
 
 ### PR templates
 

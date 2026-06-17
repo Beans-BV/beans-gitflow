@@ -45,13 +45,22 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     })?;
     let git_dir = git.git_dir()?;
 
-    // Resume context: if an in-progress finish state exists, it overrides
-    // branch-based dispatch (the user may have moved off the source branch
-    // while resolving conflicts).
-    let resume_state = FinishState::load(&git_dir)?;
+    // One-time upgrade of any pre-2.4 global state file into the per-branch folder.
+    FinishState::migrate_legacy(&git_dir)?;
+
+    let branch_type = BranchType::parse(&branch_name);
+
+    // Resume context: an in-progress finish only resumes when you are standing on
+    // the source branch that started it. From develop/main/feature branches there
+    // is no resume — bflow behaves normally — so a stalled finish never hijacks
+    // other work. To continue after a conflict you switch back to the source
+    // branch and re-run 'bflow finish'.
+    let resume_state = match finish_identity(&branch_type) {
+        Some((kind, major, minor, patch)) => FinishState::load(&git_dir, kind, major, minor, patch)?,
+        None => None,
+    };
 
     // Resolve the action up-front so we can decide whether to fetch / stash / etc.
-    let branch_type = BranchType::parse(&branch_name);
     let action = resolve_action_with_state(command, &branch_type, &branch_name, resume_state.as_ref())?;
 
     // --abort short-circuits before any state-changing operation, even if the repo
@@ -97,9 +106,12 @@ fn run(command: Option<Commands>) -> Result<(), String> {
 
     let result = run_flow(&git, &hosting, &branch_type, &branch_name, &action, no_checkout, resume_state.as_ref());
 
-    // Lifecycle: clear state on success of a release/hotfix finish.
+    // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
+    // finish and a resume run on the source branch, so its identity is available.
     if result.is_ok() && (is_finish_with_state || resume_state.is_some()) {
-        FinishState::clear(&git_dir)?;
+        if let Some((kind, major, minor, patch)) = finish_identity(&branch_type) {
+            FinishState::clear(&git_dir, kind, major, minor, patch)?;
+        }
     }
 
     // Stash pop policy:
@@ -146,9 +158,10 @@ fn resolve_action_with_state(
     }
 
     // For `bflow finish` (or the default interactive path), an in-progress finish
-    // state takes precedence over branch-based dispatch. The user may be on main,
-    // develop, or a release branch after resolving a conflict — all of which would
-    // normally be rejected as "not finishable" by `resolve_action`.
+    // state takes precedence over branch-based dispatch. This state is only ever
+    // present when standing on the source branch (resume is branch-scoped), so it
+    // covers the case where a develop-merge conflict was resolved and the user has
+    // switched back to the release/hotfix branch to continue.
     let is_finish_or_default = matches!(command, Some(Commands::Finish { .. }) | None);
     if is_finish_or_default {
         if let Some(state) = resume_state {
@@ -169,6 +182,21 @@ fn resolve_action_with_state(
     match command {
         None => menu::show_menu(branch_type, branch_name),
         Some(cmd) => resolve_action(cmd, branch_type),
+    }
+}
+
+/// Map a source branch to the (kind, version) identity of its finish state.
+/// Only release and hotfix branches carry finish state; everything else (develop,
+/// main, feature/*) yields None and therefore never resumes.
+fn finish_identity(branch_type: &BranchType) -> Option<(FinishKind, u32, u32, u32)> {
+    match branch_type {
+        BranchType::Release { major, minor, patch } => {
+            Some((FinishKind::Release, *major, *minor, *patch))
+        }
+        BranchType::Hotfix { major, minor, patch } => {
+            Some((FinishKind::Hotfix, *major, *minor, *patch))
+        }
+        _ => None,
     }
 }
 
@@ -205,7 +233,7 @@ fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result
         Some(s) => {
             println!("Aborting in-progress {} finish for {} (started_at={}).",
                 s.kind.as_str(), s.source_branch(), s.started_at);
-            FinishState::clear(git_dir)?;
+            FinishState::clear(git_dir, s.kind, s.major, s.minor, s.patch)?;
             if let Some(msg) = &s.stash_ref {
                 println!("Your original uncommitted changes are still stashed as '{msg}'.");
                 println!("Run 'git stash list' to find it, then 'git stash pop <ref>' to restore.");

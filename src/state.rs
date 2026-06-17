@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const STATE_FILE_NAME: &str = "bflow-finish.state";
+/// Folder under `.git/` holding one state file per in-progress finish.
+pub const STATE_DIR_NAME: &str = "bflow-finish";
+/// Pre-2.4 single global state file, migrated on startup if found.
+pub const LEGACY_STATE_FILE_NAME: &str = "bflow-finish.state";
 pub const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,12 +48,25 @@ impl FinishState {
         }
     }
 
-    pub fn path(git_dir: &Path) -> PathBuf {
-        git_dir.join(STATE_FILE_NAME)
+    /// Directory holding the per-branch state files.
+    pub fn dir(git_dir: &Path) -> PathBuf {
+        git_dir.join(STATE_DIR_NAME)
     }
 
-    pub fn load(git_dir: &Path) -> Result<Option<Self>, String> {
-        let path = Self::path(git_dir);
+    /// State file name for a given source branch, e.g. `hotfix-2.5.2.state`.
+    pub fn file_name(kind: FinishKind, major: u32, minor: u32, patch: u32) -> String {
+        format!("{}-{}.{}.{}.state", kind.as_str(), major, minor, patch)
+    }
+
+    /// Full path to the state file for a specific source branch.
+    pub fn path(git_dir: &Path, kind: FinishKind, major: u32, minor: u32, patch: u32) -> PathBuf {
+        Self::dir(git_dir).join(Self::file_name(kind, major, minor, patch))
+    }
+
+    /// Load the in-progress finish state for one specific source branch.
+    /// Returns `None` when no finish is in progress for that branch.
+    pub fn load(git_dir: &Path, kind: FinishKind, major: u32, minor: u32, patch: u32) -> Result<Option<Self>, String> {
+        let path = Self::path(git_dir, kind, major, minor, patch);
         if !path.exists() {
             return Ok(None);
         }
@@ -60,18 +76,44 @@ impl FinishState {
     }
 
     pub fn save(&self, git_dir: &Path) -> Result<(), String> {
-        let path = Self::path(git_dir);
+        let dir = Self::dir(git_dir);
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
+        let path = Self::path(git_dir, self.kind, self.major, self.minor, self.patch);
         fs::write(&path, self.serialize())
             .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
     }
 
-    pub fn clear(git_dir: &Path) -> Result<(), String> {
-        let path = Self::path(git_dir);
+    /// Remove the state file for one specific source branch. Idempotent.
+    pub fn clear(git_dir: &Path, kind: FinishKind, major: u32, minor: u32, patch: u32) -> Result<(), String> {
+        let path = Self::path(git_dir, kind, major, minor, patch);
         if !path.exists() {
             return Ok(());
         }
         fs::remove_file(&path)
             .map_err(|e| format!("Failed to remove {}: {}", path.display(), e))
+    }
+
+    /// One-time upgrade: move a pre-2.4 global `bflow-finish.state` file into the
+    /// per-branch folder under its own source-branch key. A corrupt legacy file is
+    /// dropped rather than bricking startup — the finish is idempotent and can be
+    /// re-driven from its source branch.
+    pub fn migrate_legacy(git_dir: &Path) -> Result<(), String> {
+        let legacy = git_dir.join(LEGACY_STATE_FILE_NAME);
+        if !legacy.exists() {
+            return Ok(());
+        }
+        let contents = fs::read_to_string(&legacy)
+            .map_err(|e| format!("Failed to read {}: {}", legacy.display(), e))?;
+        match Self::parse(&contents) {
+            Ok(state) => state.save(git_dir)?,
+            Err(e) => eprintln!(
+                "Warning: discarding unreadable legacy finish state {}: {e}",
+                legacy.display()
+            ),
+        }
+        fs::remove_file(&legacy)
+            .map_err(|e| format!("Failed to remove {}: {}", legacy.display(), e))
     }
 
     fn serialize(&self) -> String {
@@ -162,60 +204,135 @@ mod tests {
         dir
     }
 
-    #[test]
-    fn round_trips_release_state() {
-        let dir = tmp_dir();
-        let s = FinishState {
+    fn release(major: u32, minor: u32, patch: u32) -> FinishState {
+        FinishState {
             kind: FinishKind::Release,
-            major: 1, minor: 3, patch: 0,
+            major, minor, patch,
             started_at: "1234".to_string(),
             stash_ref: None,
-        };
-        s.save(&dir).unwrap();
-        let loaded = FinishState::load(&dir).unwrap().unwrap();
-        assert_eq!(loaded, s);
-        assert_eq!(loaded.source_branch(), "release/1.3.0");
-        fs::remove_dir_all(&dir).ok();
+        }
     }
 
-    #[test]
-    fn round_trips_hotfix_state_with_stash() {
-        let dir = tmp_dir();
-        let s = FinishState {
+    fn hotfix(major: u32, minor: u32, patch: u32) -> FinishState {
+        FinishState {
             kind: FinishKind::Hotfix,
-            major: 2, minor: 0, patch: 4,
+            major, minor, patch,
             started_at: "5678".to_string(),
             stash_ref: Some("stash@{0}".to_string()),
-        };
+        }
+    }
+
+    #[test]
+    fn file_name_encodes_kind_and_version() {
+        assert_eq!(FinishState::file_name(FinishKind::Hotfix, 2, 5, 2), "hotfix-2.5.2.state");
+        assert_eq!(FinishState::file_name(FinishKind::Release, 2, 4, 0), "release-2.4.0.state");
+    }
+
+    #[test]
+    fn saves_under_per_branch_path_and_round_trips() {
+        let dir = tmp_dir();
+        let s = hotfix(2, 5, 2);
         s.save(&dir).unwrap();
-        let loaded = FinishState::load(&dir).unwrap().unwrap();
+
+        // File lives in the bflow-finish/ folder, keyed by the source branch.
+        let expected = dir.join(STATE_DIR_NAME).join("hotfix-2.5.2.state");
+        assert!(expected.exists(), "state should be saved at {}", expected.display());
+
+        let loaded = FinishState::load(&dir, FinishKind::Hotfix, 2, 5, 2).unwrap().unwrap();
         assert_eq!(loaded, s);
-        assert_eq!(loaded.source_branch(), "hotfix/2.0.4");
+        assert_eq!(loaded.source_branch(), "hotfix/2.5.2");
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn load_returns_none_when_missing() {
+    fn load_returns_none_for_a_different_branch() {
         let dir = tmp_dir();
-        assert_eq!(FinishState::load(&dir).unwrap(), None);
+        hotfix(2, 5, 2).save(&dir).unwrap();
+
+        // Same version, different kind -> no state for that branch.
+        assert_eq!(FinishState::load(&dir, FinishKind::Release, 2, 5, 2).unwrap(), None);
+        // Different version -> no state.
+        assert_eq!(FinishState::load(&dir, FinishKind::Hotfix, 2, 5, 3).unwrap(), None);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn two_finishes_coexist_without_colliding() {
+        let dir = tmp_dir();
+        let rel = release(2, 4, 0);
+        let hot = hotfix(2, 5, 2);
+        rel.save(&dir).unwrap();
+        hot.save(&dir).unwrap();
+
+        assert_eq!(FinishState::load(&dir, FinishKind::Release, 2, 4, 0).unwrap().unwrap(), rel);
+        assert_eq!(FinishState::load(&dir, FinishKind::Hotfix, 2, 5, 2).unwrap().unwrap(), hot);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn clear_removes_only_the_targeted_branch() {
+        let dir = tmp_dir();
+        release(2, 4, 0).save(&dir).unwrap();
+        hotfix(2, 5, 2).save(&dir).unwrap();
+
+        FinishState::clear(&dir, FinishKind::Hotfix, 2, 5, 2).unwrap();
+
+        assert_eq!(FinishState::load(&dir, FinishKind::Hotfix, 2, 5, 2).unwrap(), None);
+        assert!(FinishState::load(&dir, FinishKind::Release, 2, 4, 0).unwrap().is_some(),
+            "clearing the hotfix must not touch the release state");
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn clear_is_idempotent() {
         let dir = tmp_dir();
-        FinishState::clear(&dir).unwrap();
-        FinishState::clear(&dir).unwrap();
+        FinishState::clear(&dir, FinishKind::Hotfix, 1, 0, 0).unwrap();
+        FinishState::clear(&dir, FinishKind::Hotfix, 1, 0, 0).unwrap();
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn rejects_unknown_schema_version() {
         let dir = tmp_dir();
-        let path = FinishState::path(&dir);
+        let path = FinishState::path(&dir, FinishKind::Release, 1, 0, 0);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "version=99\nkind=release\nmajor=1\nminor=0\npatch=0\nstarted_at=0\n").unwrap();
-        let err = FinishState::load(&dir).unwrap_err();
+        let err = FinishState::load(&dir, FinishKind::Release, 1, 0, 0).unwrap_err();
         assert!(err.contains("Unsupported state file version"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migrate_legacy_moves_global_file_into_per_branch_folder() {
+        let dir = tmp_dir();
+        // Simulate a pre-upgrade global state file.
+        let legacy = dir.join(LEGACY_STATE_FILE_NAME);
+        fs::write(&legacy, release(1, 3, 0).serialize()).unwrap();
+
+        FinishState::migrate_legacy(&dir).unwrap();
+
+        assert!(!legacy.exists(), "legacy file should be removed after migration");
+        let loaded = FinishState::load(&dir, FinishKind::Release, 1, 3, 0).unwrap().unwrap();
+        assert_eq!(loaded.source_branch(), "release/1.3.0");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migrate_legacy_is_noop_without_legacy_file() {
+        let dir = tmp_dir();
+        FinishState::migrate_legacy(&dir).unwrap();
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migrate_legacy_discards_corrupt_global_file() {
+        let dir = tmp_dir();
+        let legacy = dir.join(LEGACY_STATE_FILE_NAME);
+        fs::write(&legacy, "this is not a valid state file").unwrap();
+
+        // A corrupt legacy file must not brick startup; it is dropped.
+        FinishState::migrate_legacy(&dir).unwrap();
+        assert!(!legacy.exists(), "corrupt legacy file should be removed");
         fs::remove_dir_all(&dir).ok();
     }
 }
