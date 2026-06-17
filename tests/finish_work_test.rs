@@ -19,7 +19,7 @@ fn finish_release_fix_pushes_and_creates_pr() {
     ]);
 
     assert_eq!(hosting.calls(), vec![
-        "create_or_get_pr:release-fix/1.1.0/login-bug:release/1.1.0:fix: login-bug",
+        "create_or_get_pr:release-fix/1.1.0/login-bug:release/1.1.0:fix: login bug",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -39,7 +39,7 @@ fn finish_hotfix_fix_pushes_and_creates_pr() {
     ]);
 
     assert_eq!(hosting.calls(), vec![
-        "create_or_get_pr:hotfix-fix/1.0.1/crash-fix:hotfix/1.0.1:fix: crash-fix",
+        "create_or_get_pr:hotfix-fix/1.0.1/crash-fix:hotfix/1.0.1:fix: crash fix",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }

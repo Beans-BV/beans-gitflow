@@ -113,12 +113,14 @@ pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a release-fix branch".to_string());
     };
-    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &format!("fix: {name}"), branch_type)
+    let title = format!("fix: {}", name.replace('-', " "));
+    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &title, branch_type)
 }
 
 pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
     let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
-    push_and_create_pr(git, hosting, &format!("hotfix/{major}.{minor}.{patch}"), &format!("fix: {name}"), branch_type)
+    let title = format!("fix: {}", name.replace('-', " "));
+    push_and_create_pr(git, hosting, &format!("hotfix/{major}.{minor}.{patch}"), &title, branch_type)
 }
