@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-06-17
+
+### Fixed
+- `release-fix` and `hotfix-fix` PR titles now convert dashes in the branch name to spaces (e.g. `hotfix-fix/2.1.0/null-crash` → `fix: null crash`), keeping squash-merged history readable ([#9](https://github.com/Beans-BV/beans-gitflow/pull/9)).
+
 ## [2.2.0] - 2026-06-01
 
 ### Added
@@ -111,6 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[2.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v1.2.1...v2.0.0
