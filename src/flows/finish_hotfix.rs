@@ -1,3 +1,4 @@
+use crate::flows::resume_hint;
 use crate::git::Git;
 use crate::version::SemVer;
 
@@ -13,7 +14,8 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
         println!("Merging into main...");
         git.checkout("main")?;
         git.pull("origin/main")?;
-        git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into main"))?;
+        git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into main"))
+            .map_err(|e| format!("{e}\n{}", resume_hint(&hotfix_branch)))?;
     } else {
         println!("↷ skipped: merge into main (already merged)");
     }
@@ -45,7 +47,8 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
         println!("Merging into develop...");
         git.checkout("develop")?;
         git.pull("origin/develop")?;
-        git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into develop"))?;
+        git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into develop"))
+            .map_err(|e| format!("{e}\n{}", resume_hint(&hotfix_branch)))?;
     } else {
         println!("↷ skipped: merge into develop (already merged)");
     }
@@ -79,8 +82,9 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
             ).map_err(|e| format!(
                 "{e}\n\
                  Hotfix {version} was merged into main and develop, but propagation into {release} failed.\n\
-                 Resolve the conflict on {release}, commit the merge, then re-run 'bflow finish' to continue.\n\
-                 (After all releases are updated, run 'bflow bump' on each to cut a fresh RC for staging.)"
+                 {}\n\
+                 (After all releases are updated, run 'bflow bump' on each to cut a fresh RC for staging.)",
+                resume_hint(&hotfix_branch)
             ))?;
         }
         if !git.is_pushed(release)? {
