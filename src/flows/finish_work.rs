@@ -89,8 +89,13 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     let current = git.current_branch()?;
     let base = match base {
         Some(base) => {
-            if !git.remote_branch_exists(&base)? && !git.local_branch_exists(&base)? {
-                return Err(format!("Base branch '{base}' not found locally or on origin."));
+            if base == current {
+                return Err(format!("Base branch '{base}' is the branch being finished; a PR cannot target its own branch."));
+            }
+            // PRs are created via the hosting platform, so the base must exist on
+            // the remote — a local-only branch would fail later at PR creation.
+            if !git.remote_branch_exists(&base)? {
+                return Err(format!("Base branch '{base}' not found on origin. Push it first (or fetch if it exists remotely)."));
             }
             base
         }

@@ -138,18 +138,38 @@ fn finish_work_branch_with_explicit_base_skips_detection() {
 }
 
 #[test]
-fn finish_work_branch_with_local_only_base_accepted() {
+fn finish_work_branch_with_local_only_base_errors() {
     let mut git = MockGit::new();
     git.current_branch = "feature/login".to_string();
+    // Base exists locally but was never pushed: PR creation would fail on GitHub,
+    // so bflow must reject it up-front instead of pushing and then failing.
     git.existing_local_branches.insert("feature/auth".to_string());
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
-    finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/auth".to_string())).unwrap();
+    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/auth".to_string())).unwrap_err();
 
-    let calls = hosting.calls();
-    assert!(calls[0].starts_with("create_or_get_pr:feature/login:feature/auth:"),
-        "PR should target the local-only base, got: {}", calls[0]);
+    assert!(err.contains("feature/auth") && err.contains("origin"),
+        "Error should name the branch and origin, got: {err}");
+    assert!(!git.calls().iter().any(|c| c.starts_with("push:")),
+        "Nothing should be pushed for an invalid base");
+    assert!(hosting.calls().is_empty(), "No PR should be created for a local-only base");
+}
+
+#[test]
+fn finish_work_branch_with_base_equal_to_current_errors() {
+    let mut git = MockGit::new();
+    git.current_branch = "feature/login".to_string();
+    // The current branch trivially "exists", so without a dedicated guard this
+    // would pass validation and fail later at `gh pr create` with head == base.
+    git.existing_remote_branches.insert("feature/login".to_string());
+    let hosting = MockHosting::new();
+    let branch_type = BranchType::Feature { name: "login".to_string() };
+
+    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/login".to_string())).unwrap_err();
+
+    assert!(err.contains("feature/login"), "Error should name the branch, got: {err}");
+    assert!(hosting.calls().is_empty(), "No PR should be created when base == current");
 }
 
 #[test]

@@ -185,8 +185,13 @@ fn resolve_action_with_state(
     // present when standing on the source branch (resume is branch-scoped), so it
     // covers the case where a develop-merge conflict was resolved and the user has
     // switched back to the release/hotfix branch to continue.
+    // An explicit --base never applies here: resume state only exists on
+    // release/hotfix source branches (see finish_identity), whose finishes have a
+    // fixed target. Skip the resume shortcut so resolve_action rejects the flag
+    // instead of silently ignoring it.
+    let has_explicit_base = matches!(&command, Some(Commands::Finish { base: Some(_), .. }));
     let is_finish_or_default = matches!(command, Some(Commands::Finish { .. }) | None);
-    if is_finish_or_default {
+    if is_finish_or_default && !has_explicit_base {
         if let Some(state) = resume_state {
             eprintln!(
                 "↻ Resuming in-progress {} finish for {} (started_at={}). Use 'bflow finish --abort' to discard.",
@@ -388,4 +393,44 @@ fn check_command_exists(cmd: &str) -> Result<(), String> {
         .output()
         .map_err(|_| format!("'{cmd}' is not installed or not in PATH."))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release_state() -> FinishState {
+        FinishState {
+            kind: FinishKind::Release,
+            major: 2,
+            minor: 5,
+            patch: 0,
+            started_at: "0".to_string(),
+            stash_ref: None,
+        }
+    }
+
+    #[test]
+    fn resume_state_resumes_finish_without_base() {
+        let branch_type = BranchType::Release { major: 2, minor: 5, patch: 0 };
+        let state = release_state();
+        let cmd = Some(Commands::Finish { breaking: None, base: None, abort: false });
+
+        let action = resolve_action_with_state(cmd, &branch_type, "release/2.5.0", Some(&state), false).unwrap();
+
+        assert!(matches!(action, Action::FinishRelease));
+    }
+
+    #[test]
+    fn explicit_base_rejected_even_when_resume_state_exists() {
+        // Regression: the fixed-target --base guard lives in resolve_action, which the
+        // resume early-return used to skip — silently swallowing an invalid --base.
+        let branch_type = BranchType::Release { major: 2, minor: 5, patch: 0 };
+        let state = release_state();
+        let cmd = Some(Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false });
+
+        let err = resolve_action_with_state(cmd, &branch_type, "release/2.5.0", Some(&state), false).unwrap_err();
+
+        assert!(err.contains("--base"), "Expected the fixed-target --base error, got: {err}");
+    }
 }

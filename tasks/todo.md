@@ -27,3 +27,21 @@ Small, KISS change mirroring the existing `--base` on `start`:
   proves the menu is unreached — `show_select` would error without a TTY.
 - Verified: 199 tests green, clippy shows only the 2 pre-existing warnings, real-binary
   help/conflict checks pass, branch finished headlessly with the new flag itself.
+
+## Review fixes (PR #12 feedback)
+Addressed Copilot review + multi-agent code-review findings:
+- [x] `--base` now validated against origin only — local-only bases fail at
+  `gh pr create`, so bflow rejects them up-front (Copilot, all 5 threads).
+  Test flipped: `finish_work_branch_with_local_only_base_errors`.
+- [x] `--base <current-branch>` rejected early instead of failing later with an
+  opaque head==base error from gh.
+- [x] Resume-state bypass fixed: `resolve_action_with_state` no longer takes the
+  resume shortcut when `--base` is present, so the fixed-target rejection in
+  `resolve_action` is reachable again (was silently swallowed during a pending
+  release/hotfix resume). Unit tests added in `src/main.rs`.
+- [x] DRY: fixed-target branch types were enumerated twice in `cli.rs`; extracted
+  `BranchType::has_fixed_finish_target()` (mirrors `is_work_branch`).
+- [x] Docs corrected in README.md, SKILL.md, CHANGELOG.md ("locally or on origin"
+  → "on origin").
+- Verified: 203 tests green (4 new), clippy warning count unchanged vs HEAD (15,
+  all pre-existing).

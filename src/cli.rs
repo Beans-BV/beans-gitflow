@@ -200,6 +200,9 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
             if abort {
                 return Ok(Action::AbortFinish);
             }
+            if base.is_some() && branch_type.has_fixed_finish_target() {
+                return Err("--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.".to_string());
+            }
             match branch_type {
                 BranchType::Main | BranchType::Develop => {
                     Err("Nothing to finish on this branch.".to_string())
@@ -207,12 +210,6 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
                 | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
                     Ok(Action::FinishWorkBranch { breaking, base })
-                }
-                BranchType::Release { .. } | BranchType::ReleaseFix { .. }
-                | BranchType::Hotfix { .. } | BranchType::HotfixFix { .. }
-                    if base.is_some() =>
-                {
-                    Err("--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.".to_string())
                 }
                 BranchType::Release { .. } => Ok(Action::FinishRelease),
                 BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),

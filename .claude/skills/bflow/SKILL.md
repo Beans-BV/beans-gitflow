@@ -55,7 +55,7 @@ bflow finish --abort       # discard an in-progress release/hotfix finish
 ```
 
 - **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`). Use `--breaking` flag in non-interactive mode to skip the prompt.
-  - PR target: detected from branch topology; a single candidate is used directly, multiple candidates show a menu. `--base <branch>` sets the target explicitly and skips both — **AI agents/CI must pass `--base` (plus `--breaking`) so finish never needs a TTY** (e.g. `bflow finish --base develop --breaking=false`). The branch must exist locally or on origin. Not valid on release/hotfix/release-fix/hotfix-fix (fixed target).
+  - PR target: detected from branch topology; a single candidate is used directly, multiple candidates show a menu. `--base <branch>` sets the target explicitly and skips both — **AI agents/CI must pass `--base` (plus `--breaking`) so finish never needs a TTY** (e.g. `bflow finish --base develop --breaking=false`). The branch must exist on origin (push or fetch first) and differ from the current branch. Not valid on release/hotfix/release-fix/hotfix-fix (fixed target).
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch, title `fix: {name}` with dashes converted to spaces (e.g. `null-crash` → `fix: null crash`)
 - **Release** → merges to main + develop, tags, cleans up
 - **Hotfix** → merges to main + develop + every open `release/*`, tags, cleans up. If a release branch already exists, the hotfix is propagated into it so the upcoming release ships the fix; the operator must then run `bflow bump` to cut a new RC for staging validation.
