@@ -189,13 +189,15 @@ bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must 
 ### Finish
 
 ```bash
-bflow finish [--breaking | --breaking=false]
+bflow finish [--breaking | --breaking=false] [--base <branch>]
 bflow finish --abort   # discard an in-progress release/hotfix finish
 ```
 
 Infers the action from the current branch type (e.g., creates PR on work branches, merges + tags on release/hotfix branches).
 
 On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
+
+On work branches, the PR target is normally detected from the branch topology: when exactly one candidate parent is found it is used directly, and only when several candidates exist does a selection menu appear. Pass `--base <branch>` to set the target explicitly and skip detection and the menu entirely — combined with `--breaking`, this makes `bflow finish` fully scriptable without a TTY (CI, AI agents). The branch must exist locally or on origin. `--base` is only valid on work branches; release, hotfix, release-fix, and hotfix-fix finishes have a fixed target and reject it.
 
 #### Resuming after a merge conflict
 

@@ -19,6 +19,11 @@ pub enum Commands {
         /// to skip the prompt non-interactively.
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         breaking: Option<bool>,
+        /// PR target branch (work branches only). Skips parent-branch detection
+        /// and its selection menu — required for non-interactive use when more
+        /// than one candidate parent exists.
+        #[arg(long, conflicts_with = "abort")]
+        base: Option<String>,
         /// Discard any in-progress finish state without running the flow.
         #[arg(long, conflicts_with = "breaking")]
         abort: bool,
@@ -191,7 +196,7 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
         },
-        Commands::Finish { breaking, abort } => {
+        Commands::Finish { breaking, base, abort } => {
             if abort {
                 return Ok(Action::AbortFinish);
             }
@@ -201,7 +206,13 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 }
                 BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
                 | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
-                    Ok(Action::FinishWorkBranch { breaking })
+                    Ok(Action::FinishWorkBranch { breaking, base })
+                }
+                BranchType::Release { .. } | BranchType::ReleaseFix { .. }
+                | BranchType::Hotfix { .. } | BranchType::HotfixFix { .. }
+                    if base.is_some() =>
+                {
+                    Err("--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.".to_string())
                 }
                 BranchType::Release { .. } => Ok(Action::FinishRelease),
                 BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),

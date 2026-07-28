@@ -319,8 +319,8 @@ fn run_flow(
             let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
             start::start_hotfix_fix(git, name, *no_checkout, wt)?;
         }
-        Action::FinishWorkBranch { breaking } => {
-            finish_work::finish_work_branch(git, hosting, branch_type, *breaking)?;
+        Action::FinishWorkBranch { breaking, base } => {
+            finish_work::finish_work_branch(git, hosting, branch_type, *breaking, base.clone())?;
         }
         Action::FinishReleaseFix => {
             finish_work::finish_release_fix(git, hosting, branch_type)?;

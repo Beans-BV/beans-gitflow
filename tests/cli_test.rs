@@ -77,31 +77,71 @@ fn start_hotfix_fix_on_wrong_branch() {
 
 #[test]
 fn finish_on_feature_branch() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Feature { name: "login".to_string() };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
-    assert!(matches!(action, Action::FinishWorkBranch { breaking: None }));
+    assert!(matches!(action, Action::FinishWorkBranch { breaking: None, base: None }));
+}
+
+#[test]
+fn finish_with_base_flag_on_work_branch() {
+    let cmd = Commands::Finish { breaking: Some(false), base: Some("develop".to_string()), abort: false };
+    let branch_type = BranchType::Feature { name: "login".to_string() };
+    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(false), base: Some(base) } if base == "develop"));
+}
+
+#[test]
+fn finish_with_base_on_release_branch_errors() {
+    let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
+    let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
+    let result = resolve_action(cmd, &branch_type, false);
+    assert_eq!(result.unwrap_err(), "--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.");
+}
+
+#[test]
+fn finish_with_base_on_hotfix_branch_errors() {
+    let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
+    let branch_type = BranchType::Hotfix { major: 1, minor: 0, patch: 1 };
+    let result = resolve_action(cmd, &branch_type, false);
+    assert!(result.is_err());
+}
+
+#[test]
+fn finish_with_base_on_release_fix_branch_errors() {
+    let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
+    let branch_type = BranchType::ReleaseFix { major: 1, minor: 2, patch: 0, name: "broken-login".to_string() };
+    let result = resolve_action(cmd, &branch_type, false);
+    assert!(result.is_err());
+}
+
+#[test]
+fn finish_with_base_on_hotfix_fix_branch_errors() {
+    let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
+    let branch_type = BranchType::HotfixFix { major: 1, minor: 0, patch: 1, name: "urgent".to_string() };
+    let result = resolve_action(cmd, &branch_type, false);
+    assert!(result.is_err());
 }
 
 #[test]
 fn finish_on_feature_branch_with_breaking_flag() {
-    let cmd = Commands::Finish { breaking: Some(true), abort: false };
+    let cmd = Commands::Finish { breaking: Some(true), base: None, abort: false };
     let branch_type = BranchType::Feature { name: "remove-api".to_string() };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
-    assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(true) }));
+    assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(true), base: None }));
 }
 
 #[test]
 fn finish_on_feature_branch_with_explicit_non_breaking() {
-    let cmd = Commands::Finish { breaking: Some(false), abort: false };
+    let cmd = Commands::Finish { breaking: Some(false), base: None, abort: false };
     let branch_type = BranchType::Feature { name: "login".to_string() };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
-    assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(false) }));
+    assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(false), base: None }));
 }
 
 #[test]
 fn finish_on_release_branch() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
     assert!(matches!(action, Action::FinishRelease));
@@ -109,7 +149,7 @@ fn finish_on_release_branch() {
 
 #[test]
 fn finish_on_hotfix_branch() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Hotfix { major: 1, minor: 0, patch: 1 };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
     assert!(matches!(action, Action::FinishHotfix));
@@ -117,7 +157,7 @@ fn finish_on_hotfix_branch() {
 
 #[test]
 fn finish_on_main_errors() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Main;
     let result = resolve_action(cmd, &branch_type, false);
     assert_eq!(result.unwrap_err(), "Nothing to finish on this branch.");
@@ -125,7 +165,7 @@ fn finish_on_main_errors() {
 
 #[test]
 fn finish_on_develop_errors() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Develop;
     let result = resolve_action(cmd, &branch_type, false);
     assert_eq!(result.unwrap_err(), "Nothing to finish on this branch.");
@@ -133,7 +173,7 @@ fn finish_on_develop_errors() {
 
 #[test]
 fn finish_on_other_branch_errors() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Other;
     let result = resolve_action(cmd, &branch_type, false);
     assert_eq!(result.unwrap_err(), "Not on a recognized gitflow branch.");
@@ -167,7 +207,7 @@ fn start_release_minor_flag() {
 
 #[test]
 fn finish_on_release_fix_branch() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::ReleaseFix { major: 1, minor: 2, patch: 0, name: "broken-login".to_string() };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
     assert!(matches!(action, Action::FinishReleaseFix));
@@ -175,7 +215,7 @@ fn finish_on_release_fix_branch() {
 
 #[test]
 fn finish_on_hotfix_fix_branch() {
-    let cmd = Commands::Finish { breaking: None, abort: false };
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::HotfixFix { major: 1, minor: 0, patch: 1, name: "urgent".to_string() };
     let action = resolve_action(cmd, &branch_type, false).unwrap();
     assert!(matches!(action, Action::FinishHotfixFix));
