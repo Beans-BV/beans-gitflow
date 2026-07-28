@@ -71,8 +71,13 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         None => None,
     };
 
+    // Load the worktree config BEFORE resolving the action: the release-fix/
+    // hotfix-fix branch-type gate must know whether the worktree flow (which
+    // auto-discovers the target branch, like --no-checkout) will apply.
+    let wt_config = WorktreeConfig::load(&git)?;
+
     // Resolve the action up-front so we can decide whether to fetch / stash / etc.
-    let action = resolve_action_with_state(command, &branch_type, &branch_name, resume_state.as_ref())?;
+    let action = resolve_action_with_state(command, &branch_type, &branch_name, resume_state.as_ref(), wt_config.enabled)?;
 
     // --abort short-circuits before any state-changing operation, even if the repo
     // is mid-merge — abort is itself a recovery action.
@@ -91,7 +96,6 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     // Optional worktree flow: when enabled (and not opted out) for an eligible start,
     // treat it like --no-checkout so the current working tree is left untouched and the
     // new branch is free to be checked out in its own worktree.
-    let wt_config = WorktreeConfig::load(&git)?;
     let editor = CommandEditor::new(wt_config.editor.clone());
     let worktree_active = wt_config.enabled && !action.no_worktree() && action.worktree_eligible();
 
@@ -169,6 +173,7 @@ fn resolve_action_with_state(
     branch_type: &BranchType,
     branch_name: &str,
     resume_state: Option<&FinishState>,
+    worktree_enabled: bool,
 ) -> Result<Action, String> {
     // `--abort` wins unconditionally and never errors based on branch type.
     if let Some(Commands::Finish { abort: true, .. }) = &command {
@@ -199,7 +204,7 @@ fn resolve_action_with_state(
     // No resume state (or a non-finish command): fall through to normal dispatch.
     match command {
         None => menu::show_menu(branch_type, branch_name),
-        Some(cmd) => resolve_action(cmd, branch_type),
+        Some(cmd) => resolve_action(cmd, branch_type, worktree_enabled),
     }
 }
 

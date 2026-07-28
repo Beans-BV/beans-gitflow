@@ -30,6 +30,15 @@ fn worktree_path_custom_base_is_used_verbatim() {
     assert_eq!(p, PathBuf::from("/Users/jop/worktrees/beans-gitflow-feature-login"));
 }
 
+#[test]
+fn worktree_path_expands_leading_tilde_in_custom_base() {
+    // `~` in git config never passes through a shell, so bflow expands it itself.
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap();
+    let root = Path::new("/repos/beans-gitflow");
+    let p = worktree_path(root, "beans-gitflow", Some("~/worktrees"), "feature/login");
+    assert_eq!(p, PathBuf::from(home).join("worktrees/beans-gitflow-feature-login"));
+}
+
 // --- WorktreeConfig::load ---
 
 #[test]
@@ -52,6 +61,27 @@ fn config_reads_all_values() {
     assert!(cfg.enabled);
     assert_eq!(cfg.editor, "cursor");
     assert_eq!(cfg.base_path.as_deref(), Some("/wt"));
+}
+
+#[test]
+fn config_trims_whitespace_from_editor_and_path() {
+    // Stray whitespace in git config would otherwise break Command::new("code ")
+    // or produce oddly named directories.
+    let mut git = MockGit::new();
+    git.config.insert("bflow.worktree.editor".to_string(), "code ".to_string());
+    git.config.insert("bflow.worktree.path".to_string(), " /wt ".to_string());
+
+    let cfg = WorktreeConfig::load(&git).unwrap();
+    assert_eq!(cfg.editor, "code");
+    assert_eq!(cfg.base_path.as_deref(), Some("/wt"));
+}
+
+#[test]
+fn config_whitespace_only_editor_falls_back_to_code() {
+    let mut git = MockGit::new();
+    git.config.insert("bflow.worktree.editor".to_string(), "   ".to_string());
+    let cfg = WorktreeConfig::load(&git).unwrap();
+    assert_eq!(cfg.editor, "code");
 }
 
 #[test]

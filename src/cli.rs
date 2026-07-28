@@ -140,6 +140,13 @@ fn start_work_branch(prefix: &str, name: String, base: String, no_checkout: bool
     Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base, no_checkout, no_worktree })
 }
 
+/// True when the flow will discover the target release/hotfix branch itself
+/// instead of requiring the user to be standing on it: either `--no-checkout`
+/// was passed, or the worktree flow is enabled and not opted out of.
+fn auto_discovers_target(opts: &StartOptions, worktree_enabled: bool) -> bool {
+    opts.no_checkout || (worktree_enabled && !opts.no_worktree)
+}
+
 fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
     if !matches!(branch_type, BranchType::Release { .. }) {
         return Err("This command is only valid on a release branch.".to_string());
@@ -147,7 +154,13 @@ fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
     Ok(())
 }
 
-pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Action, String> {
+/// Resolve the parsed command into an Action.
+///
+/// `worktree_enabled` is the `bflow.worktree.enabled` config value. Like
+/// `--no-checkout`, an active worktree flow auto-discovers the target branch for
+/// release-fix/hotfix-fix, so the "must be standing on it" branch-type gate only
+/// applies to the plain checkout path.
+pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enabled: bool) -> Result<Action, String> {
     match command {
         Commands::Start { kind } => match kind {
             StartKind::Feature { name, base, opts } => start_work_branch("feature", name, base, opts.no_checkout, opts.no_worktree),
@@ -163,14 +176,16 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             }
             StartKind::ReleaseFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
-                if !opts.no_checkout {
+                if !auto_discovers_target(&opts, worktree_enabled) {
                     require_release_branch(branch_type)?;
                 }
                 Ok(Action::StartReleaseFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
             StartKind::HotfixFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
-                if !opts.no_checkout && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. }) {
+                if !auto_discovers_target(&opts, worktree_enabled)
+                    && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. })
+                {
                     return Err("This command is only valid on a main or hotfix branch.".to_string());
                 }
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })

@@ -48,7 +48,9 @@ pub trait Git {
     fn set_config(&self, key: &str, value: &str, global: bool) -> Result<()>;
     /// Remove a git config value. A key that is already unset is treated as success.
     fn unset_config(&self, key: &str, global: bool) -> Result<()>;
-    /// Absolute path to the repository's top-level working directory.
+    /// Absolute path to the MAIN working tree's root. Stable even when run from
+    /// inside a linked worktree (`rev-parse --show-toplevel` would return the
+    /// worktree's own directory there, compounding worktree folder names).
     fn repo_root(&self) -> Result<PathBuf>;
     /// Add a worktree at `path` checked out to the (already existing) `branch`.
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
@@ -263,7 +265,14 @@ impl Git for GitCli {
         }
     }
     fn repo_root(&self) -> Result<PathBuf> {
-        Ok(PathBuf::from(self.run(&["rev-parse", "--show-toplevel"])?))
+        // `git worktree list` always lists the main working tree first, so this
+        // resolves the same root regardless of which worktree we run from.
+        let output = self.run(&["worktree", "list", "--porcelain"])?;
+        output
+            .lines()
+            .find_map(|l| l.strip_prefix("worktree "))
+            .map(PathBuf::from)
+            .ok_or_else(|| "Could not determine the main working tree from 'git worktree list'.".to_string())
     }
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;

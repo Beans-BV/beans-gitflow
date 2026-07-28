@@ -35,7 +35,7 @@ bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]
 
 #### Worktree integration (optional)
 
-When `bflow.worktree.enabled=true` (git config), `start` (work branches + release-fix/hotfix-fix, not `release`) creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command.
+When `bflow.worktree.enabled=true` (git config), `start` (work branches + release-fix/hotfix-fix, not `release`) creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent, `~` expanded). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command. Like `--no-checkout`, active worktree mode relaxes the branch-type check for `release-fix`/`hotfix-fix` (target branch is discovered automatically).
 
 Configure it with the `bflow worktree` command (writes global git config; `--local` for one repo):
 

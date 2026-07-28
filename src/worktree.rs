@@ -35,19 +35,23 @@ pub struct WorktreeConfig {
 
 impl WorktreeConfig {
     /// Load the three `bflow.worktree.*` keys. Absent keys fall back to defaults
-    /// (disabled, editor `code`, no custom base path).
+    /// (disabled, editor `code`, no custom base path). Values are trimmed —
+    /// stray whitespace in git config would otherwise break `Command::new`
+    /// (e.g. editor `"code "`) or produce oddly named directories.
     pub fn load(git: &dyn Git) -> Result<Self> {
         let enabled = git
-            .get_config("bflow.worktree.enabled")?
+            .get_config(KEY_ENABLED)?
             .map(|v| v.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
         let editor = git
-            .get_config("bflow.worktree.editor")?
-            .filter(|v| !v.trim().is_empty())
+            .get_config(KEY_EDITOR)?
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "code".to_string());
         let base_path = git
-            .get_config("bflow.worktree.path")?
-            .filter(|v| !v.trim().is_empty());
+            .get_config(KEY_PATH)?
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
         Ok(Self { enabled, editor, base_path })
     }
 }
@@ -59,14 +63,35 @@ pub struct WorktreeContext<'a> {
     pub editor: &'a dyn Editor,
 }
 
-/// Compute the absolute worktree directory for `branch`.
+/// Expand a leading `~` / `~/` to the user's home directory. The shell never
+/// sees git config values, so without this a configured `~/worktrees` would
+/// create a literal `~` directory. Falls back to the input verbatim when no
+/// home directory can be determined (`~user` forms are not supported).
+fn expand_tilde(path: &str) -> PathBuf {
+    if path == "~" || path.starts_with("~/") {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .filter(|v| !v.is_empty());
+        if let Some(home) = home {
+            let mut expanded = PathBuf::from(home);
+            if let Some(rest) = path.strip_prefix("~/") {
+                expanded.push(rest);
+            }
+            return expanded;
+        }
+    }
+    PathBuf::from(path)
+}
+
+/// Compute the worktree directory for `branch`.
 ///
 /// Folder name is `<repo-name>-<branch-with-slashes-as-dashes>`, placed in
-/// `base_path` if set, otherwise the repository's parent directory.
+/// `base_path` if set (a leading `~` is expanded to the home directory),
+/// otherwise the repository's parent directory.
 pub fn worktree_path(repo_root: &Path, repo_name: &str, base_path: Option<&str>, branch: &str) -> PathBuf {
     let folder = format!("{repo_name}-{}", branch.replace('/', "-"));
     let base: PathBuf = match base_path {
-        Some(p) => PathBuf::from(p),
+        Some(p) => expand_tilde(p),
         None => repo_root
             .parent()
             .map(Path::to_path_buf)

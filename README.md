@@ -269,7 +269,7 @@ keys, which you can also set by hand (`git config --global bflow.worktree.enable
 |-----|---------|---------|
 | `bflow.worktree.enabled` | `false` | Turn the worktree flow on |
 | `bflow.worktree.editor` | `code` | Command to open the worktree (`<editor> <path>`). Use `none` to skip opening |
-| `bflow.worktree.path` | _(unset)_ | Directory to place worktree folders in. Defaults to the repo's parent directory |
+| `bflow.worktree.path` | _(unset)_ | Directory to place worktree folders in (`~` is expanded). Defaults to the repo's parent directory |
 
 The editor accepts any command whose CLI opens a folder as `<command> <path>` — VS Code (`code`),
 Cursor (`cursor`), Windsurf (`windsurf`), Zed (`zed`), and JetBrains launchers
@@ -284,6 +284,8 @@ When enabled, `bflow start feature/fix/chore/docs/refactor` (and `release-fix` /
 3. Open that folder in your editor (unless `editor = none`). An editor that isn't installed is a warning, not a failure — the worktree is still ready.
 
 Pass `--no-worktree` to skip the flow for a single command. `start release` is never run through the worktree flow.
+
+As with `--no-checkout`, an active worktree flow relaxes the branch-type check for `release-fix` and `hotfix-fix` — the target release/hotfix branch is discovered automatically, so you can run them from any branch.
 
 ### Naming & layout
 
@@ -568,7 +570,9 @@ src/
 │   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
 ├── state.rs             — Persisted finish state for conflict recovery
 ├── version.rs           — SemVer parsing and bumping
-└── menu.rs              — Interactive menus via crossterm
+├── menu.rs              — Interactive menus via crossterm
+├── editor.rs            — Editor trait for opening worktrees
+└── worktree.rs          — Worktree config, path resolution, and setup wizard
 ```
 
 The `Git` and `HostingPlatform` traits enable future extensibility (e.g. GitLab, Bitbucket) and testability.
