@@ -1,6 +1,6 @@
 pub mod branch;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -41,6 +41,18 @@ pub trait Git {
     fn git_dir(&self) -> Result<PathBuf>;
     fn rev_parse(&self, refname: &str) -> Result<String>;
 
+    // Worktree / config primitives
+    /// Read a git config value (`git config --get <key>`). Returns `None` when unset.
+    fn get_config(&self, key: &str) -> Result<Option<String>>;
+    /// Write a git config value. `global` selects `--global` (user) vs local (repo) scope.
+    fn set_config(&self, key: &str, value: &str, global: bool) -> Result<()>;
+    /// Remove a git config value. A key that is already unset is treated as success.
+    fn unset_config(&self, key: &str, global: bool) -> Result<()>;
+    /// Absolute path to the repository's top-level working directory.
+    fn repo_root(&self) -> Result<PathBuf>;
+    /// Add a worktree at `path` checked out to the (already existing) `branch`.
+    fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
+
     // Stash by message (safer than blind pop)
     fn stash_push_with_message(&self, msg: &str) -> Result<()>;
     fn find_stash_by_message(&self, msg: &str) -> Result<Option<String>>;
@@ -72,6 +84,22 @@ impl GitCli {
         match output.status.code() {
             Some(0) => Ok(true),
             Some(1) => Ok(false),
+            Some(code) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
+            }
+            None => Err(format!("git {} terminated by signal", args.join(" "))),
+        }
+    }
+
+    /// Run a `git config --get`-style command that uses exit 1 to mean "key not set".
+    /// Returns `Ok(None)` on exit 1, `Ok(Some(value))` on exit 0, and an error otherwise.
+    fn run_config(&self, args: &[&str]) -> Result<Option<String>> {
+        let output = Command::new("git").args(args).output()
+            .map_err(|e| format!("Failed to run git: {e}"))?;
+        match output.status.code() {
+            Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string())),
+            Some(1) => Ok(None),
             Some(code) => {
                 let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
                 Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
@@ -205,6 +233,41 @@ impl Git for GitCli {
     }
     fn rev_parse(&self, refname: &str) -> Result<String> {
         self.run(&["rev-parse", refname])
+    }
+
+    fn get_config(&self, key: &str) -> Result<Option<String>> {
+        self.run_config(&["config", "--get", key])
+    }
+    fn set_config(&self, key: &str, value: &str, global: bool) -> Result<()> {
+        let mut args = vec!["config"];
+        if global { args.push("--global"); }
+        args.push(key);
+        args.push(value);
+        self.run(&args).map(|_| ())
+    }
+    fn unset_config(&self, key: &str, global: bool) -> Result<()> {
+        let mut args = vec!["config"];
+        if global { args.push("--global"); }
+        args.push("--unset");
+        args.push(key);
+        let output = Command::new("git").args(&args).output()
+            .map_err(|e| format!("Failed to run git: {e}"))?;
+        match output.status.code() {
+            // 0 = removed; 5 = key was not set (already at default) — both fine.
+            Some(0) | Some(5) => Ok(()),
+            Some(code) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
+            }
+            None => Err(format!("git {} terminated by signal", args.join(" "))),
+        }
+    }
+    fn repo_root(&self) -> Result<PathBuf> {
+        Ok(PathBuf::from(self.run(&["rev-parse", "--show-toplevel"])?))
+    }
+    fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
+        let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;
+        self.run(&["worktree", "add", path_str, branch]).map(|_| ())
     }
 
     fn stash_push_with_message(&self, msg: &str) -> Result<()> {

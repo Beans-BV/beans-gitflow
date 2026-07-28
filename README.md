@@ -168,14 +168,14 @@ All commands can be invoked directly via subcommands, bypassing the interactive 
 ### Start commands
 
 ```bash
-bflow start feature --name <name> [--base <branch>] [--no-checkout]
-bflow start fix --name <name> [--base <branch>] [--no-checkout]
-bflow start chore --name <name> [--base <branch>] [--no-checkout]
-bflow start docs --name <name> [--base <branch>] [--no-checkout]
-bflow start refactor --name <name> [--base <branch>] [--no-checkout]
+bflow start feature --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start release [--major | --minor]
-bflow start release-fix --name <name> [--no-checkout]    # must be on a release branch
-bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or hotfix branch
+bflow start release-fix --name <name> [--no-checkout] [--no-worktree]    # must be on a release branch
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on main or hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
@@ -183,6 +183,8 @@ bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or ho
 `--major` / `--minor` on `start release` skips the interactive prompt and forces the bump level. Useful for scripts and AI agents.
 
 `--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Designed for [git worktree](https://git-scm.com/docs/git-worktree) workflows. Not available for `start release`.
+
+`--no-worktree` skips the optional [worktree flow](#worktree-integration) for a single command when `bflow.worktree.enabled` is set. No effect otherwise.
 
 ### Finish
 
@@ -236,6 +238,64 @@ bflow sync    # sync release into develop
 ```
 
 Both require being on a release branch.
+
+## Worktree integration
+
+Optionally, every new branch can be created in its own [git worktree](https://git-scm.com/docs/git-worktree) and opened in your editor, so each piece of work lives in a separate directory instead of switching the current checkout. It's off by default and uses native `git worktree` — no extra tools required.
+
+### Enable
+
+The quickest way is the built-in setup command — no need to remember any keys:
+
+```bash
+bflow worktree              # interactive setup: enable, pick an editor, choose a location
+```
+
+Or set options directly (handy for scripts and dotfiles):
+
+```bash
+bflow worktree enable                 # turn the flow on
+bflow worktree editor cursor          # code (default) | cursor | windsurf | zed | pycharm | none | any command
+bflow worktree path ~/worktrees       # where worktree folders go (default: the repo's parent)
+bflow worktree status                 # show the current settings
+bflow worktree disable                # turn it off
+```
+
+These write to your **global** git config by default (per-developer); add `--local` to scope a
+setting to the current repository. They're a front-end over the `bflow.worktree.*` git config
+keys, which you can also set by hand (`git config --global bflow.worktree.enabled true`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `bflow.worktree.enabled` | `false` | Turn the worktree flow on |
+| `bflow.worktree.editor` | `code` | Command to open the worktree (`<editor> <path>`). Use `none` to skip opening |
+| `bflow.worktree.path` | _(unset)_ | Directory to place worktree folders in. Defaults to the repo's parent directory |
+
+The editor accepts any command whose CLI opens a folder as `<command> <path>` — VS Code (`code`),
+Cursor (`cursor`), Windsurf (`windsurf`), Zed (`zed`), and JetBrains launchers
+(`idea` / `pycharm` / `webstorm` / …) all work once their shell command is on your `PATH`.
+
+### What it does
+
+When enabled, `bflow start feature/fix/chore/docs/refactor` (and `release-fix` / `hotfix-fix`) will:
+
+1. Create and push the branch **without** switching your current checkout.
+2. Add a git worktree for it.
+3. Open that folder in your editor (unless `editor = none`). An editor that isn't installed is a warning, not a failure — the worktree is still ready.
+
+Pass `--no-worktree` to skip the flow for a single command. `start release` is never run through the worktree flow.
+
+### Naming & layout
+
+Worktree folders are flat siblings of the repo (or live under `bflow.worktree.path`), each named `<repo-name>-<branch-with-slashes-as-dashes>` so the folder's own name tells you which repo and branch it is:
+
+```
+Projects/beans/
+├── beans-gitflow/                              # main checkout (stays on develop/main)
+├── beans-gitflow-feature-login/                # worktree for feature/login
+├── beans-gitflow-fix-auth-bug/                 # worktree for fix/auth-bug
+└── beans-gitflow-release-fix-1.2.0-null-crash/ # worktree for release-fix/1.2.0/null-crash
+```
 
 ## Workflows
 

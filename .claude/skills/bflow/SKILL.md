@@ -23,14 +23,28 @@ Everything else branch-related → use `bflow`.
 ### Start a branch
 
 ```bash
-bflow start feature --name <name> [--base <branch>] [--no-checkout]
-bflow start fix --name <name> [--base <branch>] [--no-checkout]
-bflow start chore --name <name> [--base <branch>] [--no-checkout]
-bflow start docs --name <name> [--base <branch>] [--no-checkout]
-bflow start refactor --name <name> [--base <branch>] [--no-checkout]
+bflow start feature --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start release [--major | --minor] # from develop, prompts if no flag given
-bflow start release-fix --name <name> [--no-checkout]
-bflow start hotfix-fix --name <name> [--no-checkout]
+bflow start release-fix --name <name> [--no-checkout] [--no-worktree]
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]
+```
+
+#### Worktree integration (optional)
+
+When `bflow.worktree.enabled=true` (git config), `start` (work branches + release-fix/hotfix-fix, not `release`) creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command.
+
+Configure it with the `bflow worktree` command (writes global git config; `--local` for one repo):
+
+```bash
+bflow worktree                     # interactive setup (enable / editor / location)
+bflow worktree enable | disable
+bflow worktree editor <cmd>        # code | cursor | windsurf | zed | pycharm | none | any command
+bflow worktree path <dir>
+bflow worktree status
 ```
 
 ### Finish current branch

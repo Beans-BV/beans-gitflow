@@ -2,7 +2,7 @@ use std::process::{Command, ExitCode};
 
 use clap::Parser;
 
-use bflow::cli::{Commands, resolve_action};
+use bflow::cli::{Commands, WorktreeAction, resolve_action};
 use bflow::git::GitCli;
 use bflow::git::Git;
 use bflow::git::branch::BranchType;
@@ -11,6 +11,8 @@ use bflow::hosting::HostingPlatform;
 use bflow::menu::{self, Action};
 use bflow::flows::{start, finish_work, finish_release, finish_hotfix};
 use bflow::state::{FinishState, FinishKind, current_timestamp};
+use bflow::editor::{CommandEditor, Editor};
+use bflow::worktree::{self, WorktreeConfig, WorktreeContext};
 
 #[derive(Parser)]
 #[command(name = "bflow", version, about = "Beans GitFlow - customized gitflow workflow CLI")]
@@ -31,9 +33,18 @@ fn main() -> ExitCode {
 
 fn run(command: Option<Commands>) -> Result<(), String> {
     check_command_exists("git")?;
-    check_command_exists("gh")?;
-
     let git = GitCli::new();
+
+    // `bflow worktree` only reads/writes git config — no gh, auth, fetch, or branch
+    // context needed. Dispatch it here and return before the branch-flow machinery.
+    let command = match command {
+        Some(Commands::Worktree { action, local }) => {
+            return run_worktree_config(&git, action, local);
+        }
+        other => other,
+    };
+
+    check_command_exists("gh")?;
     let hosting = GitHub::new();
 
     hosting.check_auth().map_err(|e| {
@@ -77,7 +88,14 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     println!("Fetching latest...");
     git.fetch()?;
 
-    let no_checkout = action.no_checkout();
+    // Optional worktree flow: when enabled (and not opted out) for an eligible start,
+    // treat it like --no-checkout so the current working tree is left untouched and the
+    // new branch is free to be checked out in its own worktree.
+    let wt_config = WorktreeConfig::load(&git)?;
+    let editor = CommandEditor::new(wt_config.editor.clone());
+    let worktree_active = wt_config.enabled && !action.no_worktree() && action.worktree_eligible();
+
+    let no_checkout = action.no_checkout() || worktree_active;
     let is_finish_with_state = matches!(action, Action::FinishRelease | Action::FinishHotfix);
     let needs_stash = !no_checkout && branch_type != BranchType::Other && !git.is_working_tree_clean()?;
 
@@ -104,7 +122,7 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         write_state_for_action(&action, &branch_type, &git_dir, stash_msg.clone())?;
     }
 
-    let result = run_flow(&git, &hosting, &branch_type, &branch_name, &action, no_checkout, resume_state.as_ref());
+    let result = run_flow(&git, &hosting, &branch_type, &branch_name, &action, no_checkout, worktree_active, &wt_config, &editor, resume_state.as_ref());
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -264,6 +282,9 @@ fn run_flow(
     branch_name: &str,
     action: &Action,
     no_checkout: bool,
+    worktree_active: bool,
+    wt_config: &WorktreeConfig,
+    editor: &dyn Editor,
     resume_state: Option<&FinishState>,
 ) -> Result<(), String> {
     // Pull the current branch when it's a real bflow branch and we're not resuming
@@ -278,17 +299,20 @@ fn run_flow(
     }
 
     match action {
-        Action::StartWorkBranch { prefix, name, from, no_checkout } => {
-            start::start_work_branch(git, prefix, name, from, *no_checkout)?;
+        Action::StartWorkBranch { prefix, name, from, no_checkout, .. } => {
+            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
+            start::start_work_branch(git, prefix, name, from, *no_checkout, wt)?;
         }
         Action::StartRelease(release_type) => {
             start::start_release(git, *release_type)?;
         }
-        Action::StartReleaseFix { name, no_checkout } => {
-            start::start_release_fix(git, name, *no_checkout)?;
+        Action::StartReleaseFix { name, no_checkout, .. } => {
+            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
+            start::start_release_fix(git, name, *no_checkout, wt)?;
         }
-        Action::StartHotfixFix { name, no_checkout } => {
-            start::start_hotfix_fix(git, name, *no_checkout)?;
+        Action::StartHotfixFix { name, no_checkout, .. } => {
+            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
+            start::start_hotfix_fix(git, name, *no_checkout, wt)?;
         }
         Action::FinishWorkBranch { breaking } => {
             finish_work::finish_work_branch(git, hosting, branch_type, *breaking)?;
@@ -340,6 +364,17 @@ fn run_flow(
     }
 
     Ok(())
+}
+
+fn run_worktree_config(git: &GitCli, action: Option<WorktreeAction>, local: bool) -> Result<(), String> {
+    match action {
+        None => worktree::wizard(git, local),
+        Some(WorktreeAction::Enable) => worktree::set_enabled(git, true, local),
+        Some(WorktreeAction::Disable) => worktree::set_enabled(git, false, local),
+        Some(WorktreeAction::Editor { value }) => worktree::set_editor(git, &value, local),
+        Some(WorktreeAction::Path { value }) => worktree::set_path(git, &value, local),
+        Some(WorktreeAction::Status) => worktree::show_status(git),
+    }
 }
 
 fn check_command_exists(cmd: &str) -> Result<(), String> {

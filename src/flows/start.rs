@@ -1,6 +1,7 @@
 use crate::git::Git;
 use crate::menu;
 use crate::version::SemVer;
+use crate::worktree::{open_worktree, WorktreeContext};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReleaseType {
@@ -8,10 +9,11 @@ pub enum ReleaseType {
     Minor,
 }
 
-pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool) -> Result<(), String> {
+pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     println!("Creating branch: {branch}");
-    if no_checkout {
+    let effective_no_checkout = no_checkout || worktree.is_some();
+    if effective_no_checkout {
         git.create_branch_no_checkout(&branch, from)
     } else {
         git.create_branch(&branch, from)
@@ -24,6 +26,9 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })?;
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, &branch)?;
+    }
     Ok(())
 }
 
@@ -32,8 +37,9 @@ pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result
     Ok(())
 }
 
-pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<(), String> {
-    let release_branch = if no_checkout {
+pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+    let effective_no_checkout = no_checkout || worktree.is_some();
+    let release_branch = if effective_no_checkout {
         let branches = git.list_branches_matching("release/*")?;
         let release_branches: Vec<&String> = branches.iter()
             .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
@@ -52,28 +58,35 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result
     let version = release_branch.strip_prefix("release/").unwrap();
     let branch = format!("release-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    if no_checkout {
+    if effective_no_checkout {
         git.create_branch_no_checkout(&branch, &release_branch)?;
     } else {
         git.create_branch(&branch, &release_branch)?;
     }
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, &branch)?;
+    }
     Ok(())
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<(), String> {
-    let hotfix_branch = resolve_or_create_hotfix(git, no_checkout)?;
+pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+    let effective_no_checkout = no_checkout || worktree.is_some();
+    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout)?;
     let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
     let branch = format!("hotfix-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    if no_checkout {
+    if effective_no_checkout {
         git.create_branch_no_checkout(&branch, &hotfix_branch)?;
     } else {
         git.create_branch(&branch, &hotfix_branch)?;
     }
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, &branch)?;
+    }
     Ok(())
 }
 

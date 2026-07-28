@@ -306,13 +306,63 @@ pub fn prompt_name(prompt: &str) -> Result<String, String> {
     }
 }
 
+/// Prompt for a free-form line of text (spaces, slashes, `~` all allowed, no
+/// validation). Unlike `prompt_name`, this does not mangle input into a branch
+/// name — use it for paths and shell commands.
+pub fn prompt_line(prompt: &str) -> Result<String, String> {
+    let mut out = io::stderr();
+    let mut input = String::new();
+
+    execute!(
+        out,
+        style::PrintStyledContent("? ".green().bold()),
+        style::Print(format!("{prompt}: ")),
+    ).map_err(|e| format!("Input error: {e}"))?;
+
+    terminal::enable_raw_mode().map_err(|e| format!("Input error: {e}"))?;
+
+    let result = loop {
+        let ev = event::read().map_err(|e| {
+            let _ = terminal::disable_raw_mode();
+            format!("Input error: {e}")
+        })?;
+
+        // On Windows, crossterm emits Press + Release events; only handle Press
+        let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
+            continue;
+        };
+
+        match (code, modifiers) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
+                let _ = terminal::disable_raw_mode();
+                return Err("Aborted".to_string());
+            }
+            (KeyCode::Enter, _) => break input.clone(),
+            (KeyCode::Backspace, _) => {
+                if input.pop().is_some() {
+                    let _ = execute!(out, cursor::MoveLeft(1), style::Print(" "), cursor::MoveLeft(1));
+                }
+            }
+            (KeyCode::Char(c), _) => {
+                input.push(c);
+                let _ = execute!(out, style::Print(c));
+            }
+            _ => {}
+        }
+    };
+
+    let _ = execute!(out, cursor::MoveToNextLine(1));
+    let _ = terminal::disable_raw_mode();
+    Ok(result.trim().to_string())
+}
+
 pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Action, String> {
     match branch_type {
         BranchType::Main => {
             let labels = &["start hotfix fix"];
             show_select("What would you like to do?", labels)?;
             let name = prompt_name("Name for hotfix-fix branch")?;
-            Ok(Action::StartHotfixFix { name, no_checkout: false })
+            Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
         BranchType::Develop => {
             let labels: Vec<&str> = DevelopOption::ALL.iter().map(|o| o.label()).collect();
@@ -322,7 +372,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                 DevelopOption::StartRelease => Ok(Action::StartRelease(None)),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false })
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
                 }
             }
         }
@@ -348,7 +398,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                     let base_options: &[&str] = &[&current_label, "develop"];
                     let base_idx = show_select("Base branch", base_options)?;
                     let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false })
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false, no_worktree: false })
                 }
             }
         }
@@ -362,7 +412,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             match ReleaseOption::ALL[idx] {
                 ReleaseOption::StartReleaseFix => {
                     let name = prompt_name("Name for release-fix branch")?;
-                    Ok(Action::StartReleaseFix { name, no_checkout: false })
+                    Ok(Action::StartReleaseFix { name, no_checkout: false, no_worktree: false })
                 }
                 ReleaseOption::BumpVersion => Ok(Action::BumpVersion),
                 ReleaseOption::SyncWithDevelop => Ok(Action::SyncWithDevelop),
@@ -383,10 +433,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
-    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool },
+    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool, no_worktree: bool },
     StartRelease(Option<ReleaseType>),
-    StartReleaseFix { name: String, no_checkout: bool },
-    StartHotfixFix { name: String, no_checkout: bool },
+    StartReleaseFix { name: String, no_checkout: bool, no_worktree: bool },
+    StartHotfixFix { name: String, no_checkout: bool, no_worktree: bool },
     FinishWorkBranch { breaking: Option<bool> },
     FinishReleaseFix,
     FinishRelease,
@@ -413,6 +463,26 @@ impl Action {
             Action::StartWorkBranch { no_checkout, .. } => *no_checkout,
             Action::StartReleaseFix { no_checkout, .. } => *no_checkout,
             Action::StartHotfixFix { no_checkout, .. } => *no_checkout,
+            _ => false,
+        }
+    }
+
+    /// Whether this action is a named-work-branch start eligible for the worktree
+    /// flow. Deliberately excludes `StartRelease`, unlike `is_start`.
+    pub fn worktree_eligible(&self) -> bool {
+        matches!(
+            self,
+            Action::StartWorkBranch { .. }
+                | Action::StartReleaseFix { .. }
+                | Action::StartHotfixFix { .. }
+        )
+    }
+
+    pub fn no_worktree(&self) -> bool {
+        match self {
+            Action::StartWorkBranch { no_worktree, .. } => *no_worktree,
+            Action::StartReleaseFix { no_worktree, .. } => *no_worktree,
+            Action::StartHotfixFix { no_worktree, .. } => *no_worktree,
             _ => false,
         }
     }

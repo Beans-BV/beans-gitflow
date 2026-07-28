@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use bflow::editor::Editor;
 use bflow::git::Git;
 use bflow::hosting::HostingPlatform;
 
@@ -38,6 +39,10 @@ pub struct MockGit {
     pub git_dir: PathBuf,
     /// Stash messages currently in the stash list (most recent first).
     pub stashes: RefCell<Vec<String>>,
+    /// git config values returned by `get_config` (key -> value).
+    pub config: HashMap<String, String>,
+    /// Value returned by `repo_root`.
+    pub repo_root: PathBuf,
 }
 
 impl MockGit {
@@ -65,6 +70,8 @@ impl MockGit {
             unmerged_paths: false,
             git_dir: PathBuf::from(".git"),
             stashes: RefCell::new(Vec::new()),
+            config: HashMap::new(),
+            repo_root: PathBuf::from("/repos/beans-gitflow"),
         }
     }
 
@@ -242,6 +249,33 @@ impl Git for MockGit {
         Ok("abc123".to_string())
     }
 
+    fn get_config(&self, key: &str) -> Result<Option<String>, String> {
+        self.calls.borrow_mut().push(format!("get_config:{key}"));
+        Ok(self.config.get(key).cloned())
+    }
+
+    fn set_config(&self, key: &str, value: &str, global: bool) -> Result<(), String> {
+        let scope = if global { "global" } else { "local" };
+        self.calls.borrow_mut().push(format!("set_config:{scope}:{key}:{value}"));
+        Ok(())
+    }
+
+    fn unset_config(&self, key: &str, global: bool) -> Result<(), String> {
+        let scope = if global { "global" } else { "local" };
+        self.calls.borrow_mut().push(format!("unset_config:{scope}:{key}"));
+        Ok(())
+    }
+
+    fn repo_root(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("repo_root".to_string());
+        Ok(self.repo_root.clone())
+    }
+
+    fn add_worktree(&self, path: &Path, branch: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("add_worktree:{}:{branch}", path.display()));
+        Ok(())
+    }
+
     fn stash_push_with_message(&self, msg: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("stash_push_with_message:{msg}"));
         self.stashes.borrow_mut().insert(0, msg.to_string());
@@ -298,5 +332,32 @@ impl HostingPlatform for MockHosting {
     fn check_auth(&self) -> Result<(), String> {
         self.calls.borrow_mut().push("check_auth".to_string());
         Ok(())
+    }
+}
+
+pub struct MockEditor {
+    pub calls: RefCell<Vec<String>>,
+    /// When true, `open` returns an error (simulates editor not on PATH).
+    pub fail: bool,
+}
+
+impl MockEditor {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), fail: false }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl Editor for MockEditor {
+    fn open(&self, path: &Path) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("open:{}", path.display()));
+        if self.fail {
+            Err("editor failed".to_string())
+        } else {
+            Ok(())
+        }
     }
 }
