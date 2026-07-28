@@ -16,7 +16,7 @@ fn start_actions_return_true() {
 #[test]
 fn finish_actions_return_false() {
     let actions: Vec<Action> = vec![
-        Action::FinishWorkBranch { breaking: None },
+        Action::FinishWorkBranch { breaking: None, base: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
         Action::FinishHotfix,
@@ -69,7 +69,7 @@ fn no_checkout_returns_true_for_start_hotfix_fix() {
 fn no_checkout_returns_false_for_non_start_actions() {
     let actions: Vec<Action> = vec![
         Action::StartRelease(None),
-        Action::FinishWorkBranch { breaking: None },
+        Action::FinishWorkBranch { breaking: None, base: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
         Action::FinishHotfix,
@@ -98,7 +98,7 @@ fn worktree_eligible_true_for_named_work_branch_starts() {
 fn worktree_eligible_false_for_start_release_and_finishes() {
     let actions: Vec<Action> = vec![
         Action::StartRelease(None),
-        Action::FinishWorkBranch { breaking: None },
+        Action::FinishWorkBranch { breaking: None, base: None },
         Action::FinishRelease,
         Action::FinishHotfix,
         Action::BumpVersion,

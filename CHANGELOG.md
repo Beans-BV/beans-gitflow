@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Optional git worktree flow for `bflow start`. When `bflow.worktree.enabled` is set (git config), work-branch starts (feature/fix/chore/docs/refactor, plus release-fix/hotfix-fix) create the branch in a native git worktree and open it in your editor instead of switching the current checkout. Configurable via `bflow.worktree.editor` (default `code`; `none` to skip opening) and `bflow.worktree.path` (base directory, default the repo's parent). Worktree folders are named `<repo-name>-<branch-with-slashes-as-dashes>`. Off by default; `--no-worktree` skips it for a single command.
 - `bflow worktree` command to configure the worktree flow without editing git config by hand: an interactive setup wizard (`bflow worktree`) plus non-interactive subcommands `enable`, `disable`, `editor <cmd>`, `path <dir>`, and `status`. Writes global git config by default; `--local` scopes to the current repository.
+- `bflow finish --base <branch>` on work branches sets the PR target explicitly, skipping parent-branch detection and its selection menu — closes the last non-interactive gap for AI agents and CI. The branch must exist on origin (PR targets live on the remote) and differ from the branch being finished; branch types with a fixed target (release, hotfix, release-fix, hotfix-fix) reject the flag. Additionally, when detection finds exactly one candidate parent it is now used directly instead of showing a one-item menu.
 
 ## [2.4.0] - 2026-06-17
 

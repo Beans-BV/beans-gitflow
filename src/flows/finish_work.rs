@@ -61,6 +61,12 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
         return Ok("develop".to_string());
     }
 
+    if candidates.len() == 1 {
+        let (branch, _) = candidates.pop().expect("len checked above");
+        println!("PR target branch: {branch} (auto-detected)");
+        return Ok(branch);
+    }
+
     // Sort by distance ascending; on ties prefer develop, then alphabetical
     candidates.sort_by(|a, b| {
         a.1.cmp(&b.1)
@@ -77,11 +83,24 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
     Ok(candidates[idx].0.clone())
 }
 
-pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, breaking: Option<bool>) -> Result<(), String> {
+pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>) -> Result<(), String> {
     let commit_type = branch_type.commit_type().ok_or("Cannot finish: not on a work branch")?;
     let name = branch_type.name().ok_or("Cannot finish: branch has no name")?;
     let current = git.current_branch()?;
-    let base = detect_parent_branch(git, &current)?;
+    let base = match base {
+        Some(base) => {
+            if base == current {
+                return Err(format!("Base branch '{base}' is the branch being finished; a PR cannot target its own branch."));
+            }
+            // PRs are created via the hosting platform, so the base must exist on
+            // the remote — a local-only branch would fail later at PR creation.
+            if !git.remote_branch_exists(&base)? {
+                return Err(format!("Base branch '{base}' not found on origin. Push it first (or fetch if it exists remotely)."));
+            }
+            base
+        }
+        None => detect_parent_branch(git, &current)?,
+    };
 
     let bang = match breaking {
         // Explicit flag always honored, for any work type

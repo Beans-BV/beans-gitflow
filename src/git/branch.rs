@@ -95,6 +95,11 @@ impl BranchType {
         matches!(self, Self::Feature { .. } | Self::Fix { .. } | Self::Chore { .. } | Self::Docs { .. } | Self::Refactor { .. })
     }
 
+    /// Branch types whose finish has a fixed merge/PR target, so `--base` never applies.
+    pub fn has_fixed_finish_target(&self) -> bool {
+        matches!(self, Self::Release { .. } | Self::ReleaseFix { .. } | Self::Hotfix { .. } | Self::HotfixFix { .. })
+    }
+
     /// PR-template lookup keys as `(specific, group)` for branch types that open a PR.
     /// The fix family (`fix`, `release-fix`, `hotfix-fix`) shares the `fix` group; for
     /// every other type the group equals the specific key. Returns `None` for branches
@@ -142,6 +147,17 @@ mod tests {
     fn fix_family_shares_fix_group() {
         assert_eq!(BranchType::parse("release-fix/1.2.0/x").pr_template_keys(), Some(("release-fix", "fix")));
         assert_eq!(BranchType::parse("hotfix-fix/1.2.0/x").pr_template_keys(), Some(("hotfix-fix", "fix")));
+    }
+
+    #[test]
+    fn fixed_finish_target_only_for_release_and_hotfix_families() {
+        assert!(BranchType::parse("release/1.2.0").has_fixed_finish_target());
+        assert!(BranchType::parse("release-fix/1.2.0/x").has_fixed_finish_target());
+        assert!(BranchType::parse("hotfix/1.2.1").has_fixed_finish_target());
+        assert!(BranchType::parse("hotfix-fix/1.2.1/x").has_fixed_finish_target());
+        assert!(!BranchType::parse("feature/x").has_fixed_finish_target());
+        assert!(!BranchType::parse("develop").has_fixed_finish_target());
+        assert!(!BranchType::parse("main").has_fixed_finish_target());
     }
 
     #[test]
