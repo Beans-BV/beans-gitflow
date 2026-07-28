@@ -27,6 +27,32 @@ pub enum Commands {
     Bump,
     /// Sync the current release branch into develop
     Sync,
+    /// Configure the optional worktree flow (run with no subcommand for an interactive setup)
+    Worktree {
+        #[command(subcommand)]
+        action: Option<WorktreeAction>,
+        /// Write to this repository's config instead of your global (user) config
+        #[arg(long, global = true)]
+        local: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum WorktreeAction {
+    /// Turn the worktree flow on
+    Enable,
+    /// Turn the worktree flow off
+    Disable,
+    /// Set the editor command opened for each worktree (e.g. code, cursor, none)
+    Editor {
+        value: String,
+    },
+    /// Set the base directory worktree folders are created in
+    Path {
+        value: String,
+    },
+    /// Show the current worktree configuration
+    Status,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -34,6 +60,9 @@ pub struct StartOptions {
     /// Create and push the branch without checking it out
     #[arg(long)]
     pub no_checkout: bool,
+    /// Skip the worktree flow for this command (when bflow.worktree.enabled is set)
+    #[arg(long)]
+    pub no_worktree: bool,
 }
 
 #[derive(Subcommand)]
@@ -106,9 +135,16 @@ pub enum StartKind {
     },
 }
 
-fn start_work_branch(prefix: &str, name: String, base: String, no_checkout: bool) -> Result<Action, String> {
+fn start_work_branch(prefix: &str, name: String, base: String, no_checkout: bool, no_worktree: bool) -> Result<Action, String> {
     menu::validate_branch_name(&name)?;
-    Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base, no_checkout })
+    Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base, no_checkout, no_worktree })
+}
+
+/// True when the flow will discover the target release/hotfix branch itself
+/// instead of requiring the user to be standing on it: either `--no-checkout`
+/// was passed, or the worktree flow is enabled and not opted out of.
+fn auto_discovers_target(opts: &StartOptions, worktree_enabled: bool) -> bool {
+    opts.no_checkout || (worktree_enabled && !opts.no_worktree)
 }
 
 fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
@@ -118,14 +154,20 @@ fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
     Ok(())
 }
 
-pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Action, String> {
+/// Resolve the parsed command into an Action.
+///
+/// `worktree_enabled` is the `bflow.worktree.enabled` config value. Like
+/// `--no-checkout`, an active worktree flow auto-discovers the target branch for
+/// release-fix/hotfix-fix, so the "must be standing on it" branch-type gate only
+/// applies to the plain checkout path.
+pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enabled: bool) -> Result<Action, String> {
     match command {
         Commands::Start { kind } => match kind {
-            StartKind::Feature { name, base, opts } => start_work_branch("feature", name, base, opts.no_checkout),
-            StartKind::Fix { name, base, opts } => start_work_branch("fix", name, base, opts.no_checkout),
-            StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout),
-            StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout),
-            StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout),
+            StartKind::Feature { name, base, opts } => start_work_branch("feature", name, base, opts.no_checkout, opts.no_worktree),
+            StartKind::Fix { name, base, opts } => start_work_branch("fix", name, base, opts.no_checkout, opts.no_worktree),
+            StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout, opts.no_worktree),
+            StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout, opts.no_worktree),
+            StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout, opts.no_worktree),
             StartKind::Release { major, minor } => {
                 let release_type = if major { Some(ReleaseType::Major) }
                     else if minor { Some(ReleaseType::Minor) }
@@ -134,17 +176,19 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
             }
             StartKind::ReleaseFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
-                if !opts.no_checkout {
+                if !auto_discovers_target(&opts, worktree_enabled) {
                     require_release_branch(branch_type)?;
                 }
-                Ok(Action::StartReleaseFix { name, no_checkout: opts.no_checkout })
+                Ok(Action::StartReleaseFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
             StartKind::HotfixFix { name, opts } => {
                 menu::validate_branch_name(&name)?;
-                if !opts.no_checkout && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. }) {
+                if !auto_discovers_target(&opts, worktree_enabled)
+                    && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. })
+                {
                     return Err("This command is only valid on a main or hotfix branch.".to_string());
                 }
-                Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout })
+                Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
         },
         Commands::Finish { breaking, abort } => {
@@ -175,6 +219,9 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType) -> Result<Act
         Commands::Sync => {
             require_release_branch(branch_type)?;
             Ok(Action::SyncWithDevelop)
+        }
+        Commands::Worktree { .. } => {
+            unreachable!("worktree configuration is dispatched in main() before resolve_action")
         }
     }
 }

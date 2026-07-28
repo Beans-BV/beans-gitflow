@@ -230,64 +230,67 @@ pub fn validate_branch_name(input: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn prompt_name(prompt: &str) -> Result<String, String> {
-    loop {
-        let mut out = io::stderr();
-        let mut input = String::new();
+/// Print `prompt` and read a line of input in raw mode. Shared scaffolding for
+/// `prompt_name`/`prompt_line`: prompt printing, raw-mode lifecycle, the
+/// Windows Press-filter, Ctrl-C/Esc abort, Enter, and backspace handling all
+/// live here. `transform` decides which char (if any) each keystroke appends,
+/// given the buffer typed so far.
+fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -> Result<String, String> {
+    let mut out = io::stderr();
+    let mut input = String::new();
 
-        // Print prompt
-        execute!(
-            out,
-            style::PrintStyledContent("? ".green().bold()),
-            style::Print(format!("{prompt}: ")),
-        ).map_err(|e| format!("Input error: {e}"))?;
+    execute!(
+        out,
+        style::PrintStyledContent("? ".green().bold()),
+        style::Print(format!("{prompt}: ")),
+    ).map_err(|e| format!("Input error: {e}"))?;
 
-        terminal::enable_raw_mode().map_err(|e| format!("Input error: {e}"))?;
+    terminal::enable_raw_mode().map_err(|e| format!("Input error: {e}"))?;
 
-        let result = loop {
-            let ev = event::read().map_err(|e| {
+    let result = loop {
+        let ev = event::read().map_err(|e| {
+            let _ = terminal::disable_raw_mode();
+            format!("Input error: {e}")
+        })?;
+
+        // On Windows, crossterm emits Press + Release events; only handle Press
+        let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
+            continue;
+        };
+
+        match (code, modifiers) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
                 let _ = terminal::disable_raw_mode();
-                format!("Input error: {e}")
-            })?;
-
-            // On Windows, crossterm emits Press + Release events; only handle Press
-            let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
-                continue;
-            };
-
-            match (code, modifiers) {
-                (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
-                    let _ = terminal::disable_raw_mode();
-                    return Err("Aborted".to_string());
+                return Err("Aborted".to_string());
+            }
+            (KeyCode::Enter, _) => break input,
+            (KeyCode::Backspace, _) => {
+                if input.pop().is_some() {
+                    let _ = execute!(out, cursor::MoveLeft(1), style::Print(" "), cursor::MoveLeft(1));
                 }
-                (KeyCode::Enter, _) => {
-                    break input.clone();
-                }
-                (KeyCode::Backspace, _) => {
-                    if input.pop().is_some() {
-                        let _ = execute!(
-                            out,
-                            cursor::MoveLeft(1),
-                            style::Print(" "),
-                            cursor::MoveLeft(1),
-                        );
-                    }
-                }
-                (KeyCode::Char(c), _) => {
-                    let ch = if c == ' ' { '-' } else { c };
-                    // Collapse consecutive hyphens: skip if last char is already '-' and new char is '-'
-                    if ch == '-' && input.ends_with('-') {
-                        continue;
-                    }
+            }
+            (KeyCode::Char(c), _) => {
+                if let Some(ch) = transform(&input, c) {
                     input.push(ch);
                     let _ = execute!(out, style::Print(ch));
                 }
-                _ => {}
             }
-        };
+            _ => {}
+        }
+    };
 
-        let _ = execute!(out, cursor::MoveToNextLine(1));
-        let _ = terminal::disable_raw_mode();
+    let _ = execute!(out, cursor::MoveToNextLine(1));
+    let _ = terminal::disable_raw_mode();
+    Ok(result)
+}
+
+pub fn prompt_name(prompt: &str) -> Result<String, String> {
+    loop {
+        // Spaces become hyphens as you type; consecutive hyphens collapse.
+        let result = read_raw_line(prompt, |input, c| {
+            let ch = if c == ' ' { '-' } else { c };
+            if ch == '-' && input.ends_with('-') { None } else { Some(ch) }
+        })?;
 
         // Trim leading/trailing hyphens
         let trimmed = result.trim_matches('-').to_string();
@@ -296,7 +299,7 @@ pub fn prompt_name(prompt: &str) -> Result<String, String> {
             Ok(()) => return Ok(trimmed),
             Err(e) => {
                 let _ = execute!(
-                    out,
+                    io::stderr(),
                     style::PrintStyledContent(format!("  {e}").red()),
                     cursor::MoveToNextLine(1),
                 );
@@ -306,13 +309,20 @@ pub fn prompt_name(prompt: &str) -> Result<String, String> {
     }
 }
 
+/// Prompt for a free-form line of text (spaces, slashes, `~` all allowed, no
+/// validation). Unlike `prompt_name`, this does not mangle input into a branch
+/// name — use it for paths and shell commands.
+pub fn prompt_line(prompt: &str) -> Result<String, String> {
+    Ok(read_raw_line(prompt, |_, c| Some(c))?.trim().to_string())
+}
+
 pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Action, String> {
     match branch_type {
         BranchType::Main => {
             let labels = &["start hotfix fix"];
             show_select("What would you like to do?", labels)?;
             let name = prompt_name("Name for hotfix-fix branch")?;
-            Ok(Action::StartHotfixFix { name, no_checkout: false })
+            Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
         BranchType::Develop => {
             let labels: Vec<&str> = DevelopOption::ALL.iter().map(|o| o.label()).collect();
@@ -322,7 +332,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                 DevelopOption::StartRelease => Ok(Action::StartRelease(None)),
                 other => {
                     let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false })
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
                 }
             }
         }
@@ -348,7 +358,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
                     let base_options: &[&str] = &[&current_label, "develop"];
                     let base_idx = show_select("Base branch", base_options)?;
                     let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false })
+                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false, no_worktree: false })
                 }
             }
         }
@@ -362,7 +372,7 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             match ReleaseOption::ALL[idx] {
                 ReleaseOption::StartReleaseFix => {
                     let name = prompt_name("Name for release-fix branch")?;
-                    Ok(Action::StartReleaseFix { name, no_checkout: false })
+                    Ok(Action::StartReleaseFix { name, no_checkout: false, no_worktree: false })
                 }
                 ReleaseOption::BumpVersion => Ok(Action::BumpVersion),
                 ReleaseOption::SyncWithDevelop => Ok(Action::SyncWithDevelop),
@@ -383,10 +393,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
-    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool },
+    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool, no_worktree: bool },
     StartRelease(Option<ReleaseType>),
-    StartReleaseFix { name: String, no_checkout: bool },
-    StartHotfixFix { name: String, no_checkout: bool },
+    StartReleaseFix { name: String, no_checkout: bool, no_worktree: bool },
+    StartHotfixFix { name: String, no_checkout: bool, no_worktree: bool },
     FinishWorkBranch { breaking: Option<bool> },
     FinishReleaseFix,
     FinishRelease,
@@ -413,6 +423,26 @@ impl Action {
             Action::StartWorkBranch { no_checkout, .. } => *no_checkout,
             Action::StartReleaseFix { no_checkout, .. } => *no_checkout,
             Action::StartHotfixFix { no_checkout, .. } => *no_checkout,
+            _ => false,
+        }
+    }
+
+    /// Whether this action is a named-work-branch start eligible for the worktree
+    /// flow. Deliberately excludes `StartRelease`, unlike `is_start`.
+    pub fn worktree_eligible(&self) -> bool {
+        matches!(
+            self,
+            Action::StartWorkBranch { .. }
+                | Action::StartReleaseFix { .. }
+                | Action::StartHotfixFix { .. }
+        )
+    }
+
+    pub fn no_worktree(&self) -> bool {
+        match self {
+            Action::StartWorkBranch { no_worktree, .. } => *no_worktree,
+            Action::StartReleaseFix { no_worktree, .. } => *no_worktree,
+            Action::StartHotfixFix { no_worktree, .. } => *no_worktree,
             _ => false,
         }
     }
