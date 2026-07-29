@@ -324,13 +324,16 @@ fn run_flow(
             start::start_hotfix_fix(git, name, *no_checkout, wt)?;
         }
         Action::FinishWorkBranch { breaking, base } => {
-            finish_work::finish_work_branch(git, hosting, branch_type, *breaking, base.clone())?;
+            let template = resolve_pr_template(git, branch_type)?;
+            finish_work::finish_work_branch(git, hosting, branch_type, *breaking, base.clone(), template.as_deref())?;
         }
         Action::FinishReleaseFix => {
-            finish_work::finish_release_fix(git, hosting, branch_type)?;
+            let template = resolve_pr_template(git, branch_type)?;
+            finish_work::finish_release_fix(git, hosting, branch_type, template.as_deref())?;
         }
         Action::FinishHotfixFix => {
-            finish_work::finish_hotfix_fix(git, hosting, branch_type)?;
+            let template = resolve_pr_template(git, branch_type)?;
+            finish_work::finish_hotfix_fix(git, hosting, branch_type, template.as_deref())?;
         }
         Action::BumpVersion => {
             let BranchType::Release { major, minor, .. } = branch_type else {
@@ -373,6 +376,13 @@ fn run_flow(
     }
 
     Ok(())
+}
+
+/// Resolve the PR template at the composition root, anchored to the repo root —
+/// resolution keeps working from subdirectories, and flows never probe the
+/// filesystem themselves (they receive the resolved path as a parameter).
+fn resolve_pr_template(git: &dyn Git, branch_type: &BranchType) -> Result<Option<std::path::PathBuf>, String> {
+    Ok(bflow::hosting::template::resolve(&git.repo_root()?, branch_type))
 }
 
 /// Detect the hosting provider for this repo and return a ready-to-use,

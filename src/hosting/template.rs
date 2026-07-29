@@ -14,9 +14,12 @@ use crate::git::branch::BranchType;
 
 const DIR: &str = ".github/pr-templates";
 
-/// Resolve the PR template for `branch_type` against the conventional repo location.
-pub fn resolve(branch_type: &BranchType) -> Option<PathBuf> {
-    resolve_in(Path::new(DIR), branch_type)
+/// Resolve the PR template for `branch_type` against the conventional location
+/// inside `repo_root`. Anchoring to the repo root (not the process CWD) keeps
+/// resolution working from subdirectories; called from the composition root so
+/// flows never probe the filesystem themselves.
+pub fn resolve(repo_root: &Path, branch_type: &BranchType) -> Option<PathBuf> {
+    resolve_in(&repo_root.join(DIR), branch_type)
 }
 
 /// Resolution against an explicit directory — kept separate so tests can point at a
@@ -51,6 +54,17 @@ mod tests {
 
     fn touch(dir: &Path, name: &str) {
         fs::write(dir.join(name), "body").unwrap();
+    }
+
+    #[test]
+    fn resolve_is_anchored_to_the_repo_root() {
+        let root = tmp_dir();
+        let dir = root.join(".github/pr-templates");
+        fs::create_dir_all(&dir).unwrap();
+        touch(&dir, "bflow-default.md");
+        let bt = BranchType::parse("feature/foo");
+        assert_eq!(resolve(&root, &bt), Some(dir.join("bflow-default.md")));
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

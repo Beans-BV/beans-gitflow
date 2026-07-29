@@ -11,7 +11,7 @@ fn finish_release_fix_pushes_and_creates_pr() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::ReleaseFix { major: 1, minor: 1, patch: 0, name: "login-bug".to_string() };
 
-    finish_release_fix(&git, &hosting, &branch_type).unwrap();
+    finish_release_fix(&git, &hosting, &branch_type, None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
@@ -31,7 +31,7 @@ fn finish_hotfix_fix_pushes_and_creates_pr() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::HotfixFix { major: 1, minor: 0, patch: 1, name: "crash-fix".to_string() };
 
-    finish_hotfix_fix(&git, &hosting, &branch_type).unwrap();
+    finish_hotfix_fix(&git, &hosting, &branch_type, None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
@@ -52,7 +52,7 @@ fn finish_release_fix_with_custom_pr_url() {
     hosting.pr_url = "https://github.com/org/repo/pull/42".to_string();
     let branch_type = BranchType::ReleaseFix { major: 2, minor: 0, patch: 0, name: "typo".to_string() };
 
-    finish_release_fix(&git, &hosting, &branch_type).unwrap();
+    finish_release_fix(&git, &hosting, &branch_type, None).unwrap();
 
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:release-fix/2.0.0/typo:release/2.0.0:fix: typo",
@@ -69,7 +69,7 @@ fn finish_work_branch_feature_non_breaking() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
-    finish_work_branch(&git, &hosting, &branch_type, Some(false), None).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, Some(false), None, None).unwrap();
 
     let calls = hosting.calls();
     assert!(calls[0].starts_with("create_or_get_pr:feature/login:"));
@@ -83,7 +83,7 @@ fn finish_work_branch_feature_breaking() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "remove-api".to_string() };
 
-    finish_work_branch(&git, &hosting, &branch_type, Some(true), None).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
     assert!(calls[0].ends_with(":feat!: remove-api"),
@@ -97,7 +97,7 @@ fn finish_work_branch_chore_breaking_honored() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Chore { name: "drop-node-16".to_string() };
 
-    finish_work_branch(&git, &hosting, &branch_type, Some(true), None).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
     assert!(calls[0].ends_with(":chore!: drop-node-16"),
@@ -112,7 +112,7 @@ fn finish_work_branch_docs_defaults_to_non_breaking() {
     let branch_type = BranchType::Docs { name: "readme".to_string() };
 
     // No flag (None) — docs should NOT prompt, should default to non-breaking
-    finish_work_branch(&git, &hosting, &branch_type, None, None).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, None, None, None).unwrap();
 
     let calls = hosting.calls();
     assert!(calls[0].ends_with(":docs: readme"),
@@ -127,7 +127,7 @@ fn finish_work_branch_with_explicit_base_skips_detection() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
-    finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("develop".to_string())).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("develop".to_string()), None).unwrap();
 
     let git_calls = git.calls();
     assert!(!git_calls.contains(&"list_remote_branches".to_string()),
@@ -147,7 +147,7 @@ fn finish_work_branch_with_local_only_base_errors() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
-    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/auth".to_string())).unwrap_err();
+    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/auth".to_string()), None).unwrap_err();
 
     assert!(err.contains("feature/auth") && err.contains("origin"),
         "Error should name the branch and origin, got: {err}");
@@ -166,7 +166,7 @@ fn finish_work_branch_with_base_equal_to_current_errors() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
-    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/login".to_string())).unwrap_err();
+    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("feature/login".to_string()), None).unwrap_err();
 
     assert!(err.contains("feature/login"), "Error should name the branch, got: {err}");
     assert!(hosting.calls().is_empty(), "No PR should be created when base == current");
@@ -179,7 +179,7 @@ fn finish_work_branch_with_unknown_base_errors() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
-    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("no-such-branch".to_string())).unwrap_err();
+    let err = finish_work_branch(&git, &hosting, &branch_type, Some(false), Some("no-such-branch".to_string()), None).unwrap_err();
 
     assert!(err.contains("no-such-branch"), "Error should name the missing branch, got: {err}");
     assert!(hosting.calls().is_empty(), "No PR should be created for an unknown base");
@@ -195,7 +195,7 @@ fn finish_work_branch_single_candidate_finishes_without_menu() {
     let branch_type = BranchType::Feature { name: "login".to_string() };
 
     // Passing proves show_select was never reached: it has no TTY here.
-    finish_work_branch(&git, &hosting, &branch_type, Some(false), None).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, Some(false), None, None).unwrap();
 
     let calls = hosting.calls();
     assert!(calls[0].starts_with("create_or_get_pr:feature/login:develop:"),
@@ -209,9 +209,24 @@ fn finish_work_branch_fix_breaking() {
     let hosting = MockHosting::new();
     let branch_type = BranchType::Fix { name: "auth".to_string() };
 
-    finish_work_branch(&git, &hosting, &branch_type, Some(true), None).unwrap();
+    finish_work_branch(&git, &hosting, &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
     assert!(calls[0].ends_with(":fix!: auth"),
         "Expected 'fix!: auth', got: {}", calls[0]);
+}
+
+#[test]
+fn finish_work_branch_passes_resolved_template_to_hosting() {
+    let mut git = MockGit::new();
+    git.current_branch = "feature/login".to_string();
+    let hosting = MockHosting::new();
+    let branch_type = BranchType::Feature { name: "login".to_string() };
+    let template = std::path::Path::new(".github/pr-templates/bflow-feature.md");
+
+    finish_work_branch(&git, &hosting, &branch_type, Some(false), None, Some(template)).unwrap();
+
+    let calls = hosting.calls();
+    assert!(calls[0].ends_with(":template=.github/pr-templates/bflow-feature.md"),
+        "template path must reach the hosting platform verbatim, got: {}", calls[0]);
 }
