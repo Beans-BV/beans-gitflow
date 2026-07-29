@@ -7,6 +7,7 @@ Catalog of deliberate choices — each entry: the choice, why, and the rejected 
 - **New git operation:** add method to `Git` trait → impl in `GitCli` → add to `MockGit` in `tests/common/mod.rs`.
 - **New hosting provider:** new file in `hosting/` implementing `HostingPlatform` → `Provider` variant + parse arm in `detect.rs` → preflight arm in `main.rs::create_hosting`. Reuse `hosting::run_cli`.
 - **New command/flow:** clap variant in `cli.rs` → `Action` variant + menu entry gated by `BranchType` → flow fn in `flows/` taking `&dyn` deps → dispatch arm in `run_flow`.
+- **New work-branch type** (e.g. `perf/`): variant on `BranchType` → entry in the `WORK_TYPES` table + arm in `work_kind` in `git/branch.rs` (the compiler forces both — `work_kind` has no wildcard) → clap `StartKind` variant + arms in `cli.rs::resolve_action` → `pr_template_keys` arm. Menus, parent-branch detection, and `commit_type` (kind name, unless special-cased like feature→feat) follow from the table automatically.
 
 ## Plug-in Points
 

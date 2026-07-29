@@ -9,68 +9,6 @@ use crate::flows::start::ReleaseType;
 use crate::git::branch::BranchType;
 
 #[derive(Debug, Clone, Copy)]
-pub enum DevelopOption {
-    StartFeature, StartFix, StartChore, StartDocs, StartRefactor, StartRelease,
-}
-
-impl DevelopOption {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::StartFeature => "start feature",
-            Self::StartFix => "start fix",
-            Self::StartChore => "start chore",
-            Self::StartDocs => "start docs",
-            Self::StartRefactor => "start refactor",
-            Self::StartRelease => "start release",
-        }
-    }
-
-    pub fn branch_prefix(&self) -> &'static str {
-        match self {
-            Self::StartFeature => "feature",
-            Self::StartFix => "fix",
-            Self::StartChore => "chore",
-            Self::StartDocs => "docs",
-            Self::StartRefactor => "refactor",
-            Self::StartRelease => unreachable!(),
-        }
-    }
-
-    const ALL: [Self; 6] = [Self::StartFeature, Self::StartFix, Self::StartChore, Self::StartDocs, Self::StartRefactor, Self::StartRelease];
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum WorkBranchOption {
-    Finish, StartFeature, StartFix, StartChore, StartDocs, StartRefactor,
-}
-
-impl WorkBranchOption {
-    pub fn label(&self, branch_type: &str) -> String {
-        match self {
-            Self::Finish => format!("finish {branch_type}"),
-            Self::StartFeature => "start feature".to_string(),
-            Self::StartFix => "start fix".to_string(),
-            Self::StartChore => "start chore".to_string(),
-            Self::StartDocs => "start docs".to_string(),
-            Self::StartRefactor => "start refactor".to_string(),
-        }
-    }
-
-    pub fn branch_prefix(&self) -> &'static str {
-        match self {
-            Self::StartFeature => "feature",
-            Self::StartFix => "fix",
-            Self::StartChore => "chore",
-            Self::StartDocs => "docs",
-            Self::StartRefactor => "refactor",
-            Self::Finish => unreachable!(),
-        }
-    }
-
-    const ALL: [Self; 6] = [Self::Finish, Self::StartFeature, Self::StartFix, Self::StartChore, Self::StartDocs, Self::StartRefactor];
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum ReleaseOption {
     FinishRelease, StartReleaseFix, BumpVersion, SyncWithDevelop,
 }
@@ -316,42 +254,40 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
         BranchType::Develop => {
-            let labels: Vec<&str> = DevelopOption::ALL.iter().map(|o| o.label()).collect();
-            let idx = show_select("What would you like to do?", &labels)?;
-            let option = DevelopOption::ALL[idx];
-            match option {
-                DevelopOption::StartRelease => Ok(Action::StartRelease(None)),
-                other => {
-                    let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
+            // "start <kind>" for every work-branch kind, then "start release".
+            let kinds = BranchType::work_kinds();
+            let mut labels: Vec<String> = kinds.iter().map(|k| format!("start {k}")).collect();
+            labels.push("start release".to_string());
+            let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+            let idx = show_select("What would you like to do?", &label_refs)?;
+            match kinds.get(idx) {
+                Some(kind) => {
+                    let name = prompt_name(&format!("Name for {kind} branch"))?;
+                    Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
                 }
+                None => Ok(Action::StartRelease(None)),
             }
         }
         BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
         | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
-            let branch_type_label = match branch_type {
-                BranchType::Feature { .. } => "feature",
-                BranchType::Fix { .. } => "fix",
-                BranchType::Chore { .. } => "chore",
-                BranchType::Docs { .. } => "docs",
-                BranchType::Refactor { .. } => "refactor",
-                _ => unreachable!(),
-            };
-            let labels: Vec<String> = WorkBranchOption::ALL.iter().map(|o| o.label(branch_type_label)).collect();
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+            let current_kind = branch_type.work_kind()
+                .expect("this match arm only accepts work branches");
+            // "finish <current kind>", then "start <kind>" for every kind.
+            let kinds = BranchType::work_kinds();
+            let mut labels: Vec<String> = vec![format!("finish {current_kind}")];
+            labels.extend(kinds.iter().map(|k| format!("start {k}")));
+            let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
             let idx = show_select("What would you like to do?", &label_refs)?;
-            let option = WorkBranchOption::ALL[idx];
-            match option {
-                WorkBranchOption::Finish => Ok(Action::FinishWorkBranch { breaking: None, base: None }),
-                other => {
-                    let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    let current_label = format!("{current_branch} (current)");
-                    let base_options: &[&str] = &[&current_label, "develop"];
-                    let base_idx = show_select("Base branch", base_options)?;
-                    let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false, no_worktree: false })
-                }
+            if idx == 0 {
+                return Ok(Action::FinishWorkBranch { breaking: None, base: None });
             }
+            let kind = kinds[idx - 1];
+            let name = prompt_name(&format!("Name for {kind} branch"))?;
+            let current_label = format!("{current_branch} (current)");
+            let base_options: &[&str] = &[&current_label, "develop"];
+            let base_idx = show_select("Base branch", base_options)?;
+            let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
+            Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from, no_checkout: false, no_worktree: false })
         }
         BranchType::ReleaseFix { .. } => {
             show_select("What would you like to do?", &["finish release fix"])?;

@@ -24,8 +24,6 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, 
 }
 
 fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> {
-    let work_prefixes = ["feature/", "fix/", "chore/", "docs/", "refactor/"];
-
     let remote_branches = git.list_remote_branches()?;
     let mut candidates: Vec<(String, u32)> = Vec::new();
 
@@ -33,9 +31,10 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
         if branch == current {
             continue;
         }
-        let is_work = work_prefixes.iter().any(|p| branch.starts_with(p));
-        let is_develop = branch == "develop";
-        if !is_work && !is_develop {
+        // Candidate parents are develop and work branches — decided by the
+        // taxonomy in BranchType, not a local prefix list.
+        let parsed = BranchType::parse(branch);
+        if parsed != BranchType::Develop && !parsed.is_work_branch() {
             continue;
         }
         let base = match git.merge_base(current, branch) {
