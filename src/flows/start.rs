@@ -40,13 +40,10 @@ pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result
 pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = no_checkout || worktree.is_some();
     let release_branch = if effective_no_checkout {
-        let branches = git.list_branches_matching("release/*")?;
-        let release_branches: Vec<&String> = branches.iter()
-            .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
-            .collect();
-        release_branches.first()
+        super::branches_with_prefix(git, "release")?
+            .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
-            .to_string()
+            .clone()
     } else {
         let current = git.current_branch()?;
         if current.strip_prefix("release/").is_none() {
@@ -91,10 +88,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: 
 }
 
 fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let branches = git.list_branches_matching("release/*")?;
-    let release_branches: Vec<&String> = branches.iter()
-        .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
-        .collect();
+    let release_branches = super::branches_with_prefix(git, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -195,10 +189,7 @@ fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, St
 }
 
 fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, String> {
-    let branches = git.list_branches_matching("hotfix/*")?;
-    let hotfix_branches: Vec<&String> = branches.iter()
-        .filter(|b| b.starts_with("hotfix/") && !b.starts_with("hotfix-fix/"))
-        .collect();
+    let hotfix_branches = super::branches_with_prefix(git, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");

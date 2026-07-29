@@ -60,12 +60,9 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
         println!("↷ skipped: push develop (already up to date)");
     }
 
-    // Propagate into every open release branch
-    let mut release_branches: Vec<String> = git
-        .list_branches_matching("release/*")?
-        .into_iter()
-        .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
-        .collect();
+    // Propagate into every open release branch — sorted and deduped here for
+    // deterministic replay on resume (see decisions.md).
+    let mut release_branches = super::branches_with_prefix(git, "release")?;
     release_branches.sort();
     release_branches.dedup();
 
