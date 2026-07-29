@@ -16,9 +16,17 @@ impl GitHub {
 
 impl HostingPlatform for GitHub {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
-        let existing = self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]);
-        if let Ok(url) = existing {
-            if !url.is_empty() { return Ok(url); }
+        match self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]) {
+            Ok(url) if !url.is_empty() => return Ok(url),
+            // A closed/merged PR filters to empty output — create a new one.
+            Ok(_) => {}
+            // gh exits non-zero both when no PR exists (normal here) and on real
+            // failures (auth expiry, network). Only the former may be swallowed.
+            Err(e) if e.contains("no pull requests found") => {}
+            Err(e) => return Err(format!(
+                "Could not check for an existing PR: {e}\n\
+                 If authentication expired, run 'gh auth login', then re-run 'bflow finish'."
+            )),
         }
 
         let git_default_paths = [
