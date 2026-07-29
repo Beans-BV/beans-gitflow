@@ -1,4 +1,4 @@
-use crate::flows::resume_hint;
+use crate::flows::{delete_source_branch, merge_into, push_if_needed, push_tag_if_missing, resume_hint, tag_if_missing};
 use crate::git::Git;
 use crate::version::SemVer;
 
@@ -9,56 +9,17 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
 
     println!("Finishing hotfix {hotfix_branch}...");
 
-    // Merge into main
-    if !git.is_ancestor(&hotfix_branch, "main")? {
-        println!("Merging into main...");
-        git.checkout("main")?;
-        git.ff_merge("origin/main")?;
-        git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into main"))
-            .map_err(|e| format!("{e}\n{}", resume_hint(&hotfix_branch)))?;
-    } else {
-        println!("↷ skipped: merge into main (already merged)");
-    }
+    merge_into(git, &hotfix_branch, "main",
+        &format!("chore: merge hotfix {version} into main"),
+        &resume_hint(&hotfix_branch))?;
+    tag_if_missing(git, &tag, &format!("chore: hotfix {version}"))?;
+    push_if_needed(git, "main")?;
+    push_tag_if_missing(git, &tag)?;
 
-    // Tag
-    if !git.tag_exists(&tag)? {
-        println!("Tagging: {tag}");
-        git.create_tag(&tag, &format!("chore: hotfix {version}"))?;
-    } else {
-        println!("↷ skipped: tag {tag} (already exists)");
-    }
-
-    // Push main
-    if !git.is_pushed("main")? {
-        git.push("main")?;
-    } else {
-        println!("↷ skipped: push main (already up to date)");
-    }
-
-    // Push tag
-    if !git.remote_tag_exists(&tag)? {
-        git.push_tag(&tag)?;
-    } else {
-        println!("↷ skipped: push tag {tag} (already pushed)");
-    }
-
-    // Merge into develop
-    if !git.is_ancestor(&hotfix_branch, "develop")? {
-        println!("Merging into develop...");
-        git.checkout("develop")?;
-        git.ff_merge("origin/develop")?;
-        git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into develop"))
-            .map_err(|e| format!("{e}\n{}", resume_hint(&hotfix_branch)))?;
-    } else {
-        println!("↷ skipped: merge into develop (already merged)");
-    }
-
-    // Push develop
-    if !git.is_pushed("develop")? {
-        git.push("develop")?;
-    } else {
-        println!("↷ skipped: push develop (already up to date)");
-    }
+    merge_into(git, &hotfix_branch, "develop",
+        &format!("chore: merge hotfix {version} into develop"),
+        &resume_hint(&hotfix_branch))?;
+    push_if_needed(git, "develop")?;
 
     // Propagate into every open release branch — sorted and deduped here for
     // deterministic replay on resume (see decisions.md).
@@ -67,48 +28,21 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
     release_branches.dedup();
 
     for release in &release_branches {
-        if git.is_ancestor(&hotfix_branch, release)? {
-            println!("↷ skipped: merge into {release} (already merged)");
-        } else {
-            println!("Merging into {release}...");
-            git.checkout(release)?;
-            git.ff_merge(&format!("origin/{release}"))?;
-            git.merge(
-                &hotfix_branch,
-                &format!("chore: merge hotfix {version} into {release}"),
-            ).map_err(|e| format!(
-                "{e}\n\
-                 Hotfix {version} was merged into main and develop, but propagation into {release} failed.\n\
+        merge_into(git, &hotfix_branch, release,
+            &format!("chore: merge hotfix {version} into {release}"),
+            &format!(
+                "Hotfix {version} was merged into main and develop, but propagation into {release} failed.\n\
                  {}\n\
                  (After all releases are updated, run 'bflow bump' on each to cut a fresh RC for staging.)",
                 resume_hint(&hotfix_branch)
             ))?;
-        }
-        if !git.is_pushed(release)? {
-            git.push(release)?;
-        } else {
-            println!("↷ skipped: push {release} (already up to date)");
-        }
+        // The push sits outside the merge guard so merged-but-unpushed crashes
+        // still push on resume (see decisions.md).
+        push_if_needed(git, release)?;
     }
 
-    // Cleanup
     println!("Cleaning up hotfix branch...");
-    // On a resume path that skipped the develop merge, HEAD may still be on the
-    // hotfix branch — git refuses to delete the currently checked-out branch, so
-    // switch off it first. `main` is always safe (the hotfix is now in main).
-    if git.current_branch()? == hotfix_branch {
-        git.checkout("main")?;
-    }
-    if git.local_branch_exists(&hotfix_branch)? {
-        git.delete_branch_local(&hotfix_branch)?;
-    } else {
-        println!("↷ skipped: delete local {hotfix_branch} (already gone)");
-    }
-    if git.remote_branch_exists(&hotfix_branch)? {
-        git.delete_branch_remote(&hotfix_branch)?;
-    } else {
-        println!("↷ skipped: delete remote {hotfix_branch} (already gone)");
-    }
+    delete_source_branch(git, &hotfix_branch)?;
 
     if release_branches.is_empty() {
         println!("Hotfix {version} complete.");

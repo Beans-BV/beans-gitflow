@@ -1,4 +1,4 @@
-use crate::flows::resume_hint;
+use crate::flows::{delete_source_branch, merge_into, push_if_needed, push_tag_if_missing, resume_hint, tag_if_missing};
 use crate::git::Git;
 use crate::version::SemVer;
 
@@ -58,7 +58,9 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
 
     println!("Finishing release {release_branch} (tag: {tag})...");
 
-    // Merge into main (with RC gate)
+    // Merge into main — inline rather than merge_into(): the RC gate must run
+    // inside the not-yet-merged branch, so a resume past the main merge never
+    // re-evaluates it (negative-tested in finish_release_test.rs).
     if !git.is_ancestor(&release_branch, "main")? {
         let latest_rc_tag = latest_rc.tag_name();
         let commits_past_rc = git.rev_list_count(&latest_rc_tag, &release_branch)?;
@@ -79,64 +81,17 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         println!("↷ skipped: merge into main (already merged)");
     }
 
-    // Tag main
-    if !git.tag_exists(&tag)? {
-        println!("Tagging main: {tag}");
-        git.create_tag(&tag, &format!("chore: release {release_version}"))?;
-    } else {
-        println!("↷ skipped: tag {tag} (already exists)");
-    }
+    tag_if_missing(git, &tag, &format!("chore: release {release_version}"))?;
+    push_if_needed(git, "main")?;
+    push_tag_if_missing(git, &tag)?;
 
-    // Push main
-    if !git.is_pushed("main")? {
-        git.push("main")?;
-    } else {
-        println!("↷ skipped: push main (already up to date)");
-    }
+    merge_into(git, &release_branch, "develop",
+        &format!("chore: merge release {release} into develop"),
+        &resume_hint(&release_branch))?;
+    push_if_needed(git, "develop")?;
 
-    // Push tag
-    if !git.remote_tag_exists(&tag)? {
-        git.push_tag(&tag)?;
-    } else {
-        println!("↷ skipped: push tag {tag} (already pushed)");
-    }
-
-    // Merge into develop
-    if !git.is_ancestor(&release_branch, "develop")? {
-        println!("Merging into develop...");
-        git.checkout("develop")?;
-        git.ff_merge("origin/develop")?;
-        git.merge(&release_branch, &format!("chore: merge release {release} into develop"))
-            .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
-    } else {
-        println!("↷ skipped: merge into develop (already merged)");
-    }
-
-    // Push develop
-    if !git.is_pushed("develop")? {
-        git.push("develop")?;
-    } else {
-        println!("↷ skipped: push develop (already up to date)");
-    }
-
-    // Cleanup
     println!("Cleaning up release branch...");
-    // On a resume path that skipped the develop merge, HEAD may still be on the
-    // release branch — git refuses to delete the currently checked-out branch, so
-    // switch off it first. `main` is always safe (the release is now in main).
-    if git.current_branch()? == release_branch {
-        git.checkout("main")?;
-    }
-    if git.local_branch_exists(&release_branch)? {
-        git.delete_branch_local(&release_branch)?;
-    } else {
-        println!("↷ skipped: delete local {release_branch} (already gone)");
-    }
-    if git.remote_branch_exists(&release_branch)? {
-        git.delete_branch_remote(&release_branch)?;
-    } else {
-        println!("↷ skipped: delete remote {release_branch} (already gone)");
-    }
+    delete_source_branch(git, &release_branch)?;
 
     println!("Release {release_version} complete.");
     Ok(())
