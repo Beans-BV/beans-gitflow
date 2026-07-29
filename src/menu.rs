@@ -166,7 +166,9 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
                 break selected;
             }
             (KeyCode::Up, _) => {
-                selected = selected.saturating_sub(1);
+                if selected > 0 {
+                    selected -= 1;
+                }
             }
             (KeyCode::Down, _) => {
                 if selected < items.len() - 1 {

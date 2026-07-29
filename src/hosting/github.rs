@@ -1,5 +1,4 @@
-use std::process::Command;
-use super::{HostingPlatform, Result};
+use super::{run_cli, HostingPlatform, Result};
 
 pub struct GitHub;
 
@@ -11,14 +10,7 @@ impl GitHub {
     pub fn new() -> Self { Self }
 
     fn run_gh(&self, args: &[&str]) -> Result<String> {
-        let output = Command::new("gh").args(args).output()
-            .map_err(|e| format!("Failed to run gh: {e}"))?;
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            Err(format!("gh {} failed: {}", args.join(" "), stderr))
-        }
+        run_cli("gh", args)
     }
 }
 

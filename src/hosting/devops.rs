@@ -1,5 +1,4 @@
-use std::process::Command;
-use super::{HostingPlatform, Result};
+use super::{run_cli, HostingPlatform, Result};
 
 pub struct AzureDevOps {
     org: String,
@@ -30,14 +29,7 @@ impl AzureDevOps {
     }
 
     fn run_az(&self, args: &[String]) -> Result<String> {
-        let output = Command::new("az").args(args).output()
-            .map_err(|e| format!("Failed to run az: {e}"))?;
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            Err(format!("az {} failed: {}", args.join(" "), stderr))
-        }
+        run_cli("az", args)
     }
 
     fn repo_args(&self) -> Vec<String> {
@@ -129,8 +121,14 @@ impl HostingPlatform for AzureDevOps {
         // Explicit extension check first: it also prevents az's interactive
         // dynamic-install prompt from firing inside a non-tty command later.
         self.run_az(&["extension".into(), "show".into(), "--name".into(), "azure-devops".into()])
-            .map_err(|_| "Azure DevOps CLI extension is missing. Run 'az extension add --name azure-devops'.".to_string())?;
-        self.run_az(&["account".into(), "show".into()]).map(|_| ())
+            .map_err(|e| format!("Azure DevOps CLI extension is missing. Run 'az extension add --name azure-devops'.\n{e}"))?;
+        // Probe actual repo access rather than `az account show`: PAT auth via
+        // `az devops login` (or AZURE_DEVOPS_EXT_PAT) works without an `az login`
+        // session, which `account show` would wrongly report as unauthenticated.
+        let mut args: Vec<String> = vec!["repos".into(), "show".into()];
+        args.extend(self.repo_args());
+        args.extend(["--query".into(), "id".into(), "-o".into(), "tsv".into()]);
+        self.run_az(&args).map(|_| ())
     }
 }
 

@@ -146,5 +146,5 @@ bflow runs preflight checks automatically:
 - `git` must be installed
 - The hosting provider is auto-detected from the origin remote URL (`dev.azure.com` / `*.visualstudio.com` → Azure DevOps, else GitHub); override with `git config bflow.hosting.provider github|devops`
 - GitHub repos: `gh` installed + `gh auth login` completed
-- Azure DevOps repos: `az` installed + `az extension add --name azure-devops` + `az login` completed
+- Azure DevOps repos: `az` installed + `az extension add --name azure-devops` + authenticated (`az login`, or a PAT via `az devops login`)
 - Uncommitted changes are auto-stashed and restored after the operation
