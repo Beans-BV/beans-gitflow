@@ -1,9 +1,10 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use bflow::editor::Editor;
 use bflow::git::Git;
 use bflow::hosting::HostingPlatform;
+use bflow::prompt::Prompter;
 
 pub struct MockGit {
     pub calls: RefCell<Vec<String>>,
@@ -13,7 +14,11 @@ pub struct MockGit {
     pub branches_matching: Vec<String>,
     pub remote_branches: Vec<String>,
     pub merge_base_result: String,
+    /// Per-(a, b) merge bases; falls back to `merge_base_result` when absent.
+    pub merge_bases: HashMap<(String, String), String>,
     pub rev_list_count_result: u32,
+    /// Per-(from, to) counts; falls back to `rev_list_count_result` when absent.
+    pub rev_list_counts: HashMap<(String, String), u32>,
     pub commit_messages: Vec<String>,
     /// Refs (the `to` arg) that should fail with an error. Used to simulate missing branches.
     pub fail_commit_messages_for: Vec<String>,
@@ -57,7 +62,9 @@ impl MockGit {
             branches_matching: Vec::new(),
             remote_branches: Vec::new(),
             merge_base_result: "abc123".to_string(),
+            merge_bases: HashMap::new(),
             rev_list_count_result: 0,
+            rev_list_counts: HashMap::new(),
             commit_messages: Vec::new(),
             fail_commit_messages_for: Vec::new(),
             fail_nth_merge: None,
@@ -176,12 +183,17 @@ impl Git for MockGit {
 
     fn merge_base(&self, a: &str, b: &str) -> Result<String, String> {
         self.calls.borrow_mut().push(format!("merge_base:{a}:{b}"));
-        Ok(self.merge_base_result.clone())
+        Ok(self.merge_bases
+            .get(&(a.to_string(), b.to_string()))
+            .cloned()
+            .unwrap_or_else(|| self.merge_base_result.clone()))
     }
 
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32, String> {
         self.calls.borrow_mut().push(format!("rev_list_count:{from}:{to}"));
-        Ok(self.rev_list_count_result)
+        Ok(*self.rev_list_counts
+            .get(&(from.to_string(), to.to_string()))
+            .unwrap_or(&self.rev_list_count_result))
     }
 
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>, String> {
@@ -352,5 +364,37 @@ impl Editor for MockEditor {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Scripted `Prompter`: records every select as `select:{prompt}:[items]` and
+/// answers from a queue. An unscripted select is an error, so a test proves a
+/// flow never prompted simply by not scripting anything.
+pub struct MockPrompter {
+    pub calls: RefCell<Vec<String>>,
+    pub selections: RefCell<VecDeque<usize>>,
+}
+
+impl MockPrompter {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), selections: RefCell::new(VecDeque::new()) }
+    }
+
+    pub fn scripted(selections: &[usize]) -> Self {
+        let p = Self::new();
+        p.selections.borrow_mut().extend(selections.iter().copied());
+        p
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl Prompter for MockPrompter {
+    fn select(&self, prompt: &str, items: &[&str]) -> Result<usize, String> {
+        self.calls.borrow_mut().push(format!("select:{prompt}:[{}]", items.join(", ")));
+        self.selections.borrow_mut().pop_front()
+            .ok_or_else(|| format!("MockPrompter: unscripted select('{prompt}')"))
     }
 }

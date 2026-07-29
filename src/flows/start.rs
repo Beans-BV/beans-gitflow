@@ -1,5 +1,5 @@
 use crate::git::Git;
-use crate::menu;
+use crate::prompt::Prompter;
 use crate::version::SemVer;
 use crate::worktree::{open_worktree, WorktreeContext};
 
@@ -40,8 +40,8 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     Ok(())
 }
 
-pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, release_type)?;
     Ok(())
 }
 
@@ -95,7 +95,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: 
     Ok(())
 }
 
-fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<String, String> {
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<String, String> {
     let release_branches = super::branches_with_prefix(git, "release")?;
 
     if let Some(branch) = release_branches.first() {
@@ -110,7 +110,7 @@ fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -
         Some(ReleaseType::Minor) => latest.bump_minor(),
         None => {
             let has_breaking = detect_breaking_changes(git, &latest);
-            prompt_release_type(&latest, has_breaking)?
+            prompt_release_type(prompter, &latest, has_breaking)?
         }
     };
 
@@ -175,7 +175,7 @@ pub(crate) fn message_is_breaking(msg: &str) -> bool {
     false
 }
 
-fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, String> {
+fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: bool) -> Result<SemVer, String> {
     let major_label = format!("major (v{} → v{})", latest, latest.bump_major());
     let minor_label = format!("minor (v{} → v{})", latest, latest.bump_minor());
 
@@ -186,7 +186,7 @@ fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, St
         vec![&minor_label, &major_label]
     };
 
-    let idx = menu::show_select("Release type", &items)?;
+    let idx = prompter.select("Release type", &items)?;
     let selected = items[idx];
 
     if selected.starts_with("major") {

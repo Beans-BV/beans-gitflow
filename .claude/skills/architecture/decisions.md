@@ -16,6 +16,7 @@ Catalog of deliberate choices — each entry: the choice, why, and the rejected 
 | `Git` | `GitCli`; `MockGit` in tests | Built once in `main.rs` |
 | `HostingPlatform` | `GitHub` (`gh`), `AzureDevOps` (`az`); `MockHosting` | Auto-detected from origin remote URL (`hosting/detect.rs`) |
 | `Editor` | `CommandEditor` (any command); `MockEditor` | `bflow.worktree.editor` git config |
+| `Prompter` | `MenuPrompter` (interactive select); `MockPrompter` (scripted) | Built once in `main.rs` |
 
 User-configurable without code changes: the worktree flow (`bflow.worktree.*` git config, local/global scope, `bflow worktree` wizard) and PR templates (`.github/pr-templates/bflow-<key>.md`, most-specific-first, falling back to the repo's native template).
 

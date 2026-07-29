@@ -7,6 +7,16 @@ use crossterm::{
 };
 use crate::action::{validate_branch_name, Action};
 use crate::git::branch::BranchType;
+use crate::prompt::Prompter;
+
+/// The real `Prompter`: the interactive select menu on stderr.
+pub struct MenuPrompter;
+
+impl Prompter for MenuPrompter {
+    fn select(&self, prompt: &str, items: &[&str]) -> Result<usize, String> {
+        show_select(prompt, items)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum ReleaseOption {

@@ -11,7 +11,8 @@ use bflow::hosting::devops::AzureDevOps;
 use bflow::hosting::github::GitHub;
 use bflow::hosting::HostingPlatform;
 use bflow::action::Action;
-use bflow::menu;
+use bflow::menu::{self, MenuPrompter};
+use bflow::prompt::Prompter;
 use bflow::flows::{start, finish_work, finish_release, finish_hotfix};
 use bflow::state::{FinishState, FinishKind, current_timestamp};
 use bflow::editor::{CommandEditor, Editor};
@@ -125,7 +126,8 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         write_state_for_action(&action, &branch_type, &git_dir, stash_msg.clone())?;
     }
 
-    let result = run_flow(&git, &*hosting, &branch_type, &branch_name, &action, no_checkout, worktree_active, &wt_config, &editor, resume_state.as_ref());
+    let prompter = MenuPrompter;
+    let result = run_flow(&git, &*hosting, &prompter, &branch_type, &branch_name, &action, no_checkout, worktree_active, &wt_config, &editor, resume_state.as_ref());
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -286,6 +288,7 @@ fn unresolved_merge_message(resume_state: Option<&FinishState>) -> String {
 fn run_flow(
     git: &GitCli,
     hosting: &dyn HostingPlatform,
+    prompter: &dyn Prompter,
     branch_type: &BranchType,
     branch_name: &str,
     action: &Action,
@@ -313,7 +316,7 @@ fn run_flow(
             start::start_work_branch(git, prefix, name, from, *no_checkout, wt)?;
         }
         Action::StartRelease(release_type) => {
-            start::start_release(git, *release_type)?;
+            start::start_release(git, prompter, *release_type)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {
             let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
@@ -325,7 +328,7 @@ fn run_flow(
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;
-            finish_work::finish_work_branch(git, hosting, branch_type, *breaking, base.clone(), template.as_deref())?;
+            finish_work::finish_work_branch(git, hosting, prompter, branch_type, *breaking, base.clone(), template.as_deref())?;
         }
         Action::FinishReleaseFix => {
             let template = resolve_pr_template(git, branch_type)?;

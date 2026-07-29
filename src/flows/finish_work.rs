@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::git::Git;
 use crate::git::branch::BranchType;
 use crate::hosting::HostingPlatform;
-use crate::menu;
+use crate::prompt::Prompter;
 use crate::version::SemVer;
 
 /// `template` is the pre-resolved PR template path (resolved at the composition
@@ -26,7 +26,7 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, 
     Ok(())
 }
 
-fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> {
+fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -> Result<String, String> {
     let remote_branches = git.list_remote_branches()?;
     let mut candidates: Vec<(String, u32)> = Vec::new();
 
@@ -82,11 +82,11 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
     });
 
     let labels: Vec<&str> = candidates.iter().map(|(name, _)| name.as_str()).collect();
-    let idx = menu::show_select("PR target branch", &labels)?;
+    let idx = prompter.select("PR target branch", &labels)?;
     Ok(candidates[idx].0.clone())
 }
 
-pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>, template: Option<&Path>) -> Result<(), String> {
+pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter: &dyn Prompter, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>, template: Option<&Path>) -> Result<(), String> {
     let commit_type = branch_type.commit_type().ok_or("Cannot finish: not on a work branch")?;
     let name = branch_type.name().ok_or("Cannot finish: branch has no name")?;
     let current = git.current_branch()?;
@@ -102,14 +102,14 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
             }
             base
         }
-        None => detect_parent_branch(git, &current)?,
+        None => detect_parent_branch(git, prompter, &current)?,
     };
 
     let bang = match breaking {
         // Explicit flag always honored, for any work type
         Some(b) => b,
         // Prompt only for types that are commonly breaking
-        None if commonly_breaking(commit_type) => prompt_breaking_change()?,
+        None if commonly_breaking(commit_type) => prompt_breaking_change(prompter)?,
         None => false,
     };
 
@@ -126,8 +126,8 @@ fn commonly_breaking(commit_type: &str) -> bool {
     matches!(commit_type, "feat" | "fix" | "refactor")
 }
 
-fn prompt_breaking_change() -> Result<bool, String> {
-    let idx = menu::show_select("Contains breaking changes?", &["no", "yes"])?;
+fn prompt_breaking_change(prompter: &dyn Prompter) -> Result<bool, String> {
+    let idx = prompter.select("Contains breaking changes?", &["no", "yes"])?;
     Ok(idx == 1)
 }
 
