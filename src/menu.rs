@@ -88,6 +88,26 @@ impl ReleaseOption {
     const ALL: [Self; 4] = [Self::FinishRelease, Self::StartReleaseFix, Self::BumpVersion, Self::SyncWithDevelop];
 }
 
+/// Enables raw mode on construction; restores the terminal (cursor visible, raw
+/// mode off) on drop. Every exit path — success, error, Ctrl-C/Esc abort — runs
+/// the same cleanup structurally, so the documented "no raw-mode leak" invariant
+/// is enforced by the type, not by hand-written cleanup at each return.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter(context: &str) -> Result<Self, String> {
+        terminal::enable_raw_mode().map_err(|e| format!("{context}: {e}"))?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = execute!(io::stderr(), cursor::Show);
+        let _ = terminal::disable_raw_mode();
+    }
+}
+
 fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Result<()> {
     for (i, item) in items.iter().enumerate() {
         let number = i + 1;
@@ -129,27 +149,16 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
         style::Print("\n"),
     ).map_err(|e| format!("Menu error: {e}"))?;
 
-    terminal::enable_raw_mode().map_err(|e| format!("Menu error: {e}"))?;
+    let _guard = TerminalGuard::enter("Menu error")?;
 
-    // Hide cursor during selection
-    execute!(out, cursor::Hide).map_err(|e| {
-        let _ = terminal::disable_raw_mode();
-        format!("Menu error: {e}")
-    })?;
+    // Hide cursor during selection; the guard re-shows it on every exit path.
+    execute!(out, cursor::Hide).map_err(|e| format!("Menu error: {e}"))?;
 
     // Initial render
-    render_menu(&mut out, items, selected).map_err(|e| {
-        let _ = execute!(out, cursor::Show);
-        let _ = terminal::disable_raw_mode();
-        format!("Menu error: {e}")
-    })?;
+    render_menu(&mut out, items, selected).map_err(|e| format!("Menu error: {e}"))?;
 
     let result = loop {
-        let ev = event::read().map_err(|e| {
-            let _ = execute!(out, cursor::Show);
-            let _ = terminal::disable_raw_mode();
-            format!("Menu error: {e}")
-        })?;
+        let ev = event::read().map_err(|e| format!("Menu error: {e}"))?;
 
         // On Windows, crossterm emits Press + Release events; only handle Press
         let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
@@ -158,8 +167,6 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
 
         match (code, modifiers) {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
-                let _ = execute!(out, cursor::Show);
-                let _ = terminal::disable_raw_mode();
                 return Err("Aborted".to_string());
             }
             (KeyCode::Enter, _) => {
@@ -194,28 +201,16 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
         }
 
         // Redraw: move cursor up to start of menu, then re-render
-        let reposition = (|| -> io::Result<()> {
-            if items.len() > 1 {
-                execute!(out, cursor::MoveUp((items.len() - 1) as u16))?;
-            }
-            execute!(out, cursor::MoveToColumn(0))?;
-            Ok(())
-        })();
-        if let Err(e) = reposition {
-            let _ = execute!(out, cursor::Show);
-            let _ = terminal::disable_raw_mode();
-            return Err(format!("Menu error: {e}"));
+        if items.len() > 1 {
+            execute!(out, cursor::MoveUp((items.len() - 1) as u16))
+                .map_err(|e| format!("Menu error: {e}"))?;
         }
-        render_menu(&mut out, items, selected).map_err(|e| {
-            let _ = execute!(out, cursor::Show);
-            let _ = terminal::disable_raw_mode();
-            format!("Menu error: {e}")
-        })?;
+        execute!(out, cursor::MoveToColumn(0)).map_err(|e| format!("Menu error: {e}"))?;
+        render_menu(&mut out, items, selected).map_err(|e| format!("Menu error: {e}"))?;
     };
 
-    // Cleanup: show cursor, disable raw mode, move past menu
-    let _ = execute!(out, cursor::Show, style::Print("\r\n"));
-    let _ = terminal::disable_raw_mode();
+    // Move past the menu; the guard restores cursor + raw mode on drop.
+    let _ = execute!(out, style::Print("\r\n"));
 
     Ok(result)
 }
@@ -245,13 +240,10 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
         style::Print(format!("{prompt}: ")),
     ).map_err(|e| format!("Input error: {e}"))?;
 
-    terminal::enable_raw_mode().map_err(|e| format!("Input error: {e}"))?;
+    let _guard = TerminalGuard::enter("Input error")?;
 
     let result = loop {
-        let ev = event::read().map_err(|e| {
-            let _ = terminal::disable_raw_mode();
-            format!("Input error: {e}")
-        })?;
+        let ev = event::read().map_err(|e| format!("Input error: {e}"))?;
 
         // On Windows, crossterm emits Press + Release events; only handle Press
         let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
@@ -260,7 +252,6 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
 
         match (code, modifiers) {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
-                let _ = terminal::disable_raw_mode();
                 return Err("Aborted".to_string());
             }
             (KeyCode::Enter, _) => break input,
@@ -279,8 +270,8 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
         }
     };
 
+    // Move to the next line; the guard disables raw mode on drop.
     let _ = execute!(out, cursor::MoveToNextLine(1));
-    let _ = terminal::disable_raw_mode();
     Ok(result)
 }
 
