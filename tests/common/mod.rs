@@ -184,16 +184,6 @@ impl Git for MockGit {
         Ok(self.rev_list_count_result)
     }
 
-    fn stash_push(&self) -> Result<(), String> {
-        self.calls.borrow_mut().push("stash_push".to_string());
-        Ok(())
-    }
-
-    fn stash_pop(&self) -> Result<(), String> {
-        self.calls.borrow_mut().push("stash_pop".to_string());
-        Ok(())
-    }
-
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>, String> {
         self.calls.borrow_mut().push(format!("commit_messages:{from}:{to}"));
         if self.fail_commit_messages_for.iter().any(|r| r == to) {
@@ -245,11 +235,6 @@ impl Git for MockGit {
     fn git_dir(&self) -> Result<PathBuf, String> {
         self.calls.borrow_mut().push("git_dir".to_string());
         Ok(self.git_dir.clone())
-    }
-
-    fn rev_parse(&self, refname: &str) -> Result<String, String> {
-        self.calls.borrow_mut().push(format!("rev_parse:{refname}"));
-        Ok("abc123".to_string())
     }
 
     fn remote_url(&self) -> Result<String, String> {

@@ -25,8 +25,6 @@ pub trait Git {
     fn list_remote_branches(&self) -> Result<Vec<String>>;
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32>;
-    fn stash_push(&self) -> Result<()>;
-    fn stash_pop(&self) -> Result<()>;
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>>;
 
     // Idempotency primitives
@@ -39,7 +37,6 @@ pub trait Git {
     fn is_mid_merge(&self) -> Result<bool>;
     fn has_unmerged_paths(&self) -> Result<bool>;
     fn git_dir(&self) -> Result<PathBuf>;
-    fn rev_parse(&self, refname: &str) -> Result<String>;
 
     /// URL of the `origin` remote (`git remote get-url origin`). Errors when the
     /// remote does not exist; callers decide how to handle a missing remote.
@@ -96,6 +93,12 @@ impl GitCli {
             }
             None => Err(format!("git {} terminated by signal", args.join(" "))),
         }
+    }
+
+    /// Resolve a ref name to its SHA. Only needed internally (`is_pushed`
+    /// compares local vs remote SHAs), so not part of the `Git` port.
+    fn rev_parse(&self, refname: &str) -> Result<String> {
+        self.run(&["rev-parse", refname])
     }
 
     /// Run a `git config --get`-style command that uses exit 1 to mean "key not set".
@@ -179,8 +182,6 @@ impl Git for GitCli {
         let output = self.run(&["rev-list", "--count", &range])?;
         output.parse::<u32>().map_err(|e| format!("Failed to parse rev-list count: {e}"))
     }
-    fn stash_push(&self) -> Result<()> { self.run(&["stash", "push", "-u"]).map(|_| ()) }
-    fn stash_pop(&self) -> Result<()> { self.run(&["stash", "pop"]).map(|_| ()) }
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>> {
         let range = format!("{from}..{to}");
         // Use NUL byte as separator — guaranteed not to appear in commit messages
@@ -240,9 +241,6 @@ impl Git for GitCli {
     fn git_dir(&self) -> Result<PathBuf> {
         let s = self.run(&["rev-parse", "--git-dir"])?;
         Ok(PathBuf::from(s))
-    }
-    fn rev_parse(&self, refname: &str) -> Result<String> {
-        self.run(&["rev-parse", refname])
     }
 
     fn remote_url(&self) -> Result<String> {
