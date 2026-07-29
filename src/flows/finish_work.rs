@@ -6,20 +6,67 @@ use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
 use crate::version::SemVer;
 
+/// If the branch's PR is already merged, the work is done — finish by cleaning
+/// up instead of opening a new PR. Completion is derived from the hosting
+/// platform's PR state (no state file), guarded by a head-SHA match: only the
+/// exact commit that was merged is safe to delete; new commits since the merge
+/// mean new work, which continues into a fresh PR.
+///
+/// Returns `true` when cleanup ran and the finish is complete.
+fn try_cleanup_merged(git: &dyn Git, hosting: &dyn HostingPlatform, current: &str) -> Result<bool, String> {
+    let Some(pr) = hosting.merged_pr(current)? else {
+        return Ok(false);
+    };
+    if git.head_sha()? != pr.head_sha {
+        println!("PR {} was merged, but this branch has new commits since — creating a new PR.", pr.url);
+        return Ok(false);
+    }
+    println!("PR already merged: {}", pr.url);
+
+    // Remote deletion first: after the worktree is removed the process working
+    // directory is gone, so every other git call must happen before it.
+    if git.remote_branch_exists(current)? {
+        println!("Deleting remote branch: {current}");
+        git.delete_branch_remote(current)?;
+    } else {
+        println!("↷ skipped: remote branch deletion (already gone)");
+    }
+
+    if git.is_linked_worktree()? {
+        // Free the branch from this worktree, drop it, then drop the worktree.
+        git.detach_head()?;
+        println!("Deleting local branch: {current}");
+        git.delete_branch_local(current)?;
+        let path = git.remove_current_worktree()?;
+        println!("Removed worktree: {}", path.display());
+        println!("You can close this editor window now.");
+    } else {
+        println!("Switching to {}", pr.base);
+        git.checkout(&pr.base)?;
+        // The merge already happened on the remote; a stale local base is a
+        // warning, not a failed finish.
+        if let Err(e) = git.ff_merge(&format!("origin/{}", pr.base)) {
+            eprintln!("Warning: could not fast-forward {}: {e}", pr.base);
+        }
+        println!("Deleting local branch: {current}");
+        git.delete_branch_local(current)?;
+    }
+    println!("✔ {current} is finished.");
+    Ok(true)
+}
+
 /// `template` is the pre-resolved PR template path (resolved at the composition
 /// root, anchored to the repo root) — flows never probe the filesystem.
-fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, title: &str, template: Option<&Path>) -> Result<(), String> {
-    let current = git.current_branch()?;
-
+fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, current: &str, base: &str, title: &str, template: Option<&Path>) -> Result<(), String> {
     println!("Pushing branch: {current}");
-    git.push(&current)?;
+    git.push(current)?;
 
     if let Some(path) = template {
         println!("Using PR template: {}", path.display());
     }
 
     println!("Creating PR: {title} → {base}");
-    let url = hosting.create_or_get_pr(&current, base, title, template.and_then(|p| p.to_str()))?;
+    let url = hosting.create_or_get_pr(current, base, title, template.and_then(|p| p.to_str()))?;
     println!("PR: {url}");
     hosting.open_url(&url)?;
 
@@ -90,18 +137,24 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter
     let commit_type = branch_type.commit_type().ok_or("Cannot finish: not on a work branch")?;
     let name = branch_type.name().ok_or("Cannot finish: branch has no name")?;
     let current = git.current_branch()?;
-    let base = match base {
-        Some(base) => {
-            if base == current {
-                return Err(format!("Base branch '{base}' is the branch being finished; a PR cannot target its own branch."));
-            }
-            // PRs are created via the hosting platform, so the base must exist on
-            // the remote — a local-only branch would fail later at PR creation.
-            if !git.remote_branch_exists(&base)? {
-                return Err(format!("Base branch '{base}' not found on origin. Push it first (or fetch if it exists remotely)."));
-            }
-            base
+    // Validate an explicit --base before anything else (cheap, local), but check
+    // for an already-merged PR before parent detection and the breaking prompt —
+    // a completed finish must not re-ask questions that no longer matter.
+    if let Some(base) = &base {
+        if *base == current {
+            return Err(format!("Base branch '{base}' is the branch being finished; a PR cannot target its own branch."));
         }
+        // PRs are created via the hosting platform, so the base must exist on
+        // the remote — a local-only branch would fail later at PR creation.
+        if !git.remote_branch_exists(base)? {
+            return Err(format!("Base branch '{base}' not found on origin. Push it first (or fetch if it exists remotely)."));
+        }
+    }
+    if try_cleanup_merged(git, hosting, &current)? {
+        return Ok(());
+    }
+    let base = match base {
+        Some(base) => base,
         None => detect_parent_branch(git, prompter, &current)?,
     };
 
@@ -119,7 +172,7 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter
         format!("{commit_type}: {name}")
     };
 
-    push_and_create_pr(git, hosting, &base, &title, template)
+    push_and_create_pr(git, hosting, &current, &base, &title, template)
 }
 
 fn commonly_breaking(commit_type: &str) -> bool {
@@ -135,14 +188,22 @@ pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a release-fix branch".to_string());
     };
+    let current = git.current_branch()?;
+    if try_cleanup_merged(git, hosting, &current)? {
+        return Ok(());
+    }
     let title = format!("fix: {}", name.replace('-', " "));
-    push_and_create_pr(git, hosting, &SemVer::new(*major, *minor, *patch).release_branch(), &title, template)
+    push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).release_branch(), &title, template)
 }
 
 pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
     let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
+    let current = git.current_branch()?;
+    if try_cleanup_merged(git, hosting, &current)? {
+        return Ok(());
+    }
     let title = format!("fix: {}", name.replace('-', " "));
-    push_and_create_pr(git, hosting, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, template)
+    push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, template)
 }

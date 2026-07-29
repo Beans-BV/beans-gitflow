@@ -57,6 +57,18 @@ pub trait Git {
     fn repo_root(&self) -> Result<PathBuf>;
     /// Add a worktree at `path` checked out to the (already existing) `branch`.
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
+    /// Whether the current checkout is a linked worktree rather than the main
+    /// working tree.
+    fn is_linked_worktree(&self) -> Result<bool>;
+    /// Remove the linked worktree we are standing in and return its path.
+    /// Must be the LAST git operation of a flow: the process working directory
+    /// no longer exists afterwards, so any further subprocess would fail.
+    fn remove_current_worktree(&self) -> Result<PathBuf>;
+    /// SHA of the current HEAD commit.
+    fn head_sha(&self) -> Result<String>;
+    /// Detach HEAD from the current branch (frees the branch for deletion while
+    /// this worktree still exists).
+    fn detach_head(&self) -> Result<()>;
 
     // Stash by message (safer than blind pop)
     fn stash_push_with_message(&self, msg: &str) -> Result<()>;
@@ -287,6 +299,33 @@ impl Git for GitCli {
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;
         self.run(&["worktree", "add", path_str, branch]).map(|_| ())
+    }
+    fn is_linked_worktree(&self) -> Result<bool> {
+        // One invocation for both paths so the two are in a consistent form:
+        // they are equal for the main working tree, and differ (<common>/worktrees/<name>
+        // vs <common>) for a linked one.
+        let output = self.run(&["rev-parse", "--git-dir", "--git-common-dir"])?;
+        let mut lines = output.lines();
+        match (lines.next(), lines.next()) {
+            (Some(git_dir), Some(common_dir)) => Ok(git_dir != common_dir),
+            _ => Err(format!("Unexpected 'git rev-parse --git-dir --git-common-dir' output: '{output}'")),
+        }
+    }
+    fn remove_current_worktree(&self) -> Result<PathBuf> {
+        let own_root = self.run(&["rev-parse", "--show-toplevel"])?;
+        // git refuses to remove the worktree it runs in, so run from the main
+        // working tree via -C. `--force` is safe here: the finish preflight
+        // already rejected dirty trees, so at most ignored files are deleted.
+        let main_root = self.repo_root()?;
+        let main_root = main_root.to_str().ok_or("Main working tree path is not valid UTF-8")?;
+        self.run(&["-C", main_root, "worktree", "remove", "--force", &own_root])?;
+        Ok(PathBuf::from(own_root))
+    }
+    fn head_sha(&self) -> Result<String> {
+        self.rev_parse("HEAD")
+    }
+    fn detach_head(&self) -> Result<()> {
+        self.run(&["checkout", "--detach"]).map(|_| ())
     }
 
     fn stash_push_with_message(&self, msg: &str) -> Result<()> {

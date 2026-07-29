@@ -58,6 +58,12 @@ pub struct MockGit {
     pub remote_url: String,
     /// Value returned by `repo_root`.
     pub repo_root: PathBuf,
+    /// SHA returned by `head_sha`.
+    pub head_sha: String,
+    /// Whether the current checkout is a linked worktree.
+    pub linked_worktree: bool,
+    /// Path returned by `remove_current_worktree`.
+    pub worktree_path: PathBuf,
 }
 
 impl MockGit {
@@ -91,6 +97,9 @@ impl MockGit {
             config: HashMap::new(),
             remote_url: "https://github.com/acme/repo.git".to_string(),
             repo_root: PathBuf::from("/repos/beans-gitflow"),
+            head_sha: "headsha".to_string(),
+            linked_worktree: false,
+            worktree_path: PathBuf::from("/repos/beans-gitflow-feature-x"),
         }
     }
 
@@ -311,11 +320,33 @@ impl Git for MockGit {
         self.calls.borrow_mut().push(format!("stash_pop_ref:{stash_ref}"));
         Ok(())
     }
+
+    fn is_linked_worktree(&self) -> Result<bool, String> {
+        self.calls.borrow_mut().push("is_linked_worktree".to_string());
+        Ok(self.linked_worktree)
+    }
+
+    fn remove_current_worktree(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("remove_current_worktree".to_string());
+        Ok(self.worktree_path.clone())
+    }
+
+    fn head_sha(&self) -> Result<String, String> {
+        self.calls.borrow_mut().push("head_sha".to_string());
+        Ok(self.head_sha.clone())
+    }
+
+    fn detach_head(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("detach_head".to_string());
+        Ok(())
+    }
 }
 
 pub struct MockHosting {
     pub calls: RefCell<Vec<String>>,
     pub pr_url: String,
+    /// What `merged_pr` reports (defaults to no merged PR).
+    pub merged_pr: Option<bflow::hosting::MergedPr>,
 }
 
 impl MockHosting {
@@ -323,6 +354,7 @@ impl MockHosting {
         Self {
             calls: RefCell::new(Vec::new()),
             pr_url: "https://github.com/org/repo/pull/1".to_string(),
+            merged_pr: None,
         }
     }
 
@@ -336,6 +368,11 @@ impl HostingPlatform for MockHosting {
         let suffix = template.map(|t| format!(":template={t}")).unwrap_or_default();
         self.calls.borrow_mut().push(format!("create_or_get_pr:{head}:{base}:{title}{suffix}"));
         Ok(self.pr_url.clone())
+    }
+
+    fn merged_pr(&self, head: &str) -> Result<Option<bflow::hosting::MergedPr>, String> {
+        self.calls.borrow_mut().push(format!("merged_pr:{head}"));
+        Ok(self.merged_pr.clone())
     }
 
     fn open_url(&self, url: &str) -> Result<(), String> {
