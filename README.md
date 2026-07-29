@@ -30,7 +30,18 @@ cargo install --path .
 ### Requirements
 
 - [git](https://git-scm.com/)
-- [gh](https://cli.github.com/) (GitHub CLI, authenticated via `gh auth login`)
+- For GitHub repos: [gh](https://cli.github.com/) (GitHub CLI, authenticated via `gh auth login`)
+- For Azure DevOps repos: [az](https://learn.microsoft.com/cli/azure/) (Azure CLI) with the `azure-devops` extension (`az extension add --name azure-devops`), authenticated via `az login` or a PAT via `az devops login`
+
+### Hosting provider
+
+bflow auto-detects the hosting provider from the `origin` remote URL: `dev.azure.com` and `*.visualstudio.com` remotes use Azure DevOps (org/project/repo are parsed from the URL), everything else uses GitHub. Only the CLI of the detected provider needs to be installed.
+
+To override detection (e.g. a GitHub Enterprise domain), set:
+
+```bash
+git config bflow.hosting.provider github   # or: devops (requires an Azure DevOps origin URL)
+```
 
 ## Branch Model
 
@@ -219,7 +230,7 @@ When `bflow finish` opens a PR, it picks the body template by branch type. Place
 1. **Branch-specific** — `bflow-<type>.md` (e.g. `bflow-release-fix.md`)
 2. **Group** — the fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`; every other type's group equals its own name
 3. **Default** — `bflow-default.md`
-4. **Git default** — the repo's own `.github/PULL_REQUEST_TEMPLATE.md` (and the other paths `gh` recognizes), else an empty body
+4. **Git default** — the repo's own default template, else an empty body. On GitHub: `.github/PULL_REQUEST_TEMPLATE.md` and the other paths `gh` recognizes. On Azure DevOps: `.azuredevops/pull_request_template.md` and the other ADO default paths.
 
 | File | Applies to |
 |------|-----------|
@@ -230,7 +241,7 @@ When `bflow finish` opens a PR, it picks the body template by branch type. Place
 | `bflow-chore.md` / `bflow-docs.md` / `bflow-refactor.md` | `chore/*` / `docs/*` / `refactor/*` |
 | `bflow-default.md` | any PR with no more specific match |
 
-The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls back to the existing git default behavior unchanged.
+The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls back to the existing git default behavior unchanged. bflow templates live in `.github/pr-templates/` on every hosting provider, including Azure DevOps.
 
 ### Release-only commands
 
@@ -564,7 +575,9 @@ src/
 │   └── branch.rs        — Branch type detection and parsing
 ├── hosting/
 │   ├── mod.rs           — Hosting platform trait
-│   └── github.rs        — GitHub implementation via gh CLI
+│   ├── detect.rs        — Provider detection from the origin remote URL
+│   ├── github.rs        — GitHub implementation via gh CLI
+│   └── devops.rs        — Azure DevOps implementation via az CLI
 ├── flows/
 │   ├── start.rs         — Start work/release-fix/hotfix-fix
 │   ├── finish_work.rs   — PR creation for work branches
@@ -577,7 +590,7 @@ src/
 └── worktree.rs          — Worktree config, path resolution, and setup wizard
 ```
 
-The `Git` and `HostingPlatform` traits enable future extensibility (e.g. GitLab, Bitbucket) and testability.
+The `Git` and `HostingPlatform` traits enable multiple hosting providers (GitHub and Azure DevOps today, GitLab/Bitbucket-ready) and testability.
 
 ## License
 

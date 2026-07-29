@@ -6,6 +6,8 @@ use bflow::cli::{Commands, WorktreeAction, resolve_action};
 use bflow::git::GitCli;
 use bflow::git::Git;
 use bflow::git::branch::BranchType;
+use bflow::hosting::detect::{self, Provider};
+use bflow::hosting::devops::AzureDevOps;
 use bflow::hosting::github::GitHub;
 use bflow::hosting::HostingPlatform;
 use bflow::menu::{self, Action};
@@ -44,16 +46,12 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         other => other,
     };
 
-    check_command_exists("gh")?;
-    let hosting = GitHub::new();
-
-    hosting.check_auth().map_err(|e| {
-        format!("GitHub CLI is not authenticated. Run 'gh auth login' first.\n{e}")
-    })?;
-
+    // Provider detection reads the origin remote, so the repo check comes first.
     let branch_name = git.current_branch().map_err(|_| {
         "Not in a git repository.".to_string()
     })?;
+
+    let hosting = create_hosting(&git)?;
     let git_dir = git.git_dir()?;
 
     // One-time upgrade of any pre-2.4 global state file into the per-branch folder.
@@ -126,7 +124,7 @@ fn run(command: Option<Commands>) -> Result<(), String> {
         write_state_for_action(&action, &branch_type, &git_dir, stash_msg.clone())?;
     }
 
-    let result = run_flow(&git, &hosting, &branch_type, &branch_name, &action, no_checkout, worktree_active, &wt_config, &editor, resume_state.as_ref());
+    let result = run_flow(&git, &*hosting, &branch_type, &branch_name, &action, no_checkout, worktree_active, &wt_config, &editor, resume_state.as_ref());
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -287,7 +285,7 @@ fn unresolved_merge_message(resume_state: Option<&FinishState>) -> String {
 #[allow(clippy::too_many_arguments)]
 fn run_flow(
     git: &GitCli,
-    hosting: &GitHub,
+    hosting: &dyn HostingPlatform,
     branch_type: &BranchType,
     branch_name: &str,
     action: &Action,
@@ -374,6 +372,29 @@ fn run_flow(
     }
 
     Ok(())
+}
+
+/// Detect the hosting provider for this repo and return a ready-to-use,
+/// preflighted (CLI installed + authenticated) hosting backend.
+fn create_hosting(git: &dyn Git) -> Result<Box<dyn HostingPlatform>, String> {
+    match detect::detect(git)? {
+        Provider::GitHub => {
+            check_command_exists("gh")?;
+            let hosting = GitHub::new();
+            hosting.check_auth().map_err(|e| {
+                format!("GitHub CLI is not authenticated. Run 'gh auth login' first.\n{e}")
+            })?;
+            Ok(Box::new(hosting))
+        }
+        Provider::AzureDevOps { org, project, repo } => {
+            check_command_exists("az")?;
+            let hosting = AzureDevOps::new(org, project, repo);
+            hosting.check_auth().map_err(|e| {
+                format!("Azure CLI is not ready for Azure DevOps. Run 'az login' (or 'az devops login' with a PAT).\n{e}")
+            })?;
+            Ok(Box::new(hosting))
+        }
+    }
 }
 
 fn run_worktree_config(git: &GitCli, action: Option<WorktreeAction>, local: bool) -> Result<(), String> {
