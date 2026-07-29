@@ -1,3 +1,8 @@
+// Shared mocks for the integration-test suites. Each test crate compiles its
+// own copy of this module and rarely uses every mock, so item-level dead_code
+// warnings here are pure noise — silenced module-wide.
+#![allow(dead_code)]
+
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -408,7 +413,6 @@ static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Unique temp directory for integration tests that need a fake `.git` dir
 /// (state files). Mirrors the lib's #[cfg(test)] helper, which integration
 /// tests cannot link.
-#[allow(dead_code)]
 pub fn tmp_dir(prefix: &str) -> PathBuf {
     let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()));
