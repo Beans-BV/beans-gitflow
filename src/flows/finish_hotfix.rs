@@ -21,8 +21,10 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
         &resume_hint(&hotfix_branch))?;
     push_if_needed(git, "develop")?;
 
-    // Propagate into every open release branch — sorted and deduped here for
-    // deterministic replay on resume (see decisions.md).
+    // Propagate into every open release branch — re-sorted here even though the
+    // trait contract already promises sorted output: deterministic replay on
+    // resume is a crash-safety invariant, so the flow enforces it rather than
+    // trusting the adapter (test-pinned with a deliberately unsorted mock).
     let mut release_branches = super::branches_with_prefix(git, "release")?;
     release_branches.sort();
     release_branches.dedup();

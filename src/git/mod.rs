@@ -17,6 +17,8 @@ pub trait Git {
     fn merge(&self, branch: &str, message: &str) -> Result<()>;
     fn ff_merge(&self, branch: &str) -> Result<()>;
     fn list_tags(&self) -> Result<Vec<String>>;
+    /// Contract: returns a sorted, deduplicated list — consumers pick
+    /// candidates by position (`.first()`), so order must be deterministic.
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>>;
     fn is_working_tree_clean(&self) -> Result<bool>;
     fn delete_branch_local(&self, branch: &str) -> Result<()>;
@@ -144,9 +146,7 @@ impl Git for GitCli {
             "for-each-ref", "--format=%(refname:short)",
             &ref_pattern, &local_pattern,
         ])?;
-        // Sorted + deduped: consumers pick candidates by position (`.first()`),
-        // so the adapter must return a deterministic order — the same contract
-        // the tests' mock (a verbatim, ordered Vec) already implies.
+        // Sorted + deduped per the trait contract.
         let mut branches: Vec<String> = output
             .lines()
             .map(|s| s.trim_start_matches("origin/").to_string())

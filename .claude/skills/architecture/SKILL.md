@@ -11,7 +11,7 @@ Broad, global rules only. Implementation-level decisions, extension recipes, and
 
 ## Principles
 
-1. **Ports & adapters.** Business logic lives in `flows/` and depends only on traits (`Git`, `HostingPlatform`, `Editor`). Concrete adapters are wired in `main.rs` — the only composition root. No subprocess calls outside adapter impls.
+1. **Ports & adapters.** Business logic lives in `flows/` and depends only on traits (`Git`, `HostingPlatform`, `Editor`, `Prompter`). Concrete adapters are wired in `main.rs` — the only composition root. No subprocess calls outside adapter impls.
 2. **Plug-and-play integrations.** Hosting providers are auto-detected from the remote and swappable; adding a provider or editor never touches flows.
 3. **Integrate through the user's own CLIs** (`git`, `gh`, `az`) — never link libraries or call APIs directly. bflow inherits the user's auth, config, hooks, and signing.
 4. **Minimal dependency budget.** Two crates today. A new dependency needs a very good reason; prefer hand-rolling small things.
@@ -26,8 +26,9 @@ Broad, global rules only. Implementation-level decisions, extension recipes, and
 
 | Module | Responsibility |
 |---|---|
-| `main.rs` | Composition root: builds adapters, preflight, cross-cutting lifecycle (stash/state/resume), dispatches `Action` once |
-| `cli.rs` / `menu.rs` | The two interfaces; both resolve to `Action` |
+| `main.rs` | Composition root: builds adapters, preflight, hands off to `lifecycle::run` |
+| `lifecycle.rs` | Cross-cutting lifecycle (stash/state/resume ordering), dispatches `Action` once |
+| `cli.rs` / `menu.rs` | The two interfaces; both resolve to `Action` (`action.rs`) |
 | `flows/` | Business logic per workflow |
-| `git/`, `hosting/`, `editor.rs` | Ports (traits) + adapters (CLI impls); `hosting/detect.rs` picks the provider |
+| `git/`, `hosting/`, `editor.rs`, `prompt.rs` | Ports (traits) + adapters (CLI impls); `hosting/detect.rs` picks the provider |
 | `state.rs`, `worktree.rs`, `version.rs` | Finish state, worktree feature, SemVer |
