@@ -25,6 +25,12 @@ fn scope_label(local: bool) -> &'static str {
     if local { "local (this repo)" } else { "global (all repos)" }
 }
 
+/// An editor value that is blank or `none` (any case) means "don't open an editor".
+fn editor_disabled(editor: &str) -> bool {
+    let editor = editor.trim();
+    editor.is_empty() || editor.eq_ignore_ascii_case("none")
+}
+
 /// User configuration for the optional worktree flow, read from `bflow.worktree.*`
 /// git config keys.
 pub struct WorktreeConfig {
@@ -120,8 +126,8 @@ pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig
     println!("Creating worktree: {}", path.display());
     git.add_worktree(&path, branch)?;
 
-    let editor_cmd = config.editor.trim();
-    if !editor_cmd.is_empty() && !editor_cmd.eq_ignore_ascii_case("none") {
+    if !editor_disabled(&config.editor) {
+        let editor_cmd = config.editor.trim();
         println!("Opening in editor: {editor_cmd}");
         if let Err(e) = editor.open(&path) {
             eprintln!("Warning: {e}. Worktree is ready at {}.", path.display());
@@ -172,7 +178,7 @@ pub fn show_status(git: &dyn Git) -> Result<()> {
     let cfg = WorktreeConfig::load(git)?;
     println!("Worktree flow configuration");
     println!("  enabled : {}", cfg.enabled);
-    if cfg.editor.trim().is_empty() || cfg.editor.eq_ignore_ascii_case("none") {
+    if editor_disabled(&cfg.editor) {
         println!("  editor  : {} (won't open an editor)", cfg.editor);
     } else {
         println!("  editor  : {}", cfg.editor);
