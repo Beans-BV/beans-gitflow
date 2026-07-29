@@ -134,8 +134,8 @@ impl Git for MockGit {
         Ok(())
     }
 
-    fn pull(&self, branch: &str) -> Result<(), String> {
-        self.calls.borrow_mut().push(format!("pull:{branch}"));
+    fn ff_merge(&self, branch: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("ff_merge:{branch}"));
         Ok(())
     }
 

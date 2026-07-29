@@ -13,7 +13,7 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
     if !git.is_ancestor(&hotfix_branch, "main")? {
         println!("Merging into main...");
         git.checkout("main")?;
-        git.pull("origin/main")?;
+        git.ff_merge("origin/main")?;
         git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into main"))
             .map_err(|e| format!("{e}\n{}", resume_hint(&hotfix_branch)))?;
     } else {
@@ -46,7 +46,7 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
     if !git.is_ancestor(&hotfix_branch, "develop")? {
         println!("Merging into develop...");
         git.checkout("develop")?;
-        git.pull("origin/develop")?;
+        git.ff_merge("origin/develop")?;
         git.merge(&hotfix_branch, &format!("chore: merge hotfix {version} into develop"))
             .map_err(|e| format!("{e}\n{}", resume_hint(&hotfix_branch)))?;
     } else {
@@ -72,7 +72,7 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Resul
         } else {
             println!("Merging into {release}...");
             git.checkout(release)?;
-            git.pull(&format!("origin/{release}"))?;
+            git.ff_merge(&format!("origin/{release}"))?;
             git.merge(
                 &hotfix_branch,
                 &format!("chore: merge hotfix {version} into {release}"),

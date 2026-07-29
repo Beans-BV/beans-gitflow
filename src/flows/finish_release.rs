@@ -36,7 +36,7 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
 
     println!("Merging {release_branch} into develop...");
     git.checkout("develop")?;
-    git.pull("origin/develop")?;
+    git.ff_merge("origin/develop")?;
     git.merge(&release_branch, &format!("chore: sync release {release} with develop"))?;
     git.push("develop")?;
 
@@ -72,7 +72,7 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
         }
         println!("Merging into main...");
         git.checkout("main")?;
-        git.pull("origin/main")?;
+        git.ff_merge("origin/main")?;
         git.merge(&release_branch, &format!("chore: merge release {release} into main"))
             .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
     } else {
@@ -105,7 +105,7 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     if !git.is_ancestor(&release_branch, "develop")? {
         println!("Merging into develop...");
         git.checkout("develop")?;
-        git.pull("origin/develop")?;
+        git.ff_merge("origin/develop")?;
         git.merge(&release_branch, &format!("chore: merge release {release} into develop"))
             .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
     } else {

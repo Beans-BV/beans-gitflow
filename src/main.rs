@@ -299,7 +299,7 @@ fn run_flow(
     // a flow (on resume the user may be on main/develop after conflict resolution —
     // pulling that branch is harmless but produces noisy output).
     if !no_checkout && resume_state.is_none() {
-        if let Err(e) = git.pull(&format!("origin/{branch_name}")) {
+        if let Err(e) = git.ff_merge(&format!("origin/{branch_name}")) {
             if !e.contains("not something we can merge") {
                 return Err(e);
             }
