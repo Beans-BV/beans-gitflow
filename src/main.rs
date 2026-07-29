@@ -233,22 +233,21 @@ fn write_state_for_action(
     git_dir: &std::path::Path,
     stash_ref: Option<String>,
 ) -> Result<(), String> {
-    let state = match (action, branch_type) {
-        (Action::FinishRelease, BranchType::Release { major, minor, patch }) => FinishState {
-            kind: FinishKind::Release,
-            major: *major, minor: *minor, patch: *patch,
-            started_at: current_timestamp(),
-            stash_ref,
-        },
-        (Action::FinishHotfix, BranchType::Hotfix { major, minor, patch }) => FinishState {
-            kind: FinishKind::Hotfix,
-            major: *major, minor: *minor, patch: *patch,
-            started_at: current_timestamp(),
-            stash_ref,
-        },
+    // The action decides *whether* state is written; the branch supplies the
+    // identity via the same finish_identity mapping the resume lookup uses,
+    // so the two can never encode the branch→identity rule differently.
+    let expected_kind = match action {
+        Action::FinishRelease => FinishKind::Release,
+        Action::FinishHotfix => FinishKind::Hotfix,
         _ => return Ok(()),
     };
-    state.save(git_dir)
+    let Some((kind, major, minor, patch)) = finish_identity(branch_type) else {
+        return Ok(());
+    };
+    if kind != expected_kind {
+        return Ok(());
+    }
+    FinishState { kind, major, minor, patch, started_at: current_timestamp(), stash_ref }.save(git_dir)
 }
 
 fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result<(), String> {
