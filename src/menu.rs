@@ -5,7 +5,7 @@ use crossterm::{
     style::{self, Stylize},
     terminal,
 };
-use crate::flows::start::ReleaseType;
+use crate::action::{validate_branch_name, Action};
 use crate::git::branch::BranchType;
 
 #[derive(Debug, Clone, Copy)]
@@ -151,16 +151,6 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
     let _ = execute!(out, style::Print("\r\n"));
 
     Ok(result)
-}
-
-pub fn validate_branch_name(input: &str) -> Result<(), String> {
-    if input.is_empty() {
-        return Err("Name cannot be empty".to_string());
-    }
-    if input.contains("..") || input.contains('~') || input.contains('^') || input.contains(':') || input.contains('\\') {
-        return Err("Invalid branch name. Avoid special characters (.. ~ ^ : \\)".to_string());
-    }
-    Ok(())
 }
 
 /// Print `prompt` and read a line of input in raw mode. Shared scaffolding for
@@ -315,62 +305,5 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             Ok(Action::FinishHotfix)
         }
         BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Action {
-    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool, no_worktree: bool },
-    StartRelease(Option<ReleaseType>),
-    StartReleaseFix { name: String, no_checkout: bool, no_worktree: bool },
-    StartHotfixFix { name: String, no_checkout: bool, no_worktree: bool },
-    FinishWorkBranch { breaking: Option<bool>, base: Option<String> },
-    FinishReleaseFix,
-    FinishRelease,
-    FinishHotfix,
-    FinishHotfixFix,
-    AbortFinish,
-    BumpVersion,
-    SyncWithDevelop,
-}
-
-impl Action {
-    pub fn is_start(&self) -> bool {
-        matches!(
-            self,
-            Action::StartWorkBranch { .. }
-                | Action::StartRelease(_)
-                | Action::StartReleaseFix { .. }
-                | Action::StartHotfixFix { .. }
-        )
-    }
-
-    pub fn no_checkout(&self) -> bool {
-        match self {
-            Action::StartWorkBranch { no_checkout, .. } => *no_checkout,
-            Action::StartReleaseFix { no_checkout, .. } => *no_checkout,
-            Action::StartHotfixFix { no_checkout, .. } => *no_checkout,
-            _ => false,
-        }
-    }
-
-    /// Whether this action is a named-work-branch start eligible for the worktree
-    /// flow. Deliberately excludes `StartRelease`, unlike `is_start`.
-    pub fn worktree_eligible(&self) -> bool {
-        matches!(
-            self,
-            Action::StartWorkBranch { .. }
-                | Action::StartReleaseFix { .. }
-                | Action::StartHotfixFix { .. }
-        )
-    }
-
-    pub fn no_worktree(&self) -> bool {
-        match self {
-            Action::StartWorkBranch { no_worktree, .. } => *no_worktree,
-            Action::StartReleaseFix { no_worktree, .. } => *no_worktree,
-            Action::StartHotfixFix { no_worktree, .. } => *no_worktree,
-            _ => false,
-        }
     }
 }

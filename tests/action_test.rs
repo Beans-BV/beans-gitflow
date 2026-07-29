@@ -1,4 +1,4 @@
-use bflow::menu::Action;
+use bflow::action::Action;
 
 #[test]
 fn start_actions_return_true() {
