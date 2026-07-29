@@ -41,6 +41,10 @@ pub trait Git {
     fn git_dir(&self) -> Result<PathBuf>;
     fn rev_parse(&self, refname: &str) -> Result<String>;
 
+    /// URL of the `origin` remote (`git remote get-url origin`). Errors when the
+    /// remote does not exist; callers decide how to handle a missing remote.
+    fn remote_url(&self) -> Result<String>;
+
     // Worktree / config primitives
     /// Read a git config value (`git config --get <key>`). Returns `None` when unset.
     fn get_config(&self, key: &str) -> Result<Option<String>>;
@@ -235,6 +239,10 @@ impl Git for GitCli {
     }
     fn rev_parse(&self, refname: &str) -> Result<String> {
         self.run(&["rev-parse", refname])
+    }
+
+    fn remote_url(&self) -> Result<String> {
+        self.run(&["remote", "get-url", "origin"])
     }
 
     fn get_config(&self, key: &str) -> Result<Option<String>> {

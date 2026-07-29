@@ -3,6 +3,10 @@ use super::{HostingPlatform, Result};
 
 pub struct GitHub;
 
+impl Default for GitHub {
+    fn default() -> Self { Self::new() }
+}
+
 impl GitHub {
     pub fn new() -> Self { Self }
 
@@ -43,17 +47,6 @@ impl HostingPlatform for GitHub {
         } else {
             self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body", ""])
         }
-    }
-
-    fn open_url(&self, url: &str) -> Result<()> {
-        #[cfg(target_os = "macos")]
-        let result = Command::new("open").arg(url).output();
-        #[cfg(target_os = "windows")]
-        let result = Command::new("cmd").args(["/C", "start", "", url]).output();
-        #[cfg(target_os = "linux")]
-        let result = Command::new("xdg-open").arg(url).output();
-        result.map_err(|e| format!("Failed to open URL: {e}"))?;
-        Ok(())
     }
 
     fn check_auth(&self) -> Result<()> {

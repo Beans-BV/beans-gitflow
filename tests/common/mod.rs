@@ -41,6 +41,8 @@ pub struct MockGit {
     pub stashes: RefCell<Vec<String>>,
     /// git config values returned by `get_config` (key -> value).
     pub config: HashMap<String, String>,
+    /// URL returned by `remote_url`.
+    pub remote_url: String,
     /// Value returned by `repo_root`.
     pub repo_root: PathBuf,
 }
@@ -71,6 +73,7 @@ impl MockGit {
             git_dir: PathBuf::from(".git"),
             stashes: RefCell::new(Vec::new()),
             config: HashMap::new(),
+            remote_url: "https://github.com/acme/repo.git".to_string(),
             repo_root: PathBuf::from("/repos/beans-gitflow"),
         }
     }
@@ -247,6 +250,11 @@ impl Git for MockGit {
     fn rev_parse(&self, refname: &str) -> Result<String, String> {
         self.calls.borrow_mut().push(format!("rev_parse:{refname}"));
         Ok("abc123".to_string())
+    }
+
+    fn remote_url(&self) -> Result<String, String> {
+        self.calls.borrow_mut().push("remote_url".to_string());
+        Ok(self.remote_url.clone())
     }
 
     fn get_config(&self, key: &str) -> Result<Option<String>, String> {

@@ -7,7 +7,7 @@ description: ALWAYS load this skill if you interact with GIT branches! This skil
 
 ## Hard Rule
 
-**NEVER** use `git branch`, `git merge`, `git tag`, `gh pr create`, or any other raw git/gh command for branch lifecycle operations. **ALL** branch creation, merging, tagging, PR creation, and version bumping MUST go through `bflow`.
+**NEVER** use `git branch`, `git merge`, `git tag`, `gh pr create`, `az repos pr create`, or any other raw git/gh/az command for branch lifecycle operations. **ALL** branch creation, merging, tagging, PR creation, and version bumping MUST go through `bflow`.
 
 **ONLY EXCEPTION:** The user explicitly asks you to bypass bflow.
 
@@ -78,7 +78,7 @@ PR bodies resolve from `.github/pr-templates/bflow-<key>.md`, most-specific firs
 1. Branch-specific: `bflow-<type>.md` (e.g. `bflow-release-fix.md`)
 2. Group: the fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`; other types' group == their own name
 3. `bflow-default.md`
-4. Repo's git default (`.github/PULL_REQUEST_TEMPLATE.md` etc.), else empty body
+4. Repo's git default (`.github/PULL_REQUEST_TEMPLATE.md` etc. on GitHub; `.azuredevops/pull_request_template.md` etc. on Azure DevOps), else empty body
 
 Opt-in: with no `.github/pr-templates/`, behavior is unchanged.
 
@@ -143,6 +143,8 @@ Not available for `start release`.
 ## Prerequisites
 
 bflow runs preflight checks automatically:
-- `git` and `gh` must be installed
-- `gh auth login` must be completed
+- `git` must be installed
+- The hosting provider is auto-detected from the origin remote URL (`dev.azure.com` / `*.visualstudio.com` → Azure DevOps, else GitHub); override with `git config bflow.hosting.provider github|devops`
+- GitHub repos: `gh` installed + `gh auth login` completed
+- Azure DevOps repos: `az` installed + `az extension add --name azure-devops` + `az login` completed
 - Uncommitted changes are auto-stashed and restored after the operation
