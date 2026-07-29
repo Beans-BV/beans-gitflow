@@ -1,8 +1,16 @@
+// Shared mocks for the integration-test suites. Each test crate compiles its
+// own copy of this module and rarely uses every mock, so item-level dead_code
+// warnings here are pure noise — silenced module-wide.
+#![allow(dead_code)]
+
 use std::cell::RefCell;
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
+use bflow::editor::Editor;
 use bflow::git::Git;
 use bflow::hosting::HostingPlatform;
+use bflow::prompt::Prompter;
 
 pub struct MockGit {
     pub calls: RefCell<Vec<String>>,
@@ -12,7 +20,11 @@ pub struct MockGit {
     pub branches_matching: Vec<String>,
     pub remote_branches: Vec<String>,
     pub merge_base_result: String,
+    /// Per-(a, b) merge bases; falls back to `merge_base_result` when absent.
+    pub merge_bases: HashMap<(String, String), String>,
     pub rev_list_count_result: u32,
+    /// Per-(from, to) counts; falls back to `rev_list_count_result` when absent.
+    pub rev_list_counts: HashMap<(String, String), u32>,
     pub commit_messages: Vec<String>,
     /// Refs (the `to` arg) that should fail with an error. Used to simulate missing branches.
     pub fail_commit_messages_for: Vec<String>,
@@ -35,9 +47,23 @@ pub struct MockGit {
     pub pushed_branches: HashSet<String>,
     pub mid_merge: bool,
     pub unmerged_paths: bool,
+    /// What `is_working_tree_clean` reports (defaults to clean).
+    pub working_tree_clean: bool,
     pub git_dir: PathBuf,
     /// Stash messages currently in the stash list (most recent first).
     pub stashes: RefCell<Vec<String>>,
+    /// git config values returned by `get_config` (key -> value).
+    pub config: HashMap<String, String>,
+    /// URL returned by `remote_url`.
+    pub remote_url: String,
+    /// Value returned by `repo_root`.
+    pub repo_root: PathBuf,
+    /// SHA returned by `head_sha`.
+    pub head_sha: String,
+    /// Whether the current checkout is a linked worktree.
+    pub linked_worktree: bool,
+    /// Path returned by `remove_current_worktree`.
+    pub worktree_path: PathBuf,
 }
 
 impl MockGit {
@@ -50,7 +76,9 @@ impl MockGit {
             branches_matching: Vec::new(),
             remote_branches: Vec::new(),
             merge_base_result: "abc123".to_string(),
+            merge_bases: HashMap::new(),
             rev_list_count_result: 0,
+            rev_list_counts: HashMap::new(),
             commit_messages: Vec::new(),
             fail_commit_messages_for: Vec::new(),
             fail_nth_merge: None,
@@ -63,8 +91,15 @@ impl MockGit {
             pushed_branches: HashSet::new(),
             mid_merge: false,
             unmerged_paths: false,
+            working_tree_clean: true,
             git_dir: PathBuf::from(".git"),
             stashes: RefCell::new(Vec::new()),
+            config: HashMap::new(),
+            remote_url: "https://github.com/acme/repo.git".to_string(),
+            repo_root: PathBuf::from("/repos/beans-gitflow"),
+            head_sha: "headsha".to_string(),
+            linked_worktree: false,
+            worktree_path: PathBuf::from("/repos/beans-gitflow-feature-x"),
         }
     }
 
@@ -124,8 +159,8 @@ impl Git for MockGit {
         Ok(())
     }
 
-    fn pull(&self, branch: &str) -> Result<(), String> {
-        self.calls.borrow_mut().push(format!("pull:{branch}"));
+    fn ff_merge(&self, branch: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("ff_merge:{branch}"));
         Ok(())
     }
 
@@ -141,7 +176,7 @@ impl Git for MockGit {
 
     fn is_working_tree_clean(&self) -> Result<bool, String> {
         self.calls.borrow_mut().push("is_working_tree_clean".to_string());
-        Ok(true)
+        Ok(self.working_tree_clean)
     }
 
     fn delete_branch_local(&self, branch: &str) -> Result<(), String> {
@@ -166,22 +201,17 @@ impl Git for MockGit {
 
     fn merge_base(&self, a: &str, b: &str) -> Result<String, String> {
         self.calls.borrow_mut().push(format!("merge_base:{a}:{b}"));
-        Ok(self.merge_base_result.clone())
+        Ok(self.merge_bases
+            .get(&(a.to_string(), b.to_string()))
+            .cloned()
+            .unwrap_or_else(|| self.merge_base_result.clone()))
     }
 
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32, String> {
         self.calls.borrow_mut().push(format!("rev_list_count:{from}:{to}"));
-        Ok(self.rev_list_count_result)
-    }
-
-    fn stash_push(&self) -> Result<(), String> {
-        self.calls.borrow_mut().push("stash_push".to_string());
-        Ok(())
-    }
-
-    fn stash_pop(&self) -> Result<(), String> {
-        self.calls.borrow_mut().push("stash_pop".to_string());
-        Ok(())
+        Ok(*self.rev_list_counts
+            .get(&(from.to_string(), to.to_string()))
+            .unwrap_or(&self.rev_list_count_result))
     }
 
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>, String> {
@@ -237,9 +267,36 @@ impl Git for MockGit {
         Ok(self.git_dir.clone())
     }
 
-    fn rev_parse(&self, refname: &str) -> Result<String, String> {
-        self.calls.borrow_mut().push(format!("rev_parse:{refname}"));
-        Ok("abc123".to_string())
+    fn remote_url(&self) -> Result<String, String> {
+        self.calls.borrow_mut().push("remote_url".to_string());
+        Ok(self.remote_url.clone())
+    }
+
+    fn get_config(&self, key: &str) -> Result<Option<String>, String> {
+        self.calls.borrow_mut().push(format!("get_config:{key}"));
+        Ok(self.config.get(key).cloned())
+    }
+
+    fn set_config(&self, key: &str, value: &str, global: bool) -> Result<(), String> {
+        let scope = if global { "global" } else { "local" };
+        self.calls.borrow_mut().push(format!("set_config:{scope}:{key}:{value}"));
+        Ok(())
+    }
+
+    fn unset_config(&self, key: &str, global: bool) -> Result<(), String> {
+        let scope = if global { "global" } else { "local" };
+        self.calls.borrow_mut().push(format!("unset_config:{scope}:{key}"));
+        Ok(())
+    }
+
+    fn repo_root(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("repo_root".to_string());
+        Ok(self.repo_root.clone())
+    }
+
+    fn add_worktree(&self, path: &Path, branch: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("add_worktree:{}:{branch}", path.display()));
+        Ok(())
     }
 
     fn stash_push_with_message(&self, msg: &str) -> Result<(), String> {
@@ -263,11 +320,33 @@ impl Git for MockGit {
         self.calls.borrow_mut().push(format!("stash_pop_ref:{stash_ref}"));
         Ok(())
     }
+
+    fn is_linked_worktree(&self) -> Result<bool, String> {
+        self.calls.borrow_mut().push("is_linked_worktree".to_string());
+        Ok(self.linked_worktree)
+    }
+
+    fn remove_current_worktree(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("remove_current_worktree".to_string());
+        Ok(self.worktree_path.clone())
+    }
+
+    fn head_sha(&self) -> Result<String, String> {
+        self.calls.borrow_mut().push("head_sha".to_string());
+        Ok(self.head_sha.clone())
+    }
+
+    fn detach_head(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("detach_head".to_string());
+        Ok(())
+    }
 }
 
 pub struct MockHosting {
     pub calls: RefCell<Vec<String>>,
     pub pr_url: String,
+    /// What `merged_pr` reports (defaults to no merged PR).
+    pub merged_pr: Option<bflow::hosting::MergedPr>,
 }
 
 impl MockHosting {
@@ -275,6 +354,7 @@ impl MockHosting {
         Self {
             calls: RefCell::new(Vec::new()),
             pr_url: "https://github.com/org/repo/pull/1".to_string(),
+            merged_pr: None,
         }
     }
 
@@ -290,6 +370,11 @@ impl HostingPlatform for MockHosting {
         Ok(self.pr_url.clone())
     }
 
+    fn merged_pr(&self, head: &str) -> Result<Option<bflow::hosting::MergedPr>, String> {
+        self.calls.borrow_mut().push(format!("merged_pr:{head}"));
+        Ok(self.merged_pr.clone())
+    }
+
     fn open_url(&self, url: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("open_url:{url}"));
         Ok(())
@@ -299,4 +384,75 @@ impl HostingPlatform for MockHosting {
         self.calls.borrow_mut().push("check_auth".to_string());
         Ok(())
     }
+}
+
+pub struct MockEditor {
+    pub calls: RefCell<Vec<String>>,
+    /// When true, `open` returns an error (simulates editor not on PATH).
+    pub fail: bool,
+}
+
+impl MockEditor {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), fail: false }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl Editor for MockEditor {
+    fn open(&self, path: &Path) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("open:{}", path.display()));
+        if self.fail {
+            Err("editor failed".to_string())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Scripted `Prompter`: records every select as `select:{prompt}:[items]` and
+/// answers from a queue. An unscripted select is an error, so a test proves a
+/// flow never prompted simply by not scripting anything.
+pub struct MockPrompter {
+    pub calls: RefCell<Vec<String>>,
+    pub selections: RefCell<VecDeque<usize>>,
+}
+
+impl MockPrompter {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), selections: RefCell::new(VecDeque::new()) }
+    }
+
+    pub fn scripted(selections: &[usize]) -> Self {
+        let p = Self::new();
+        p.selections.borrow_mut().extend(selections.iter().copied());
+        p
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl Prompter for MockPrompter {
+    fn select(&self, prompt: &str, items: &[&str]) -> Result<usize, String> {
+        self.calls.borrow_mut().push(format!("select:{prompt}:[{}]", items.join(", ")));
+        self.selections.borrow_mut().pop_front()
+            .ok_or_else(|| format!("MockPrompter: unscripted select('{prompt}')"))
+    }
+}
+
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Unique temp directory for integration tests that need a fake `.git` dir
+/// (state files). Mirrors the lib's #[cfg(test)] helper, which integration
+/// tests cannot link.
+pub fn tmp_dir(prefix: &str) -> PathBuf {
+    let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }

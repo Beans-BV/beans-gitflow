@@ -1,32 +1,34 @@
-use std::process::Command;
-use super::{HostingPlatform, Result};
+use super::{resolve_body_file, run_cli, HostingPlatform, MergedPr, Result};
 
 pub struct GitHub;
+
+impl Default for GitHub {
+    fn default() -> Self { Self::new() }
+}
 
 impl GitHub {
     pub fn new() -> Self { Self }
 
     fn run_gh(&self, args: &[&str]) -> Result<String> {
-        let output = Command::new("gh").args(args).output()
-            .map_err(|e| format!("Failed to run gh: {e}"))?;
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            Err(format!("gh {} failed: {}", args.join(" "), stderr))
-        }
+        run_cli("gh", args)
     }
 }
 
 impl HostingPlatform for GitHub {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
-        let existing = self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]);
-        if let Ok(url) = existing {
-            if !url.is_empty() { return Ok(url); }
+        match self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]) {
+            Ok(url) if !url.is_empty() => return Ok(url),
+            // A closed/merged PR filters to empty output — create a new one.
+            Ok(_) => {}
+            // gh exits non-zero both when no PR exists (normal here) and on real
+            // failures (auth expiry, network). Only the former may be swallowed.
+            Err(e) if e.contains("no pull requests found") => {}
+            Err(e) => return Err(format!(
+                "Could not check for an existing PR: {e}\n\
+                 If authentication expired, run 'gh auth login', then re-run 'bflow finish'."
+            )),
         }
 
-        // A bflow-resolved template (branch-specific/group/default) wins; otherwise fall
-        // back to the repository's own default PR template, then to an empty body.
         let git_default_paths = [
             ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/pull_request_template.md",
@@ -34,9 +36,7 @@ impl HostingPlatform for GitHub {
             "pull_request_template.md",
             "docs/pull_request_template.md",
         ];
-        let body_file = template
-            .map(|p| p.to_string())
-            .or_else(|| git_default_paths.iter().find(|p| std::path::Path::new(p).exists()).map(|p| p.to_string()));
+        let body_file = resolve_body_file(template, &git_default_paths);
 
         if let Some(path) = body_file {
             self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body-file", &path])
@@ -45,18 +45,69 @@ impl HostingPlatform for GitHub {
         }
     }
 
-    fn open_url(&self, url: &str) -> Result<()> {
-        #[cfg(target_os = "macos")]
-        let result = Command::new("open").arg(url).output();
-        #[cfg(target_os = "windows")]
-        let result = Command::new("cmd").args(["/C", "start", "", url]).output();
-        #[cfg(target_os = "linux")]
-        let result = Command::new("xdg-open").arg(url).output();
-        result.map_err(|e| format!("Failed to open URL: {e}"))?;
-        Ok(())
+    fn merged_pr(&self, head: &str) -> Result<Option<MergedPr>> {
+        // The branch's most recent PR decides: `gh pr list` returns newest first,
+        // and the jq filter drops anything not MERGED (open PR → the branch is
+        // still in play; closed-unmerged → a fresh PR is the right move).
+        let line = self
+            .run_gh(&[
+                "pr", "list", "--head", head, "--state", "all", "--limit", "1",
+                "--json", "url,state,headRefOid,baseRefName",
+                "--jq", r#".[0] | select(.state == "MERGED") | [.url, .headRefOid, .baseRefName] | @tsv"#,
+            ])
+            .map_err(|e| format!(
+                "Could not check for a merged PR: {e}\n\
+                 If authentication expired, run 'gh auth login', then re-run 'bflow finish'."
+            ))?;
+        parse_merged_pr(&line)
     }
 
     fn check_auth(&self) -> Result<()> {
         self.run_gh(&["auth", "status"]).map(|_| ())
+    }
+}
+
+/// Parse the `url<TAB>headRefOid<TAB>baseRefName` line the merged-PR jq filter
+/// emits. Empty output is the normal "no merged PR" case; anything else that
+/// isn't three non-empty fields is a hard error (never guess about cleanup).
+fn parse_merged_pr(line: &str) -> Result<Option<MergedPr>> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(None);
+    }
+    match line.split('\t').collect::<Vec<_>>().as_slice() {
+        [url, sha, base] if !url.is_empty() && !sha.is_empty() && !base.is_empty() => {
+            Ok(Some(MergedPr {
+                url: url.to_string(),
+                head_sha: sha.to_string(),
+                base: base.to_string(),
+            }))
+        }
+        _ => Err(format!("Unexpected merged-PR data from gh: '{line}'")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_output_means_no_merged_pr() {
+        assert_eq!(parse_merged_pr(""), Ok(None));
+        assert_eq!(parse_merged_pr("  \n"), Ok(None));
+    }
+
+    #[test]
+    fn three_fields_parse_into_merged_pr() {
+        let pr = parse_merged_pr("https://github.com/o/r/pull/49\tabc123\tdevelop").unwrap().unwrap();
+        assert_eq!(pr.url, "https://github.com/o/r/pull/49");
+        assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.base, "develop");
+    }
+
+    #[test]
+    fn malformed_output_is_a_hard_error() {
+        assert!(parse_merged_pr("only-a-url").is_err());
+        assert!(parse_merged_pr("url\t\tdevelop").is_err());
     }
 }

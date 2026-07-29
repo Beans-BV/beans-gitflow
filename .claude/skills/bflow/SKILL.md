@@ -7,7 +7,7 @@ description: ALWAYS load this skill if you interact with GIT branches! This skil
 
 ## Hard Rule
 
-**NEVER** use `git branch`, `git merge`, `git tag`, `gh pr create`, or any other raw git/gh command for branch lifecycle operations. **ALL** branch creation, merging, tagging, PR creation, and version bumping MUST go through `bflow`.
+**NEVER** use `git branch`, `git merge`, `git tag`, `gh pr create`, `az repos pr create`, or any other raw git/gh/az command for branch lifecycle operations. **ALL** branch creation, merging, tagging, PR creation, and version bumping MUST go through `bflow`.
 
 **ONLY EXCEPTION:** The user explicitly asks you to bypass bflow.
 
@@ -23,24 +23,40 @@ Everything else branch-related → use `bflow`.
 ### Start a branch
 
 ```bash
-bflow start feature --name <name> [--base <branch>] [--no-checkout]
-bflow start fix --name <name> [--base <branch>] [--no-checkout]
-bflow start chore --name <name> [--base <branch>] [--no-checkout]
-bflow start docs --name <name> [--base <branch>] [--no-checkout]
-bflow start refactor --name <name> [--base <branch>] [--no-checkout]
+bflow start feature --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start release [--major | --minor] # from develop, prompts if no flag given
-bflow start release-fix --name <name> [--no-checkout]
-bflow start hotfix-fix --name <name> [--no-checkout]
+bflow start release-fix --name <name> [--no-checkout] [--no-worktree]
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]
+```
+
+#### Worktree integration (optional)
+
+When `bflow.worktree.enabled=true` (git config), `start` (work branches + release-fix/hotfix-fix, not `release`) creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent, `~` expanded). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command. Like `--no-checkout`, active worktree mode relaxes the branch-type check for `release-fix`/`hotfix-fix` (target branch is discovered automatically).
+
+Configure it with the `bflow worktree` command (writes global git config; `--local` for one repo):
+
+```bash
+bflow worktree                     # interactive setup (enable / editor / location)
+bflow worktree enable | disable
+bflow worktree editor <cmd>        # code | cursor | windsurf | zed | pycharm | none | any command
+bflow worktree path <dir>
+bflow worktree status
 ```
 
 ### Finish current branch
 
 ```bash
-bflow finish [--breaking]  # infers action from current branch type
+bflow finish [--breaking] [--base <branch>]  # infers action from current branch type
 bflow finish --abort       # discard an in-progress release/hotfix finish
 ```
 
 - **Work branches** (feature/fix/chore/docs/refactor) → asks about breaking changes (feat/fix/refactor only), creates PR to base branch. If breaking, PR title gets `!` (e.g., `feat!: name`). Use `--breaking` flag in non-interactive mode to skip the prompt.
+  - PR target: detected from branch topology; a single candidate is used directly, multiple candidates show a menu. `--base <branch>` sets the target explicitly and skips both — **AI agents/CI must pass `--base` (plus `--breaking`) so finish never needs a TTY** (e.g. `bflow finish --base develop --breaking=false`). The branch must exist on origin (push or fetch first) and differ from the current branch. Not valid on release/hotfix/release-fix/hotfix-fix (fixed target).
+  - **PR already merged** → re-running `bflow finish` completes the finish instead of opening a new PR: deletes remote + local branch and, when the branch is in its own worktree, removes the worktree (close the editor window afterwards). Only when the local tip equals the merged commit — new commits since the merge get a fresh PR instead. Applies to work branches and release-fix/hotfix-fix.
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch, title `fix: {name}` with dashes converted to spaces (e.g. `null-crash` → `fix: null crash`)
 - **Release** → merges to main + develop, tags, cleans up
 - **Hotfix** → merges to main + develop + every open `release/*`, tags, cleans up. If a release branch already exists, the hotfix is propagated into it so the upcoming release ships the fix; the operator must then run `bflow bump` to cut a new RC for staging validation.
@@ -63,7 +79,7 @@ PR bodies resolve from `.github/pr-templates/bflow-<key>.md`, most-specific firs
 1. Branch-specific: `bflow-<type>.md` (e.g. `bflow-release-fix.md`)
 2. Group: the fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`; other types' group == their own name
 3. `bflow-default.md`
-4. Repo's git default (`.github/PULL_REQUEST_TEMPLATE.md` etc.), else empty body
+4. Repo's git default (`.github/PULL_REQUEST_TEMPLATE.md` etc. on GitHub; `.azuredevops/pull_request_template.md` etc. on Azure DevOps), else empty body
 
 Opt-in: with no `.github/pr-templates/`, behavior is unchanged.
 
@@ -128,6 +144,8 @@ Not available for `start release`.
 ## Prerequisites
 
 bflow runs preflight checks automatically:
-- `git` and `gh` must be installed
-- `gh auth login` must be completed
+- `git` must be installed
+- The hosting provider is auto-detected from the origin remote URL (`dev.azure.com` / `*.visualstudio.com` → Azure DevOps, else GitHub); override with `git config bflow.hosting.provider github|devops`
+- GitHub repos: `gh` installed + `gh auth login` completed
+- Azure DevOps repos: `az` installed + `az extension add --name azure-devops` + authenticated (`az login`, or a PAT via `az devops login`)
 - Uncommitted changes are auto-stashed and restored after the operation

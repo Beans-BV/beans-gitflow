@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::version::SemVer;
+
 /// Folder under `.git/` holding one state file per in-progress finish.
 pub const STATE_DIR_NAME: &str = "bflow-finish";
 /// Pre-2.4 single global state file, migrated on startup if found.
@@ -42,9 +44,10 @@ pub struct FinishState {
 
 impl FinishState {
     pub fn source_branch(&self) -> String {
+        let version = SemVer::new(self.major, self.minor, self.patch);
         match self.kind {
-            FinishKind::Release => format!("release/{}.{}.{}", self.major, self.minor, self.patch),
-            FinishKind::Hotfix => format!("hotfix/{}.{}.{}", self.major, self.minor, self.patch),
+            FinishKind::Release => version.release_branch(),
+            FinishKind::Hotfix => version.hotfix_branch(),
         }
     }
 
@@ -188,20 +191,9 @@ pub fn current_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn tmp_dir() -> PathBuf {
-        let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = env::temp_dir().join(format!(
-            "bflow-state-test-{}-{}-{n}",
-            std::process::id(),
-            current_timestamp(),
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::test_support::tmp_dir("bflow-state-test")
     }
 
     fn release(major: u32, minor: u32, patch: u32) -> FinishState {

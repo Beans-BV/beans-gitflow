@@ -1,6 +1,7 @@
 use crate::git::Git;
-use crate::menu;
+use crate::prompt::Prompter;
 use crate::version::SemVer;
+use crate::worktree::{open_worktree, WorktreeContext};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReleaseType {
@@ -8,10 +9,19 @@ pub enum ReleaseType {
     Minor,
 }
 
-pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool) -> Result<(), String> {
+/// An active worktree context leaves the current checkout untouched, exactly
+/// like `--no-checkout`. This is the flows' single derivation of that rule
+/// (pinned by the worktree tests: passing no_checkout=false with a worktree
+/// context must still take the no-checkout path).
+fn effective_no_checkout(no_checkout: bool, worktree: &Option<WorktreeContext<'_>>) -> bool {
+    no_checkout || worktree.is_some()
+}
+
+pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     println!("Creating branch: {branch}");
-    if no_checkout {
+    let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
+    if effective_no_checkout {
         git.create_branch_no_checkout(&branch, from)
     } else {
         git.create_branch(&branch, from)
@@ -24,23 +34,24 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })?;
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, &branch)?;
+    }
     Ok(())
 }
 
-pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, release_type)?;
     Ok(())
 }
 
-pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<(), String> {
-    let release_branch = if no_checkout {
-        let branches = git.list_branches_matching("release/*")?;
-        let release_branches: Vec<&String> = branches.iter()
-            .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
-            .collect();
-        release_branches.first()
+pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+    let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
+    let release_branch = if effective_no_checkout {
+        super::branches_with_prefix(git, "release")?
+            .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
-            .to_string()
+            .clone()
     } else {
         let current = git.current_branch()?;
         if current.strip_prefix("release/").is_none() {
@@ -52,36 +63,40 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result
     let version = release_branch.strip_prefix("release/").unwrap();
     let branch = format!("release-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    if no_checkout {
+    if effective_no_checkout {
         git.create_branch_no_checkout(&branch, &release_branch)?;
     } else {
         git.create_branch(&branch, &release_branch)?;
     }
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, &branch)?;
+    }
     Ok(())
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool) -> Result<(), String> {
-    let hotfix_branch = resolve_or_create_hotfix(git, no_checkout)?;
+pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+    let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
+    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout)?;
     let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
     let branch = format!("hotfix-fix/{version}/{name}");
     println!("Creating branch: {branch}");
-    if no_checkout {
+    if effective_no_checkout {
         git.create_branch_no_checkout(&branch, &hotfix_branch)?;
     } else {
         git.create_branch(&branch, &hotfix_branch)?;
     }
     git.push(&branch)?;
     println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, &branch)?;
+    }
     Ok(())
 }
 
-fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let branches = git.list_branches_matching("release/*")?;
-    let release_branches: Vec<&String> = branches.iter()
-        .filter(|b| b.starts_with("release/") && !b.starts_with("release-fix/"))
-        .collect();
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<String, String> {
+    let release_branches = super::branches_with_prefix(git, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -95,7 +110,7 @@ fn resolve_or_create_release(git: &dyn Git, release_type: Option<ReleaseType>) -
         Some(ReleaseType::Minor) => latest.bump_minor(),
         None => {
             let has_breaking = detect_breaking_changes(git, &latest);
-            prompt_release_type(&latest, has_breaking)?
+            prompt_release_type(prompter, &latest, has_breaking)?
         }
     };
 
@@ -160,7 +175,7 @@ pub(crate) fn message_is_breaking(msg: &str) -> bool {
     false
 }
 
-fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, String> {
+fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: bool) -> Result<SemVer, String> {
     let major_label = format!("major (v{} → v{})", latest, latest.bump_major());
     let minor_label = format!("minor (v{} → v{})", latest, latest.bump_minor());
 
@@ -171,7 +186,7 @@ fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, St
         vec![&minor_label, &major_label]
     };
 
-    let idx = menu::show_select("Release type", &items)?;
+    let idx = prompter.select("Release type", &items)?;
     let selected = items[idx];
 
     if selected.starts_with("major") {
@@ -182,10 +197,7 @@ fn prompt_release_type(latest: &SemVer, has_breaking: bool) -> Result<SemVer, St
 }
 
 fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, String> {
-    let branches = git.list_branches_matching("hotfix/*")?;
-    let hotfix_branches: Vec<&String> = branches.iter()
-        .filter(|b| b.starts_with("hotfix/") && !b.starts_with("hotfix-fix/"))
-        .collect();
+    let hotfix_branches = super::branches_with_prefix(git, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");

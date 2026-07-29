@@ -30,7 +30,18 @@ cargo install --path .
 ### Requirements
 
 - [git](https://git-scm.com/)
-- [gh](https://cli.github.com/) (GitHub CLI, authenticated via `gh auth login`)
+- For GitHub repos: [gh](https://cli.github.com/) (GitHub CLI, authenticated via `gh auth login`)
+- For Azure DevOps repos: [az](https://learn.microsoft.com/cli/azure/) (Azure CLI) with the `azure-devops` extension (`az extension add --name azure-devops`), authenticated via `az login` or a PAT via `az devops login`
+
+### Hosting provider
+
+bflow auto-detects the hosting provider from the `origin` remote URL: `dev.azure.com` and `*.visualstudio.com` remotes use Azure DevOps (org/project/repo are parsed from the URL), everything else uses GitHub. Only the CLI of the detected provider needs to be installed.
+
+To override detection (e.g. a GitHub Enterprise domain), set:
+
+```bash
+git config bflow.hosting.provider github   # or: devops (requires an Azure DevOps origin URL)
+```
 
 ## Branch Model
 
@@ -168,14 +179,14 @@ All commands can be invoked directly via subcommands, bypassing the interactive 
 ### Start commands
 
 ```bash
-bflow start feature --name <name> [--base <branch>] [--no-checkout]
-bflow start fix --name <name> [--base <branch>] [--no-checkout]
-bflow start chore --name <name> [--base <branch>] [--no-checkout]
-bflow start docs --name <name> [--base <branch>] [--no-checkout]
-bflow start refactor --name <name> [--base <branch>] [--no-checkout]
+bflow start feature --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
+bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start release [--major | --minor]
-bflow start release-fix --name <name> [--no-checkout]    # must be on a release branch
-bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or hotfix branch
+bflow start release-fix --name <name> [--no-checkout] [--no-worktree]    # must be on a release branch
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on main or hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
@@ -184,16 +195,26 @@ bflow start hotfix-fix --name <name> [--no-checkout]     # must be on main or ho
 
 `--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Designed for [git worktree](https://git-scm.com/docs/git-worktree) workflows. Not available for `start release`.
 
+`--no-worktree` skips the optional [worktree flow](#worktree-integration) for a single command when `bflow.worktree.enabled` is set. No effect otherwise.
+
 ### Finish
 
 ```bash
-bflow finish [--breaking | --breaking=false]
+bflow finish [--breaking | --breaking=false] [--base <branch>]
 bflow finish --abort   # discard an in-progress release/hotfix finish
 ```
 
 Infers the action from the current branch type (e.g., creates PR on work branches, merges + tags on release/hotfix branches).
 
 On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
+
+On work branches, the PR target is normally detected from the branch topology: when exactly one candidate parent is found it is used directly, and only when several candidates exist does a selection menu appear. Pass `--base <branch>` to set the target explicitly and skip detection and the menu entirely — combined with `--breaking`, this makes `bflow finish` fully scriptable without a TTY (CI, AI agents). The branch must exist on origin — PRs are created on the hosting platform, so a local-only branch is rejected (push or fetch it first) — and must differ from the branch being finished. `--base` is only valid on work branches; release, hotfix, release-fix, and hotfix-fix finishes have a fixed target and reject it.
+
+#### After the PR is merged
+
+Re-running `bflow finish` on a work branch (or release-fix/hotfix-fix branch) whose PR has been **merged** completes the finish instead of opening a new PR: it deletes the remote branch (if the platform didn't already), deletes the local branch, and — when the branch lives in its own [worktree](#worktree-integration) — removes the worktree and tells you the editor window can be closed. Completion is detected from the hosting platform's PR state, so there is nothing to remember between runs.
+
+Cleanup only happens when the local branch tip is exactly the commit the PR merged; if you committed more work after the merge, `bflow finish` says so and opens a fresh PR for the new commits instead. A PR that was closed without merging also leads to a new PR, never to cleanup. Outside a worktree, cleanup switches you back to the PR's target branch and fast-forwards it first.
 
 #### Resuming after a merge conflict
 
@@ -215,7 +236,7 @@ When `bflow finish` opens a PR, it picks the body template by branch type. Place
 1. **Branch-specific** — `bflow-<type>.md` (e.g. `bflow-release-fix.md`)
 2. **Group** — the fix family (`fix`, `release-fix`, `hotfix-fix`) shares `bflow-fix.md`; every other type's group equals its own name
 3. **Default** — `bflow-default.md`
-4. **Git default** — the repo's own `.github/PULL_REQUEST_TEMPLATE.md` (and the other paths `gh` recognizes), else an empty body
+4. **Git default** — the repo's own default template, else an empty body. On GitHub: `.github/PULL_REQUEST_TEMPLATE.md` and the other paths `gh` recognizes. On Azure DevOps: `.azuredevops/pull_request_template.md` and the other ADO default paths.
 
 | File | Applies to |
 |------|-----------|
@@ -226,7 +247,7 @@ When `bflow finish` opens a PR, it picks the body template by branch type. Place
 | `bflow-chore.md` / `bflow-docs.md` / `bflow-refactor.md` | `chore/*` / `docs/*` / `refactor/*` |
 | `bflow-default.md` | any PR with no more specific match |
 
-The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls back to the existing git default behavior unchanged.
+The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls back to the existing git default behavior unchanged. bflow templates live in `.github/pr-templates/` on every hosting provider, including Azure DevOps.
 
 ### Release-only commands
 
@@ -236,6 +257,66 @@ bflow sync    # sync release into develop
 ```
 
 Both require being on a release branch.
+
+## Worktree integration
+
+Optionally, every new branch can be created in its own [git worktree](https://git-scm.com/docs/git-worktree) and opened in your editor, so each piece of work lives in a separate directory instead of switching the current checkout. It's off by default and uses native `git worktree` — no extra tools required.
+
+### Enable
+
+The quickest way is the built-in setup command — no need to remember any keys:
+
+```bash
+bflow worktree              # interactive setup: enable, pick an editor, choose a location
+```
+
+Or set options directly (handy for scripts and dotfiles):
+
+```bash
+bflow worktree enable                 # turn the flow on
+bflow worktree editor cursor          # code (default) | cursor | windsurf | zed | pycharm | none | any command
+bflow worktree path ~/worktrees       # where worktree folders go (default: the repo's parent)
+bflow worktree status                 # show the current settings
+bflow worktree disable                # turn it off
+```
+
+These write to your **global** git config by default (per-developer); add `--local` to scope a
+setting to the current repository. They're a front-end over the `bflow.worktree.*` git config
+keys, which you can also set by hand (`git config --global bflow.worktree.enabled true`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `bflow.worktree.enabled` | `false` | Turn the worktree flow on |
+| `bflow.worktree.editor` | `code` | Command to open the worktree (`<editor> <path>`). Use `none` to skip opening |
+| `bflow.worktree.path` | _(unset)_ | Directory to place worktree folders in (`~` is expanded). Defaults to the repo's parent directory |
+
+The editor accepts any command whose CLI opens a folder as `<command> <path>` — VS Code (`code`),
+Cursor (`cursor`), Windsurf (`windsurf`), Zed (`zed`), and JetBrains launchers
+(`idea` / `pycharm` / `webstorm` / …) all work once their shell command is on your `PATH`.
+
+### What it does
+
+When enabled, `bflow start feature/fix/chore/docs/refactor` (and `release-fix` / `hotfix-fix`) will:
+
+1. Create and push the branch **without** switching your current checkout.
+2. Add a git worktree for it.
+3. Open that folder in your editor (unless `editor = none`). An editor that isn't installed is a warning, not a failure — the worktree is still ready.
+
+Pass `--no-worktree` to skip the flow for a single command. `start release` is never run through the worktree flow.
+
+As with `--no-checkout`, an active worktree flow relaxes the branch-type check for `release-fix` and `hotfix-fix` — the target release/hotfix branch is discovered automatically, so you can run them from any branch.
+
+### Naming & layout
+
+Worktree folders are flat siblings of the repo (or live under `bflow.worktree.path`), each named `<repo-name>-<branch-with-slashes-as-dashes>` so the folder's own name tells you which repo and branch it is:
+
+```
+Projects/beans/
+├── beans-gitflow/                              # main checkout (stays on develop/main)
+├── beans-gitflow-feature-login/                # worktree for feature/login
+├── beans-gitflow-fix-auth-bug/                 # worktree for fix/auth-bug
+└── beans-gitflow-release-fix-1.2.0-null-crash/ # worktree for release-fix/1.2.0/null-crash
+```
 
 ## Workflows
 
@@ -493,14 +574,19 @@ jobs:
 
 ```
 src/
-├── main.rs              — Entry point, preflight checks, dispatch
+├── main.rs              — Composition root: builds adapters, preflight, hands off to lifecycle
 ├── lib.rs               — Library root, re-exports all modules
+├── action.rs            — Action enum: the single currency both interfaces resolve into
+├── cli.rs               — CLI subcommands (clap); resolves to Action
+├── lifecycle.rs         — Resume lookup, stash/state ordering contract, dispatch
 ├── git/
 │   ├── mod.rs           — Git trait + CLI implementation
 │   └── branch.rs        — Branch type detection and parsing
 ├── hosting/
 │   ├── mod.rs           — Hosting platform trait
-│   └── github.rs        — GitHub implementation via gh CLI
+│   ├── detect.rs        — Provider detection from the origin remote URL
+│   ├── github.rs        — GitHub implementation via gh CLI
+│   └── devops.rs        — Azure DevOps implementation via az CLI
 ├── flows/
 │   ├── start.rs         — Start work/release-fix/hotfix-fix
 │   ├── finish_work.rs   — PR creation for work branches
@@ -508,10 +594,14 @@ src/
 │   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
 ├── state.rs             — Persisted finish state for conflict recovery
 ├── version.rs           — SemVer parsing and bumping
-└── menu.rs              — Interactive menus via crossterm
+├── menu.rs              — Interactive menus via crossterm; implements Prompter
+├── prompt.rs            — Prompter trait: interactive selection as a port
+├── editor.rs            — Editor trait for opening worktrees
+├── worktree.rs          — Worktree config, path resolution, and setup wizard
+└── test_support.rs      — Shared helpers for inline unit tests (test builds only)
 ```
 
-The `Git` and `HostingPlatform` traits enable future extensibility (e.g. GitLab, Bitbucket) and testability.
+The `Git`, `HostingPlatform`, `Editor`, and `Prompter` traits keep every flow fully mockable and make hosting providers swappable (GitHub and Azure DevOps today, GitLab/Bitbucket-ready).
 
 ## License
 

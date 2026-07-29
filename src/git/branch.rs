@@ -15,6 +15,24 @@ pub enum BranchType {
 }
 
 impl BranchType {
+    /// Work-branch taxonomy — the single source of truth. `parse`, the menus,
+    /// and parent-branch detection all derive from this table; `work_kind` is
+    /// its compile-checked inverse. To add a work-branch type, follow the
+    /// "New work-branch type" recipe in decisions.md.
+    const WORK_TYPES: [(&'static str, fn(String) -> Self); 5] = [
+        ("feature", |name| Self::Feature { name }),
+        ("fix", |name| Self::Fix { name }),
+        ("chore", |name| Self::Chore { name }),
+        ("docs", |name| Self::Docs { name }),
+        ("refactor", |name| Self::Refactor { name }),
+    ];
+
+    /// The work-branch kind names ("feature", "fix", …) in canonical order.
+    /// Branch prefix and menu label are the kind name itself.
+    pub fn work_kinds() -> [&'static str; 5] {
+        Self::WORK_TYPES.map(|(kind, _)| kind)
+    }
+
     pub fn parse(branch: &str) -> Self {
         match branch {
             "main" | "master" => return Self::Main,
@@ -22,14 +40,8 @@ impl BranchType {
             _ => {}
         }
 
-        for (prefix, constructor) in [
-            ("feature/", Self::new_feature as fn(String) -> Self),
-            ("fix/", Self::new_fix as fn(String) -> Self),
-            ("chore/", Self::new_chore as fn(String) -> Self),
-            ("docs/", Self::new_docs as fn(String) -> Self),
-            ("refactor/", Self::new_refactor as fn(String) -> Self),
-        ] {
-            if let Some(name) = branch.strip_prefix(prefix) {
+        for (kind, constructor) in Self::WORK_TYPES {
+            if let Some(name) = branch.strip_prefix(kind).and_then(|rest| rest.strip_prefix('/')) {
                 if !name.is_empty() {
                     return constructor(name.to_string());
                 }
@@ -71,14 +83,31 @@ impl BranchType {
         Self::Other
     }
 
-    pub fn commit_type(&self) -> Option<&'static str> {
+    /// Kind name ("feature", …) for work branches; the inverse of the
+    /// `WORK_TYPES` constructors. Deliberately exhaustive (no wildcard):
+    /// adding a `BranchType` variant fails compilation here until its kind —
+    /// or `None` — is decided, so parent-branch detection and the menus can
+    /// never silently miss a new type.
+    pub fn work_kind(&self) -> Option<&'static str> {
         match self {
-            Self::Feature { .. } => Some("feat"),
+            Self::Feature { .. } => Some("feature"),
             Self::Fix { .. } => Some("fix"),
             Self::Chore { .. } => Some("chore"),
             Self::Docs { .. } => Some("docs"),
             Self::Refactor { .. } => Some("refactor"),
-            _ => None,
+            Self::Main | Self::Develop
+            | Self::Release { .. } | Self::ReleaseFix { .. }
+            | Self::Hotfix { .. } | Self::HotfixFix { .. }
+            | Self::Other => None,
+        }
+    }
+
+    /// Conventional-commit type for work branches: the kind name itself,
+    /// except the "feature" kind commits as "feat".
+    pub fn commit_type(&self) -> Option<&'static str> {
+        match self.work_kind()? {
+            "feature" => Some("feat"),
+            kind => Some(kind),
         }
     }
 
@@ -92,7 +121,12 @@ impl BranchType {
     }
 
     pub fn is_work_branch(&self) -> bool {
-        matches!(self, Self::Feature { .. } | Self::Fix { .. } | Self::Chore { .. } | Self::Docs { .. } | Self::Refactor { .. })
+        self.work_kind().is_some()
+    }
+
+    /// Branch types whose finish has a fixed merge/PR target, so `--base` never applies.
+    pub fn has_fixed_finish_target(&self) -> bool {
+        matches!(self, Self::Release { .. } | Self::ReleaseFix { .. } | Self::Hotfix { .. } | Self::HotfixFix { .. })
     }
 
     /// PR-template lookup keys as `(specific, group)` for branch types that open a PR.
@@ -112,12 +146,6 @@ impl BranchType {
         }
     }
 
-    fn new_feature(name: String) -> Self { Self::Feature { name } }
-    fn new_fix(name: String) -> Self { Self::Fix { name } }
-    fn new_chore(name: String) -> Self { Self::Chore { name } }
-    fn new_docs(name: String) -> Self { Self::Docs { name } }
-    fn new_refactor(name: String) -> Self { Self::Refactor { name } }
-
     fn parse_major_minor_patch(s: &str) -> Option<(u32, u32, u32)> {
         let parts: Vec<&str> = s.splitn(3, '.').collect();
         if parts.len() != 3 { return None; }
@@ -128,6 +156,27 @@ impl BranchType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn work_kinds_round_trip_through_parse() {
+        // The WORK_TYPES table and work_kind() are two directions of one
+        // mapping; this pins that they can never drift apart.
+        for kind in BranchType::work_kinds() {
+            let bt = BranchType::parse(&format!("{kind}/x"));
+            assert_eq!(bt.work_kind(), Some(kind), "kind {kind} must round-trip");
+            assert!(bt.is_work_branch(), "kind {kind} must be a work branch");
+        }
+    }
+
+    #[test]
+    fn commit_type_is_kind_name_except_feature() {
+        assert_eq!(BranchType::parse("feature/x").commit_type(), Some("feat"));
+        assert_eq!(BranchType::parse("fix/x").commit_type(), Some("fix"));
+        assert_eq!(BranchType::parse("chore/x").commit_type(), Some("chore"));
+        assert_eq!(BranchType::parse("docs/x").commit_type(), Some("docs"));
+        assert_eq!(BranchType::parse("refactor/x").commit_type(), Some("refactor"));
+        assert_eq!(BranchType::parse("release/1.2.0").commit_type(), None);
+    }
 
     #[test]
     fn pr_template_keys_for_work_branches() {
@@ -142,6 +191,17 @@ mod tests {
     fn fix_family_shares_fix_group() {
         assert_eq!(BranchType::parse("release-fix/1.2.0/x").pr_template_keys(), Some(("release-fix", "fix")));
         assert_eq!(BranchType::parse("hotfix-fix/1.2.0/x").pr_template_keys(), Some(("hotfix-fix", "fix")));
+    }
+
+    #[test]
+    fn fixed_finish_target_only_for_release_and_hotfix_families() {
+        assert!(BranchType::parse("release/1.2.0").has_fixed_finish_target());
+        assert!(BranchType::parse("release-fix/1.2.0/x").has_fixed_finish_target());
+        assert!(BranchType::parse("hotfix/1.2.1").has_fixed_finish_target());
+        assert!(BranchType::parse("hotfix-fix/1.2.1/x").has_fixed_finish_target());
+        assert!(!BranchType::parse("feature/x").has_fixed_finish_target());
+        assert!(!BranchType::parse("develop").has_fixed_finish_target());
+        assert!(!BranchType::parse("main").has_fixed_finish_target());
     }
 
     #[test]
