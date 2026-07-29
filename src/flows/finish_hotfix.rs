@@ -3,8 +3,8 @@ use crate::git::Git;
 use crate::version::SemVer;
 
 pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32) -> Result<(), String> {
-    let hotfix_branch = format!("hotfix/{major}.{minor}.{patch}");
     let version = SemVer::new(major, minor, patch);
+    let hotfix_branch = version.hotfix_branch();
     let tag = version.tag_name();
 
     println!("Finishing hotfix {hotfix_branch}...");

@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::version::SemVer;
+
 /// Folder under `.git/` holding one state file per in-progress finish.
 pub const STATE_DIR_NAME: &str = "bflow-finish";
 /// Pre-2.4 single global state file, migrated on startup if found.
@@ -42,9 +44,10 @@ pub struct FinishState {
 
 impl FinishState {
     pub fn source_branch(&self) -> String {
+        let version = SemVer::new(self.major, self.minor, self.patch);
         match self.kind {
-            FinishKind::Release => format!("release/{}.{}.{}", self.major, self.minor, self.patch),
-            FinishKind::Hotfix => format!("hotfix/{}.{}.{}", self.major, self.minor, self.patch),
+            FinishKind::Release => version.release_branch(),
+            FinishKind::Hotfix => version.hotfix_branch(),
         }
     }
 

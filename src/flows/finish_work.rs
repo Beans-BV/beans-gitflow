@@ -2,6 +2,7 @@ use crate::git::Git;
 use crate::git::branch::BranchType;
 use crate::hosting::HostingPlatform;
 use crate::menu;
+use crate::version::SemVer;
 
 fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, title: &str, branch_type: &BranchType) -> Result<(), String> {
     let current = git.current_branch()?;
@@ -133,7 +134,7 @@ pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
         return Err("Cannot finish: not on a release-fix branch".to_string());
     };
     let title = format!("fix: {}", name.replace('-', " "));
-    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &title, branch_type)
+    push_and_create_pr(git, hosting, &SemVer::new(*major, *minor, *patch).release_branch(), &title, branch_type)
 }
 
 pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
@@ -141,5 +142,5 @@ pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_ty
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
     let title = format!("fix: {}", name.replace('-', " "));
-    push_and_create_pr(git, hosting, &format!("hotfix/{major}.{minor}.{patch}"), &title, branch_type)
+    push_and_create_pr(git, hosting, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, branch_type)
 }
