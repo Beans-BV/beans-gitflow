@@ -4,6 +4,7 @@ pub mod editor;
 pub mod flows;
 pub mod git;
 pub mod hosting;
+pub mod lifecycle;
 pub mod menu;
 pub mod prompt;
 pub mod state;

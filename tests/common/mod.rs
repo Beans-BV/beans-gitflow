@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use bflow::editor::Editor;
@@ -41,6 +42,8 @@ pub struct MockGit {
     pub pushed_branches: HashSet<String>,
     pub mid_merge: bool,
     pub unmerged_paths: bool,
+    /// What `is_working_tree_clean` reports (defaults to clean).
+    pub working_tree_clean: bool,
     pub git_dir: PathBuf,
     /// Stash messages currently in the stash list (most recent first).
     pub stashes: RefCell<Vec<String>>,
@@ -77,6 +80,7 @@ impl MockGit {
             pushed_branches: HashSet::new(),
             mid_merge: false,
             unmerged_paths: false,
+            working_tree_clean: true,
             git_dir: PathBuf::from(".git"),
             stashes: RefCell::new(Vec::new()),
             config: HashMap::new(),
@@ -158,7 +162,7 @@ impl Git for MockGit {
 
     fn is_working_tree_clean(&self) -> Result<bool, String> {
         self.calls.borrow_mut().push("is_working_tree_clean".to_string());
-        Ok(true)
+        Ok(self.working_tree_clean)
     }
 
     fn delete_branch_local(&self, branch: &str) -> Result<(), String> {
@@ -397,4 +401,17 @@ impl Prompter for MockPrompter {
         self.selections.borrow_mut().pop_front()
             .ok_or_else(|| format!("MockPrompter: unscripted select('{prompt}')"))
     }
+}
+
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Unique temp directory for integration tests that need a fake `.git` dir
+/// (state files). Mirrors the lib's #[cfg(test)] helper, which integration
+/// tests cannot link.
+#[allow(dead_code)]
+pub fn tmp_dir(prefix: &str) -> PathBuf {
+    let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
