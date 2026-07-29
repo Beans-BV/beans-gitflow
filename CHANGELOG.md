@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-07-29
 
 ### Added
+- Azure DevOps support — the hosting provider is auto-detected from the origin remote URL (`dev.azure.com` / `*.visualstudio.com` → Azure DevOps via the `az` CLI, anything else → GitHub via `gh`), overridable with `git config bflow.hosting.provider github|devops`. PRs are created with `az repos pr create` and open at the canonical `dev.azure.com` URL; preflight verifies the `azure-devops` extension and repository access ([#13](https://github.com/Beans-BV/beans-gitflow/pull/13)).
+- `bflow finish` completes an already-merged branch instead of opening a new PR. When a work branch's (or release-fix/hotfix-fix branch's) most recent PR is merged and the local tip is exactly the merged commit, finish deletes the remote branch (if the platform didn't already), deletes the local branch, and — when the branch lives in its own worktree — removes the worktree. New commits after the merge, or a PR closed without merging, still get a fresh PR; cleanup never runs on them ([#15](https://github.com/Beans-BV/beans-gitflow/pull/15)).
 - Optional git worktree flow for `bflow start`. When `bflow.worktree.enabled` is set (git config), work-branch starts (feature/fix/chore/docs/refactor, plus release-fix/hotfix-fix) create the branch in a native git worktree and open it in your editor instead of switching the current checkout. Configurable via `bflow.worktree.editor` (default `code`; `none` to skip opening) and `bflow.worktree.path` (base directory, default the repo's parent). Worktree folders are named `<repo-name>-<branch-with-slashes-as-dashes>`. Off by default; `--no-worktree` skips it for a single command.
 - `bflow worktree` command to configure the worktree flow without editing git config by hand: an interactive setup wizard (`bflow worktree`) plus non-interactive subcommands `enable`, `disable`, `editor <cmd>`, `path <dir>`, and `status`. Writes global git config by default; `--local` scopes to the current repository.
 - `bflow finish --base <branch>` on work branches sets the PR target explicitly, skipping parent-branch detection and its selection menu — closes the last non-interactive gap for AI agents and CI. The branch must exist on origin (PR targets live on the remote) and differ from the branch being finished; branch types with a fixed target (release, hotfix, release-fix, hotfix-fix) reject the flag. Additionally, when detection finds exactly one candidate parent it is now used directly instead of showing a one-item menu.
@@ -132,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[3.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.4.0...v3.0.0
 [2.4.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.1.0...v2.2.0
