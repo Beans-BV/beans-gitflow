@@ -9,10 +9,18 @@ pub enum ReleaseType {
     Minor,
 }
 
+/// An active worktree context leaves the current checkout untouched, exactly
+/// like `--no-checkout`. This is the flows' single derivation of that rule
+/// (pinned by the worktree tests: passing no_checkout=false with a worktree
+/// context must still take the no-checkout path).
+fn effective_no_checkout(no_checkout: bool, worktree: &Option<WorktreeContext<'_>>) -> bool {
+    no_checkout || worktree.is_some()
+}
+
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     println!("Creating branch: {branch}");
-    let effective_no_checkout = no_checkout || worktree.is_some();
+    let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     if effective_no_checkout {
         git.create_branch_no_checkout(&branch, from)
     } else {
@@ -38,7 +46,7 @@ pub fn start_release(git: &dyn Git, release_type: Option<ReleaseType>) -> Result
 }
 
 pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
-    let effective_no_checkout = no_checkout || worktree.is_some();
+    let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let release_branch = if effective_no_checkout {
         super::branches_with_prefix(git, "release")?
             .first()
@@ -69,7 +77,7 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
 }
 
 pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
-    let effective_no_checkout = no_checkout || worktree.is_some();
+    let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout)?;
     let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
     let branch = format!("hotfix-fix/{version}/{name}");

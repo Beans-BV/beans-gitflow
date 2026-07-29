@@ -289,16 +289,17 @@ fn run_flow(
     branch_type: &BranchType,
     branch_name: &str,
     action: &Action,
-    no_checkout: bool,
+    skip_current_branch_sync: bool,
     worktree_active: bool,
     wt_config: &WorktreeConfig,
     editor: &dyn Editor,
     resume_state: Option<&FinishState>,
 ) -> Result<(), String> {
-    // Pull the current branch when it's a real bflow branch and we're not resuming
-    // a flow (on resume the user may be on main/develop after conflict resolution —
-    // pulling that branch is harmless but produces noisy output).
-    if !no_checkout && resume_state.is_none() {
+    // Fast-forward the current branch to origin when the flow will operate on
+    // this checkout and we're not resuming (on resume the user may be on
+    // main/develop after conflict resolution — syncing that branch is harmless
+    // but produces noisy output).
+    if !skip_current_branch_sync && resume_state.is_none() {
         if let Err(e) = git.ff_merge(&format!("origin/{branch_name}")) {
             if !e.contains("not something we can merge") {
                 return Err(e);
