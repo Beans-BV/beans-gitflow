@@ -1,4 +1,4 @@
-use super::{resolve_body_file, run_cli, HostingPlatform, Result};
+use super::{resolve_body_file, run_cli, HostingPlatform, MergedPr, Result};
 
 pub struct AzureDevOps {
     org: String,
@@ -38,6 +38,33 @@ impl AzureDevOps {
             "--project".into(), self.project.clone(),
             "--repository".into(), self.repo.clone(),
         ]
+    }
+
+    /// Parse the `status<TAB>commitId<TAB>targetRefName<TAB>id` tsv row of the
+    /// merged-PR query. Empty output is the normal "no PR" case; a row whose
+    /// status isn't `completed` means the newest PR is open/abandoned → `None`.
+    fn parse_merged_pr_row(&self, row: &str) -> Result<Option<MergedPr>> {
+        let row = row.trim();
+        if row.is_empty() {
+            return Ok(None);
+        }
+        let fields: Vec<&str> = row.split('\t').collect();
+        let [status, sha, target, id] = fields.as_slice() else {
+            return Err(format!("Unexpected merged-PR data from az: '{row}'"));
+        };
+        if *status != "completed" {
+            return Ok(None);
+        }
+        // az renders nulls as empty tsv fields (or the literal "None").
+        if sha.is_empty() || *sha == "None" {
+            return Err(format!("Unexpected merge source commit from az: '{row}'"));
+        }
+        let base = target.strip_prefix("refs/heads/").unwrap_or(target).to_string();
+        Ok(Some(MergedPr {
+            url: self.pr_url(validate_pr_id(id)?),
+            head_sha: sha.to_string(),
+            base,
+        }))
     }
 }
 
@@ -113,6 +140,21 @@ impl HostingPlatform for AzureDevOps {
         Ok(self.pr_url(validate_pr_id(&created)?))
     }
 
+    fn merged_pr(&self, head: &str) -> Result<Option<MergedPr>> {
+        // Newest PR for this source branch decides (az lists newest first);
+        // `completed` is ADO's merged status.
+        let mut args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
+        args.extend(self.repo_args());
+        args.extend([
+            "--source-branch".into(), head.into(),
+            "--status".into(), "all".into(),
+            "--query".into(), "[0].[status, lastMergeSourceCommit.commitId, targetRefName, pullRequestId]".into(),
+            "-o".into(), "tsv".into(),
+        ]);
+        let row = self.run_az(&args)?;
+        self.parse_merged_pr_row(&row)
+    }
+
     fn check_auth(&self) -> Result<()> {
         // Explicit extension check first: it also prevents az's interactive
         // dynamic-install prompt from firing inside a non-tty command later.
@@ -165,5 +207,35 @@ mod tests {
     #[test]
     fn description_args_empty_body_is_single_empty_line() {
         assert_eq!(description_args(""), vec!["--description", ""]);
+    }
+
+    fn ado() -> AzureDevOps {
+        AzureDevOps::new("beans".into(), "Shop".into(), "shop".into())
+    }
+
+    #[test]
+    fn merged_pr_row_empty_means_no_pr() {
+        assert_eq!(ado().parse_merged_pr_row(""), Ok(None));
+    }
+
+    #[test]
+    fn merged_pr_row_completed_parses_with_synthesized_url_and_short_base() {
+        let pr = ado().parse_merged_pr_row("completed\tabc123\trefs/heads/develop\t49").unwrap().unwrap();
+        assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
+        assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.base, "develop");
+    }
+
+    #[test]
+    fn merged_pr_row_active_or_abandoned_is_none() {
+        assert_eq!(ado().parse_merged_pr_row("active\tabc\trefs/heads/develop\t49"), Ok(None));
+        assert_eq!(ado().parse_merged_pr_row("abandoned\tabc\trefs/heads/develop\t49"), Ok(None));
+    }
+
+    #[test]
+    fn merged_pr_row_missing_commit_or_bad_id_is_a_hard_error() {
+        assert!(ado().parse_merged_pr_row("completed\t\trefs/heads/develop\t49").is_err());
+        assert!(ado().parse_merged_pr_row("completed\tNone\trefs/heads/develop\t49").is_err());
+        assert!(ado().parse_merged_pr_row("completed\tabc\trefs/heads/develop\tNone").is_err());
     }
 }

@@ -5,11 +5,26 @@ pub mod template;
 
 pub type Result<T> = std::result::Result<T, String>;
 
+/// A pull request that has been merged: everything a finish needs to decide the
+/// work is done and clean up. `head_sha` is the source-branch tip that was
+/// merged — the only reliable "is my local branch the merged one" signal, since
+/// squash/rebase merges break ancestor checks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergedPr {
+    pub url: String,
+    pub head_sha: String,
+    /// Short name of the branch the PR merged into (e.g. `develop`).
+    pub base: String,
+}
+
 pub trait HostingPlatform {
     /// Create a PR (or return the URL of an existing open one). When `template` is
     /// `Some`, its contents become the PR body; when `None`, the platform falls back to
     /// the repository's own default template.
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String>;
+    /// The merged PR for `head`, if the branch's most recent PR is merged.
+    /// An open or abandoned newer PR yields `None` — the branch is still in play.
+    fn merged_pr(&self, head: &str) -> Result<Option<MergedPr>>;
     fn open_url(&self, url: &str) -> Result<()> {
         open_in_browser(url)
     }

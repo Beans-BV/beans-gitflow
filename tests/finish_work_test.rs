@@ -19,6 +19,7 @@ fn finish_release_fix_pushes_and_creates_pr() {
     ]);
 
     assert_eq!(hosting.calls(), vec![
+        "merged_pr:release-fix/1.1.0/login-bug",
         "create_or_get_pr:release-fix/1.1.0/login-bug:release/1.1.0:fix: login bug",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
@@ -39,6 +40,7 @@ fn finish_hotfix_fix_pushes_and_creates_pr() {
     ]);
 
     assert_eq!(hosting.calls(), vec![
+        "merged_pr:hotfix-fix/1.0.1/crash-fix",
         "create_or_get_pr:hotfix-fix/1.0.1/crash-fix:hotfix/1.0.1:fix: crash fix",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
@@ -55,6 +57,7 @@ fn finish_release_fix_with_custom_pr_url() {
     finish_release_fix(&git, &hosting, &branch_type, None).unwrap();
 
     assert_eq!(hosting.calls(), vec![
+        "merged_pr:release-fix/2.0.0/typo",
         "create_or_get_pr:release-fix/2.0.0/typo:release/2.0.0:fix: typo",
         "open_url:https://github.com/org/repo/pull/42",
     ]);
@@ -72,8 +75,8 @@ fn finish_work_branch_feature_non_breaking() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(false), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].starts_with("create_or_get_pr:feature/login:"));
-    assert!(calls[0].ends_with(":feat: login"));
+    assert!(calls[1].starts_with("create_or_get_pr:feature/login:"));
+    assert!(calls[1].ends_with(":feat: login"));
 }
 
 #[test]
@@ -86,8 +89,8 @@ fn finish_work_branch_feature_breaking() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].ends_with(":feat!: remove-api"),
-        "Expected PR title to end with 'feat!: remove-api', got: {}", calls[0]);
+    assert!(calls[1].ends_with(":feat!: remove-api"),
+        "Expected PR title to end with 'feat!: remove-api', got: {}", calls[1]);
 }
 
 #[test]
@@ -100,8 +103,8 @@ fn finish_work_branch_chore_breaking_honored() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].ends_with(":chore!: drop-node-16"),
-        "Explicit --breaking should be honored on chore, got: {}", calls[0]);
+    assert!(calls[1].ends_with(":chore!: drop-node-16"),
+        "Explicit --breaking should be honored on chore, got: {}", calls[1]);
 }
 
 #[test]
@@ -115,8 +118,8 @@ fn finish_work_branch_docs_defaults_to_non_breaking() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, None, None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].ends_with(":docs: readme"),
-        "Docs with None should default to non-breaking, got: {}", calls[0]);
+    assert!(calls[1].ends_with(":docs: readme"),
+        "Docs with None should default to non-breaking, got: {}", calls[1]);
 }
 
 #[test]
@@ -133,8 +136,8 @@ fn finish_work_branch_with_explicit_base_skips_detection() {
     assert!(!git_calls.contains(&"list_remote_branches".to_string()),
         "Explicit --base must skip parent detection, got: {git_calls:?}");
     let calls = hosting.calls();
-    assert!(calls[0].starts_with("create_or_get_pr:feature/login:develop:"),
-        "PR should target the explicit base, got: {}", calls[0]);
+    assert!(calls[1].starts_with("create_or_get_pr:feature/login:develop:"),
+        "PR should target the explicit base, got: {}", calls[1]);
 }
 
 #[test]
@@ -198,8 +201,8 @@ fn finish_work_branch_single_candidate_finishes_without_menu() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(false), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].starts_with("create_or_get_pr:feature/login:develop:"),
-        "Single candidate should be auto-selected, got: {}", calls[0]);
+    assert!(calls[1].starts_with("create_or_get_pr:feature/login:develop:"),
+        "Single candidate should be auto-selected, got: {}", calls[1]);
 }
 
 #[test]
@@ -212,8 +215,8 @@ fn finish_work_branch_fix_breaking() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].ends_with(":fix!: auth"),
-        "Expected 'fix!: auth', got: {}", calls[0]);
+    assert!(calls[1].ends_with(":fix!: auth"),
+        "Expected 'fix!: auth', got: {}", calls[1]);
 }
 
 #[test]
@@ -227,8 +230,8 @@ fn finish_work_branch_passes_resolved_template_to_hosting() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(false), None, Some(template)).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[0].ends_with(":template=.github/pr-templates/bflow-feature.md"),
-        "template path must reach the hosting platform verbatim, got: {}", calls[0]);
+    assert!(calls[1].ends_with(":template=.github/pr-templates/bflow-feature.md"),
+        "template path must reach the hosting platform verbatim, got: {}", calls[1]);
 }
 
 // --- Parent-branch candidate ordering (reachable now that prompting goes
@@ -257,8 +260,8 @@ fn parent_candidates_sorted_by_merge_distance_ascending() {
     finish_work_branch(&git, &hosting, &prompter, &branch_type, Some(false), None, None).unwrap();
 
     assert_eq!(prompter.calls(), vec!["select:PR target branch:[feature/near, develop]"]);
-    assert!(hosting.calls()[0].starts_with("create_or_get_pr:feature/child:feature/near:"),
-        "choosing index 0 must target the nearest candidate, got: {}", hosting.calls()[0]);
+    assert!(hosting.calls()[1].starts_with("create_or_get_pr:feature/child:feature/near:"),
+        "choosing index 0 must target the nearest candidate, got: {}", hosting.calls()[1]);
 }
 
 #[test]
@@ -300,6 +303,104 @@ fn parent_detection_excludes_child_branches_and_skips_menu_for_single_candidate(
     finish_work_branch(&git, &hosting, &prompter, &branch_type, Some(false), None, None).unwrap();
 
     assert!(prompter.calls().is_empty(), "single surviving candidate must be auto-selected");
-    assert!(hosting.calls()[0].starts_with("create_or_get_pr:feature/parent:develop:"),
-        "child branch must be excluded, got: {}", hosting.calls()[0]);
+    assert!(hosting.calls()[1].starts_with("create_or_get_pr:feature/parent:develop:"),
+        "child branch must be excluded, got: {}", hosting.calls()[1]);
+}
+
+// --- Already-merged PR: finish is complete, clean up instead of a new PR ---
+
+use bflow::hosting::MergedPr;
+
+fn merged(url: &str, sha: &str, base: &str) -> Option<MergedPr> {
+    Some(MergedPr { url: url.to_string(), head_sha: sha.to_string(), base: base.to_string() })
+}
+
+#[test]
+fn merged_pr_in_worktree_cleans_up_branch_and_worktree() {
+    let mut git = MockGit::new();
+    git.current_branch = "feature/task-a".to_string();
+    git.head_sha = "abc123".to_string();
+    git.linked_worktree = true;
+    git.existing_remote_branches.insert("feature/task-a".to_string());
+    let mut hosting = MockHosting::new();
+    hosting.merged_pr = merged("https://github.com/org/repo/pull/49", "abc123", "develop");
+    let branch_type = BranchType::Feature { name: "task-a".to_string() };
+
+    // breaking=None + unscripted prompter: passing proves the breaking-changes
+    // prompt (and parent detection) never ran on an already-finished branch.
+    finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, None, None, None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "current_branch",
+        "head_sha",
+        // Remote deletion comes first: after remove_current_worktree the process
+        // cwd is gone, so it must be the last git call.
+        "remote_branch_exists:feature/task-a",
+        "delete_branch_remote:feature/task-a",
+        "is_linked_worktree",
+        "detach_head",
+        "delete_branch_local:feature/task-a",
+        "remove_current_worktree",
+    ]);
+    assert_eq!(hosting.calls(), vec!["merged_pr:feature/task-a"], "no new PR may be created");
+}
+
+#[test]
+fn merged_pr_in_plain_checkout_returns_to_base_and_deletes_branch() {
+    let mut git = MockGit::new();
+    git.current_branch = "feature/task-a".to_string();
+    git.head_sha = "abc123".to_string();
+    // Remote branch already auto-deleted by the platform after merge.
+    let mut hosting = MockHosting::new();
+    hosting.merged_pr = merged("https://github.com/org/repo/pull/49", "abc123", "develop");
+    let branch_type = BranchType::Feature { name: "task-a".to_string() };
+
+    finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, None, None, None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "current_branch",
+        "head_sha",
+        "remote_branch_exists:feature/task-a",
+        "is_linked_worktree",
+        "checkout:develop",
+        "ff_merge:origin/develop",
+        "delete_branch_local:feature/task-a",
+    ]);
+    assert_eq!(hosting.calls(), vec!["merged_pr:feature/task-a"]);
+}
+
+#[test]
+fn merged_pr_with_new_commits_since_merge_creates_a_new_pr() {
+    let mut git = MockGit::new();
+    git.current_branch = "feature/task-a".to_string();
+    git.head_sha = "newwork456".to_string();
+    let mut hosting = MockHosting::new();
+    hosting.merged_pr = merged("https://github.com/org/repo/pull/49", "abc123", "develop");
+    let branch_type = BranchType::Feature { name: "task-a".to_string() };
+
+    finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(false), None, None).unwrap();
+
+    // New commits after the merge = new work: nothing may be deleted...
+    assert!(!git.calls().iter().any(|c| c.starts_with("delete_") || c == "remove_current_worktree"),
+        "diverged branch must not be cleaned up, got: {:?}", git.calls());
+    // ...and the flow continues into a fresh PR.
+    assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:feature/task-a:")),
+        "a new PR should be created, got: {:?}", hosting.calls());
+}
+
+#[test]
+fn merged_pr_cleans_up_release_fix_too() {
+    let mut git = MockGit::new();
+    git.current_branch = "release-fix/1.1.0/login-bug".to_string();
+    git.head_sha = "abc123".to_string();
+    git.linked_worktree = true;
+    let mut hosting = MockHosting::new();
+    hosting.merged_pr = merged("https://github.com/org/repo/pull/50", "abc123", "release/1.1.0");
+    let branch_type = BranchType::ReleaseFix { major: 1, minor: 1, patch: 0, name: "login-bug".to_string() };
+
+    finish_release_fix(&git, &hosting, &branch_type, None).unwrap();
+
+    assert!(!git.calls().iter().any(|c| c.starts_with("push:")), "nothing to push on a finished branch");
+    assert!(git.calls().contains(&"remove_current_worktree".to_string()));
+    assert_eq!(hosting.calls(), vec!["merged_pr:release-fix/1.1.0/login-bug"]);
 }
