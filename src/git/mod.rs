@@ -141,13 +141,17 @@ impl Git for GitCli {
             "for-each-ref", "--format=%(refname:short)",
             &ref_pattern, &local_pattern,
         ])?;
-        Ok(output
+        // Sorted + deduped: consumers pick candidates by position (`.first()`),
+        // so the adapter must return a deterministic order — the same contract
+        // the tests' mock (a verbatim, ordered Vec) already implies.
+        let mut branches: Vec<String> = output
             .lines()
             .map(|s| s.trim_start_matches("origin/").to_string())
             .filter(|s| !s.is_empty())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect())
+            .collect();
+        branches.sort();
+        branches.dedup();
+        Ok(branches)
     }
     fn is_working_tree_clean(&self) -> Result<bool> {
         let output = self.run(&["status", "--porcelain"])?;
