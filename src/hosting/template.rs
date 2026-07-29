@@ -39,17 +39,10 @@ fn resolve_in(dir: &Path, branch_type: &BranchType) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
     use std::fs;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn tmp_dir() -> PathBuf {
-        let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = env::temp_dir().join(format!("bflow-template-test-{}-{n}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::test_support::tmp_dir("bflow-template-test")
     }
 
     fn touch(dir: &Path, name: &str) {

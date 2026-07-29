@@ -191,20 +191,9 @@ pub fn current_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn tmp_dir() -> PathBuf {
-        let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = env::temp_dir().join(format!(
-            "bflow-state-test-{}-{}-{n}",
-            std::process::id(),
-            current_timestamp(),
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::test_support::tmp_dir("bflow-state-test")
     }
 
     fn release(major: u32, minor: u32, patch: u32) -> FinishState {
