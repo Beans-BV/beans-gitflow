@@ -1,4 +1,4 @@
-use super::{run_cli, HostingPlatform, Result};
+use super::{resolve_body_file, run_cli, HostingPlatform, Result};
 
 pub struct GitHub;
 
@@ -16,13 +16,19 @@ impl GitHub {
 
 impl HostingPlatform for GitHub {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
-        let existing = self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]);
-        if let Ok(url) = existing {
-            if !url.is_empty() { return Ok(url); }
+        match self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]) {
+            Ok(url) if !url.is_empty() => return Ok(url),
+            // A closed/merged PR filters to empty output — create a new one.
+            Ok(_) => {}
+            // gh exits non-zero both when no PR exists (normal here) and on real
+            // failures (auth expiry, network). Only the former may be swallowed.
+            Err(e) if e.contains("no pull requests found") => {}
+            Err(e) => return Err(format!(
+                "Could not check for an existing PR: {e}\n\
+                 If authentication expired, run 'gh auth login', then re-run 'bflow finish'."
+            )),
         }
 
-        // A bflow-resolved template (branch-specific/group/default) wins; otherwise fall
-        // back to the repository's own default PR template, then to an empty body.
         let git_default_paths = [
             ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/pull_request_template.md",
@@ -30,9 +36,7 @@ impl HostingPlatform for GitHub {
             "pull_request_template.md",
             "docs/pull_request_template.md",
         ];
-        let body_file = template
-            .map(|p| p.to_string())
-            .or_else(|| git_default_paths.iter().find(|p| std::path::Path::new(p).exists()).map(|p| p.to_string()));
+        let body_file = resolve_body_file(template, &git_default_paths);
 
         if let Some(path) = body_file {
             self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body-file", &path])

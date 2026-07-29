@@ -5,69 +5,17 @@ use crossterm::{
     style::{self, Stylize},
     terminal,
 };
-use crate::flows::start::ReleaseType;
+use crate::action::{validate_branch_name, Action};
 use crate::git::branch::BranchType;
+use crate::prompt::Prompter;
 
-#[derive(Debug, Clone, Copy)]
-pub enum DevelopOption {
-    StartFeature, StartFix, StartChore, StartDocs, StartRefactor, StartRelease,
-}
+/// The real `Prompter`: the interactive select menu on stderr.
+pub struct MenuPrompter;
 
-impl DevelopOption {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::StartFeature => "start feature",
-            Self::StartFix => "start fix",
-            Self::StartChore => "start chore",
-            Self::StartDocs => "start docs",
-            Self::StartRefactor => "start refactor",
-            Self::StartRelease => "start release",
-        }
+impl Prompter for MenuPrompter {
+    fn select(&self, prompt: &str, items: &[&str]) -> Result<usize, String> {
+        show_select(prompt, items)
     }
-
-    pub fn branch_prefix(&self) -> &'static str {
-        match self {
-            Self::StartFeature => "feature",
-            Self::StartFix => "fix",
-            Self::StartChore => "chore",
-            Self::StartDocs => "docs",
-            Self::StartRefactor => "refactor",
-            Self::StartRelease => unreachable!(),
-        }
-    }
-
-    const ALL: [Self; 6] = [Self::StartFeature, Self::StartFix, Self::StartChore, Self::StartDocs, Self::StartRefactor, Self::StartRelease];
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum WorkBranchOption {
-    Finish, StartFeature, StartFix, StartChore, StartDocs, StartRefactor,
-}
-
-impl WorkBranchOption {
-    pub fn label(&self, branch_type: &str) -> String {
-        match self {
-            Self::Finish => format!("finish {branch_type}"),
-            Self::StartFeature => "start feature".to_string(),
-            Self::StartFix => "start fix".to_string(),
-            Self::StartChore => "start chore".to_string(),
-            Self::StartDocs => "start docs".to_string(),
-            Self::StartRefactor => "start refactor".to_string(),
-        }
-    }
-
-    pub fn branch_prefix(&self) -> &'static str {
-        match self {
-            Self::StartFeature => "feature",
-            Self::StartFix => "fix",
-            Self::StartChore => "chore",
-            Self::StartDocs => "docs",
-            Self::StartRefactor => "refactor",
-            Self::Finish => unreachable!(),
-        }
-    }
-
-    const ALL: [Self; 6] = [Self::Finish, Self::StartFeature, Self::StartFix, Self::StartChore, Self::StartDocs, Self::StartRefactor];
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -86,6 +34,26 @@ impl ReleaseOption {
     }
 
     const ALL: [Self; 4] = [Self::FinishRelease, Self::StartReleaseFix, Self::BumpVersion, Self::SyncWithDevelop];
+}
+
+/// Enables raw mode on construction; restores the terminal (cursor visible, raw
+/// mode off) on drop. Every exit path — success, error, Ctrl-C/Esc abort — runs
+/// the same cleanup structurally, so the documented "no raw-mode leak" invariant
+/// is enforced by the type, not by hand-written cleanup at each return.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter(context: &str) -> Result<Self, String> {
+        terminal::enable_raw_mode().map_err(|e| format!("{context}: {e}"))?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = execute!(io::stderr(), cursor::Show);
+        let _ = terminal::disable_raw_mode();
+    }
 }
 
 fn render_menu(out: &mut io::Stderr, items: &[&str], selected: usize) -> io::Result<()> {
@@ -129,27 +97,16 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
         style::Print("\n"),
     ).map_err(|e| format!("Menu error: {e}"))?;
 
-    terminal::enable_raw_mode().map_err(|e| format!("Menu error: {e}"))?;
+    let _guard = TerminalGuard::enter("Menu error")?;
 
-    // Hide cursor during selection
-    execute!(out, cursor::Hide).map_err(|e| {
-        let _ = terminal::disable_raw_mode();
-        format!("Menu error: {e}")
-    })?;
+    // Hide cursor during selection; the guard re-shows it on every exit path.
+    execute!(out, cursor::Hide).map_err(|e| format!("Menu error: {e}"))?;
 
     // Initial render
-    render_menu(&mut out, items, selected).map_err(|e| {
-        let _ = execute!(out, cursor::Show);
-        let _ = terminal::disable_raw_mode();
-        format!("Menu error: {e}")
-    })?;
+    render_menu(&mut out, items, selected).map_err(|e| format!("Menu error: {e}"))?;
 
     let result = loop {
-        let ev = event::read().map_err(|e| {
-            let _ = execute!(out, cursor::Show);
-            let _ = terminal::disable_raw_mode();
-            format!("Menu error: {e}")
-        })?;
+        let ev = event::read().map_err(|e| format!("Menu error: {e}"))?;
 
         // On Windows, crossterm emits Press + Release events; only handle Press
         let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
@@ -158,8 +115,6 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
 
         match (code, modifiers) {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
-                let _ = execute!(out, cursor::Show);
-                let _ = terminal::disable_raw_mode();
                 return Err("Aborted".to_string());
             }
             (KeyCode::Enter, _) => {
@@ -194,40 +149,18 @@ pub fn show_select(prompt: &str, items: &[&str]) -> Result<usize, String> {
         }
 
         // Redraw: move cursor up to start of menu, then re-render
-        let reposition = (|| -> io::Result<()> {
-            if items.len() > 1 {
-                execute!(out, cursor::MoveUp((items.len() - 1) as u16))?;
-            }
-            execute!(out, cursor::MoveToColumn(0))?;
-            Ok(())
-        })();
-        if let Err(e) = reposition {
-            let _ = execute!(out, cursor::Show);
-            let _ = terminal::disable_raw_mode();
-            return Err(format!("Menu error: {e}"));
+        if items.len() > 1 {
+            execute!(out, cursor::MoveUp((items.len() - 1) as u16))
+                .map_err(|e| format!("Menu error: {e}"))?;
         }
-        render_menu(&mut out, items, selected).map_err(|e| {
-            let _ = execute!(out, cursor::Show);
-            let _ = terminal::disable_raw_mode();
-            format!("Menu error: {e}")
-        })?;
+        execute!(out, cursor::MoveToColumn(0)).map_err(|e| format!("Menu error: {e}"))?;
+        render_menu(&mut out, items, selected).map_err(|e| format!("Menu error: {e}"))?;
     };
 
-    // Cleanup: show cursor, disable raw mode, move past menu
-    let _ = execute!(out, cursor::Show, style::Print("\r\n"));
-    let _ = terminal::disable_raw_mode();
+    // Move past the menu; the guard restores cursor + raw mode on drop.
+    let _ = execute!(out, style::Print("\r\n"));
 
     Ok(result)
-}
-
-pub fn validate_branch_name(input: &str) -> Result<(), String> {
-    if input.is_empty() {
-        return Err("Name cannot be empty".to_string());
-    }
-    if input.contains("..") || input.contains('~') || input.contains('^') || input.contains(':') || input.contains('\\') {
-        return Err("Invalid branch name. Avoid special characters (.. ~ ^ : \\)".to_string());
-    }
-    Ok(())
 }
 
 /// Print `prompt` and read a line of input in raw mode. Shared scaffolding for
@@ -245,13 +178,10 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
         style::Print(format!("{prompt}: ")),
     ).map_err(|e| format!("Input error: {e}"))?;
 
-    terminal::enable_raw_mode().map_err(|e| format!("Input error: {e}"))?;
+    let _guard = TerminalGuard::enter("Input error")?;
 
     let result = loop {
-        let ev = event::read().map_err(|e| {
-            let _ = terminal::disable_raw_mode();
-            format!("Input error: {e}")
-        })?;
+        let ev = event::read().map_err(|e| format!("Input error: {e}"))?;
 
         // On Windows, crossterm emits Press + Release events; only handle Press
         let Event::Key(KeyEvent { kind: KeyEventKind::Press, code, modifiers, .. }) = ev else {
@@ -260,7 +190,6 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
 
         match (code, modifiers) {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Esc, _) => {
-                let _ = terminal::disable_raw_mode();
                 return Err("Aborted".to_string());
             }
             (KeyCode::Enter, _) => break input,
@@ -279,8 +208,8 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
         }
     };
 
+    // Move to the next line; the guard disables raw mode on drop.
     let _ = execute!(out, cursor::MoveToNextLine(1));
-    let _ = terminal::disable_raw_mode();
     Ok(result)
 }
 
@@ -325,42 +254,40 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
         BranchType::Develop => {
-            let labels: Vec<&str> = DevelopOption::ALL.iter().map(|o| o.label()).collect();
-            let idx = show_select("What would you like to do?", &labels)?;
-            let option = DevelopOption::ALL[idx];
-            match option {
-                DevelopOption::StartRelease => Ok(Action::StartRelease(None)),
-                other => {
-                    let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
+            // "start <kind>" for every work-branch kind, then "start release".
+            let kinds = BranchType::work_kinds();
+            let mut labels: Vec<String> = kinds.iter().map(|k| format!("start {k}")).collect();
+            labels.push("start release".to_string());
+            let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+            let idx = show_select("What would you like to do?", &label_refs)?;
+            match kinds.get(idx) {
+                Some(kind) => {
+                    let name = prompt_name(&format!("Name for {kind} branch"))?;
+                    Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
                 }
+                None => Ok(Action::StartRelease(None)),
             }
         }
         BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
         | BranchType::Docs { .. } | BranchType::Refactor { .. } => {
-            let branch_type_label = match branch_type {
-                BranchType::Feature { .. } => "feature",
-                BranchType::Fix { .. } => "fix",
-                BranchType::Chore { .. } => "chore",
-                BranchType::Docs { .. } => "docs",
-                BranchType::Refactor { .. } => "refactor",
-                _ => unreachable!(),
-            };
-            let labels: Vec<String> = WorkBranchOption::ALL.iter().map(|o| o.label(branch_type_label)).collect();
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+            let current_kind = branch_type.work_kind()
+                .expect("this match arm only accepts work branches");
+            // "finish <current kind>", then "start <kind>" for every kind.
+            let kinds = BranchType::work_kinds();
+            let mut labels: Vec<String> = vec![format!("finish {current_kind}")];
+            labels.extend(kinds.iter().map(|k| format!("start {k}")));
+            let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
             let idx = show_select("What would you like to do?", &label_refs)?;
-            let option = WorkBranchOption::ALL[idx];
-            match option {
-                WorkBranchOption::Finish => Ok(Action::FinishWorkBranch { breaking: None, base: None }),
-                other => {
-                    let name = prompt_name(&format!("Name for {} branch", other.branch_prefix()))?;
-                    let current_label = format!("{current_branch} (current)");
-                    let base_options: &[&str] = &[&current_label, "develop"];
-                    let base_idx = show_select("Base branch", base_options)?;
-                    let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
-                    Ok(Action::StartWorkBranch { prefix: other.branch_prefix().to_string(), name, from, no_checkout: false, no_worktree: false })
-                }
+            if idx == 0 {
+                return Ok(Action::FinishWorkBranch { breaking: None, base: None });
             }
+            let kind = kinds[idx - 1];
+            let name = prompt_name(&format!("Name for {kind} branch"))?;
+            let current_label = format!("{current_branch} (current)");
+            let base_options: &[&str] = &[&current_label, "develop"];
+            let base_idx = show_select("Base branch", base_options)?;
+            let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
+            Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from, no_checkout: false, no_worktree: false })
         }
         BranchType::ReleaseFix { .. } => {
             show_select("What would you like to do?", &["finish release fix"])?;
@@ -388,62 +315,5 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             Ok(Action::FinishHotfix)
         }
         BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Action {
-    StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool, no_worktree: bool },
-    StartRelease(Option<ReleaseType>),
-    StartReleaseFix { name: String, no_checkout: bool, no_worktree: bool },
-    StartHotfixFix { name: String, no_checkout: bool, no_worktree: bool },
-    FinishWorkBranch { breaking: Option<bool>, base: Option<String> },
-    FinishReleaseFix,
-    FinishRelease,
-    FinishHotfix,
-    FinishHotfixFix,
-    AbortFinish,
-    BumpVersion,
-    SyncWithDevelop,
-}
-
-impl Action {
-    pub fn is_start(&self) -> bool {
-        matches!(
-            self,
-            Action::StartWorkBranch { .. }
-                | Action::StartRelease(_)
-                | Action::StartReleaseFix { .. }
-                | Action::StartHotfixFix { .. }
-        )
-    }
-
-    pub fn no_checkout(&self) -> bool {
-        match self {
-            Action::StartWorkBranch { no_checkout, .. } => *no_checkout,
-            Action::StartReleaseFix { no_checkout, .. } => *no_checkout,
-            Action::StartHotfixFix { no_checkout, .. } => *no_checkout,
-            _ => false,
-        }
-    }
-
-    /// Whether this action is a named-work-branch start eligible for the worktree
-    /// flow. Deliberately excludes `StartRelease`, unlike `is_start`.
-    pub fn worktree_eligible(&self) -> bool {
-        matches!(
-            self,
-            Action::StartWorkBranch { .. }
-                | Action::StartReleaseFix { .. }
-                | Action::StartHotfixFix { .. }
-        )
-    }
-
-    pub fn no_worktree(&self) -> bool {
-        match self {
-            Action::StartWorkBranch { no_worktree, .. } => *no_worktree,
-            Action::StartReleaseFix { no_worktree, .. } => *no_worktree,
-            Action::StartHotfixFix { no_worktree, .. } => *no_worktree,
-            _ => false,
-        }
     }
 }

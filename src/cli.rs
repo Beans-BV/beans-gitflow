@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 use crate::git::branch::BranchType;
 use crate::flows::start::ReleaseType;
-use crate::menu::{self, Action};
+use crate::action::{validate_branch_name, Action};
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -141,7 +141,7 @@ pub enum StartKind {
 }
 
 fn start_work_branch(prefix: &str, name: String, base: String, no_checkout: bool, no_worktree: bool) -> Result<Action, String> {
-    menu::validate_branch_name(&name)?;
+    validate_branch_name(&name)?;
     Ok(Action::StartWorkBranch { prefix: prefix.to_string(), name, from: base, no_checkout, no_worktree })
 }
 
@@ -180,14 +180,14 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 Ok(Action::StartRelease(release_type))
             }
             StartKind::ReleaseFix { name, opts } => {
-                menu::validate_branch_name(&name)?;
+                validate_branch_name(&name)?;
                 if !auto_discovers_target(&opts, worktree_enabled) {
                     require_release_branch(branch_type)?;
                 }
                 Ok(Action::StartReleaseFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
             StartKind::HotfixFix { name, opts } => {
-                menu::validate_branch_name(&name)?;
+                validate_branch_name(&name)?;
                 if !auto_discovers_target(&opts, worktree_enabled)
                     && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. })
                 {

@@ -15,8 +15,10 @@ pub trait Git {
     fn push_tag(&self, tag: &str) -> Result<()>;
     fn create_tag(&self, tag: &str, message: &str) -> Result<()>;
     fn merge(&self, branch: &str, message: &str) -> Result<()>;
-    fn pull(&self, branch: &str) -> Result<()>;
+    fn ff_merge(&self, branch: &str) -> Result<()>;
     fn list_tags(&self) -> Result<Vec<String>>;
+    /// Contract: returns a sorted, deduplicated list — consumers pick
+    /// candidates by position (`.first()`), so order must be deterministic.
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>>;
     fn is_working_tree_clean(&self) -> Result<bool>;
     fn delete_branch_local(&self, branch: &str) -> Result<()>;
@@ -25,8 +27,6 @@ pub trait Git {
     fn list_remote_branches(&self) -> Result<Vec<String>>;
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32>;
-    fn stash_push(&self) -> Result<()>;
-    fn stash_pop(&self) -> Result<()>;
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>>;
 
     // Idempotency primitives
@@ -39,7 +39,6 @@ pub trait Git {
     fn is_mid_merge(&self) -> Result<bool>;
     fn has_unmerged_paths(&self) -> Result<bool>;
     fn git_dir(&self) -> Result<PathBuf>;
-    fn rev_parse(&self, refname: &str) -> Result<String>;
 
     /// URL of the `origin` remote (`git remote get-url origin`). Errors when the
     /// remote does not exist; callers decide how to handle a missing remote.
@@ -98,6 +97,12 @@ impl GitCli {
         }
     }
 
+    /// Resolve a ref name to its SHA. Only needed internally (`is_pushed`
+    /// compares local vs remote SHAs), so not part of the `Git` port.
+    fn rev_parse(&self, refname: &str) -> Result<String> {
+        self.run(&["rev-parse", refname])
+    }
+
     /// Run a `git config --get`-style command that uses exit 1 to mean "key not set".
     /// Returns `Ok(None)` on exit 1, `Ok(Some(value))` on exit 0, and an error otherwise.
     fn run_config(&self, args: &[&str]) -> Result<Option<String>> {
@@ -129,7 +134,7 @@ impl Git for GitCli {
     fn push_tag(&self, tag: &str) -> Result<()> { self.run(&["push", "origin", tag]).map(|_| ()) }
     fn create_tag(&self, tag: &str, message: &str) -> Result<()> { self.run(&["tag", "-a", tag, "-m", message]).map(|_| ()) }
     fn merge(&self, branch: &str, message: &str) -> Result<()> { self.run(&["merge", branch, "--no-ff", "-m", message]).map(|_| ()) }
-    fn pull(&self, branch: &str) -> Result<()> { self.run(&["merge", branch, "--ff-only"]).map(|_| ()) }
+    fn ff_merge(&self, branch: &str) -> Result<()> { self.run(&["merge", branch, "--ff-only"]).map(|_| ()) }
     fn list_tags(&self) -> Result<Vec<String>> {
         let output = self.run(&["tag", "--list"])?;
         Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
@@ -141,13 +146,15 @@ impl Git for GitCli {
             "for-each-ref", "--format=%(refname:short)",
             &ref_pattern, &local_pattern,
         ])?;
-        Ok(output
+        // Sorted + deduped per the trait contract.
+        let mut branches: Vec<String> = output
             .lines()
             .map(|s| s.trim_start_matches("origin/").to_string())
             .filter(|s| !s.is_empty())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect())
+            .collect();
+        branches.sort();
+        branches.dedup();
+        Ok(branches)
     }
     fn is_working_tree_clean(&self) -> Result<bool> {
         let output = self.run(&["status", "--porcelain"])?;
@@ -175,8 +182,6 @@ impl Git for GitCli {
         let output = self.run(&["rev-list", "--count", &range])?;
         output.parse::<u32>().map_err(|e| format!("Failed to parse rev-list count: {e}"))
     }
-    fn stash_push(&self) -> Result<()> { self.run(&["stash", "push", "-u"]).map(|_| ()) }
-    fn stash_pop(&self) -> Result<()> { self.run(&["stash", "pop"]).map(|_| ()) }
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>> {
         let range = format!("{from}..{to}");
         // Use NUL byte as separator — guaranteed not to appear in commit messages
@@ -236,9 +241,6 @@ impl Git for GitCli {
     fn git_dir(&self) -> Result<PathBuf> {
         let s = self.run(&["rev-parse", "--git-dir"])?;
         Ok(PathBuf::from(s))
-    }
-    fn rev_parse(&self, refname: &str) -> Result<String> {
-        self.run(&["rev-parse", refname])
     }
 
     fn remote_url(&self) -> Result<String> {

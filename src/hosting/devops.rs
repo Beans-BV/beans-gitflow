@@ -1,4 +1,4 @@
-use super::{run_cli, HostingPlatform, Result};
+use super::{resolve_body_file, run_cli, HostingPlatform, Result};
 
 pub struct AzureDevOps {
     org: String,
@@ -82,8 +82,6 @@ impl HostingPlatform for AzureDevOps {
             return Ok(self.pr_url(validate_pr_id(&existing)?));
         }
 
-        // A bflow-resolved template (branch-specific/group/default) wins; otherwise fall
-        // back to the repository's own default PR template, then to an empty body.
         let default_paths = [
             ".azuredevops/pull_request_template.md",
             ".azuredevops/PULL_REQUEST_TEMPLATE.md",
@@ -92,9 +90,7 @@ impl HostingPlatform for AzureDevOps {
             "PULL_REQUEST_TEMPLATE.md",
             "docs/pull_request_template.md",
         ];
-        let body_file = template
-            .map(|p| p.to_string())
-            .or_else(|| default_paths.iter().find(|p| std::path::Path::new(p).exists()).map(|p| p.to_string()));
+        let body_file = resolve_body_file(template, &default_paths);
         let body = match body_file {
             Some(path) => std::fs::read_to_string(&path)
                 .map_err(|e| format!("Failed to read PR template '{path}': {e}"))?,

@@ -1,7 +1,7 @@
 use bflow::cli::{Commands, StartKind, StartOptions, resolve_action};
 use bflow::flows::start::ReleaseType;
 use bflow::git::branch::BranchType;
-use bflow::menu::Action;
+use bflow::action::Action;
 
 // --- Start work branch tests ---
 

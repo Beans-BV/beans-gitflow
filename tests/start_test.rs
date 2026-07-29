@@ -1,6 +1,6 @@
 mod common;
 
-use common::{MockEditor, MockGit};
+use common::{MockEditor, MockGit, MockPrompter};
 use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
 use bflow::version::SemVer;
 use bflow::worktree::{WorktreeConfig, WorktreeContext};
@@ -44,7 +44,7 @@ fn start_release_creates_new_when_no_release_exists_with_tags() {
     git.branches_matching = vec![]; // no existing release branches
     git.tags = vec!["v1.0.0".to_string()];
 
-    start_release(&git, Some(ReleaseType::Minor)).unwrap();
+    start_release(&git, &MockPrompter::new(), Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -63,7 +63,7 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
     git.branches_matching = vec![];
     git.tags = vec![];
 
-    start_release(&git, Some(ReleaseType::Minor)).unwrap();
+    start_release(&git, &MockPrompter::new(), Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -81,7 +81,7 @@ fn start_release_checks_out_existing_release_branch() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["release/1.1.0".to_string()];
 
-    start_release(&git, Some(ReleaseType::Minor)).unwrap();
+    start_release(&git, &MockPrompter::new(), Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -210,7 +210,7 @@ fn start_release_falls_back_to_rc_tags_when_no_clean_tags() {
     git.branches_matching = vec![];
     git.tags = vec!["v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    start_release(&git, Some(ReleaseType::Minor)).unwrap();
+    start_release(&git, &MockPrompter::new(), Some(ReleaseType::Minor)).unwrap();
 
     // Should use 1.1.0 (from RC tags) as base, bump to 1.2
     assert_eq!(git.calls(), vec![
@@ -230,7 +230,7 @@ fn start_release_major_bumps_major_version() {
     git.branches_matching = vec![];
     git.tags = vec!["v1.5.0".to_string()];
 
-    start_release(&git, Some(ReleaseType::Major)).unwrap();
+    start_release(&git, &MockPrompter::new(), Some(ReleaseType::Major)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
@@ -249,7 +249,7 @@ fn start_release_ignores_rc_tags_when_determining_next_version() {
     git.branches_matching = vec![];
     git.tags = vec!["v1.0.0".to_string(), "v1.1.0-rc.1".to_string(), "v1.1.0-rc.2".to_string()];
 
-    start_release(&git, Some(ReleaseType::Minor)).unwrap();
+    start_release(&git, &MockPrompter::new(), Some(ReleaseType::Minor)).unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",

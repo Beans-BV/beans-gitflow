@@ -568,8 +568,11 @@ jobs:
 
 ```
 src/
-├── main.rs              — Entry point, preflight checks, dispatch
+├── main.rs              — Composition root: builds adapters, preflight, hands off to lifecycle
 ├── lib.rs               — Library root, re-exports all modules
+├── action.rs            — Action enum: the single currency both interfaces resolve into
+├── cli.rs               — CLI subcommands (clap); resolves to Action
+├── lifecycle.rs         — Resume lookup, stash/state ordering contract, dispatch
 ├── git/
 │   ├── mod.rs           — Git trait + CLI implementation
 │   └── branch.rs        — Branch type detection and parsing
@@ -585,12 +588,14 @@ src/
 │   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
 ├── state.rs             — Persisted finish state for conflict recovery
 ├── version.rs           — SemVer parsing and bumping
-├── menu.rs              — Interactive menus via crossterm
+├── menu.rs              — Interactive menus via crossterm; implements Prompter
+├── prompt.rs            — Prompter trait: interactive selection as a port
 ├── editor.rs            — Editor trait for opening worktrees
-└── worktree.rs          — Worktree config, path resolution, and setup wizard
+├── worktree.rs          — Worktree config, path resolution, and setup wizard
+└── test_support.rs      — Shared helpers for inline unit tests (test builds only)
 ```
 
-The `Git` and `HostingPlatform` traits enable multiple hosting providers (GitHub and Azure DevOps today, GitLab/Bitbucket-ready) and testability.
+The `Git`, `HostingPlatform`, `Editor`, and `Prompter` traits keep every flow fully mockable and make hosting providers swappable (GitHub and Azure DevOps today, GitLab/Bitbucket-ready).
 
 ## License
 

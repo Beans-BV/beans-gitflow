@@ -1,30 +1,32 @@
+use std::path::Path;
+
 use crate::git::Git;
 use crate::git::branch::BranchType;
 use crate::hosting::HostingPlatform;
-use crate::menu;
+use crate::prompt::Prompter;
+use crate::version::SemVer;
 
-fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, title: &str, branch_type: &BranchType) -> Result<(), String> {
+/// `template` is the pre-resolved PR template path (resolved at the composition
+/// root, anchored to the repo root) — flows never probe the filesystem.
+fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, base: &str, title: &str, template: Option<&Path>) -> Result<(), String> {
     let current = git.current_branch()?;
 
     println!("Pushing branch: {current}");
     git.push(&current)?;
 
-    let template = crate::hosting::template::resolve(branch_type);
-    if let Some(path) = &template {
+    if let Some(path) = template {
         println!("Using PR template: {}", path.display());
     }
 
     println!("Creating PR: {title} → {base}");
-    let url = hosting.create_or_get_pr(&current, base, title, template.as_deref().and_then(|p| p.to_str()))?;
+    let url = hosting.create_or_get_pr(&current, base, title, template.and_then(|p| p.to_str()))?;
     println!("PR: {url}");
     hosting.open_url(&url)?;
 
     Ok(())
 }
 
-fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> {
-    let work_prefixes = ["feature/", "fix/", "chore/", "docs/", "refactor/"];
-
+fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -> Result<String, String> {
     let remote_branches = git.list_remote_branches()?;
     let mut candidates: Vec<(String, u32)> = Vec::new();
 
@@ -32,9 +34,10 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
         if branch == current {
             continue;
         }
-        let is_work = work_prefixes.iter().any(|p| branch.starts_with(p));
-        let is_develop = branch == "develop";
-        if !is_work && !is_develop {
+        // Candidate parents are develop and work branches — decided by the
+        // taxonomy in BranchType, not a local prefix list.
+        let parsed = BranchType::parse(branch);
+        if parsed != BranchType::Develop && !parsed.is_work_branch() {
             continue;
         }
         let base = match git.merge_base(current, branch) {
@@ -79,11 +82,11 @@ fn detect_parent_branch(git: &dyn Git, current: &str) -> Result<String, String> 
     });
 
     let labels: Vec<&str> = candidates.iter().map(|(name, _)| name.as_str()).collect();
-    let idx = menu::show_select("PR target branch", &labels)?;
+    let idx = prompter.select("PR target branch", &labels)?;
     Ok(candidates[idx].0.clone())
 }
 
-pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>) -> Result<(), String> {
+pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter: &dyn Prompter, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>, template: Option<&Path>) -> Result<(), String> {
     let commit_type = branch_type.commit_type().ok_or("Cannot finish: not on a work branch")?;
     let name = branch_type.name().ok_or("Cannot finish: branch has no name")?;
     let current = git.current_branch()?;
@@ -99,14 +102,14 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
             }
             base
         }
-        None => detect_parent_branch(git, &current)?,
+        None => detect_parent_branch(git, prompter, &current)?,
     };
 
     let bang = match breaking {
         // Explicit flag always honored, for any work type
         Some(b) => b,
         // Prompt only for types that are commonly breaking
-        None if commonly_breaking(commit_type) => prompt_breaking_change()?,
+        None if commonly_breaking(commit_type) => prompt_breaking_change(prompter)?,
         None => false,
     };
 
@@ -116,30 +119,30 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
         format!("{commit_type}: {name}")
     };
 
-    push_and_create_pr(git, hosting, &base, &title, branch_type)
+    push_and_create_pr(git, hosting, &base, &title, template)
 }
 
 fn commonly_breaking(commit_type: &str) -> bool {
     matches!(commit_type, "feat" | "fix" | "refactor")
 }
 
-fn prompt_breaking_change() -> Result<bool, String> {
-    let idx = menu::show_select("Contains breaking changes?", &["no", "yes"])?;
+fn prompt_breaking_change(prompter: &dyn Prompter) -> Result<bool, String> {
+    let idx = prompter.select("Contains breaking changes?", &["no", "yes"])?;
     Ok(idx == 1)
 }
 
-pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
+pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
     let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a release-fix branch".to_string());
     };
     let title = format!("fix: {}", name.replace('-', " "));
-    push_and_create_pr(git, hosting, &format!("release/{major}.{minor}.{patch}"), &title, branch_type)
+    push_and_create_pr(git, hosting, &SemVer::new(*major, *minor, *patch).release_branch(), &title, template)
 }
 
-pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType) -> Result<(), String> {
+pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
     let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
     let title = format!("fix: {}", name.replace('-', " "));
-    push_and_create_pr(git, hosting, &format!("hotfix/{major}.{minor}.{patch}"), &title, branch_type)
+    push_and_create_pr(git, hosting, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, template)
 }

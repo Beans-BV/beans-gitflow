@@ -7,6 +7,7 @@ Catalog of deliberate choices — each entry: the choice, why, and the rejected 
 - **New git operation:** add method to `Git` trait → impl in `GitCli` → add to `MockGit` in `tests/common/mod.rs`.
 - **New hosting provider:** new file in `hosting/` implementing `HostingPlatform` → `Provider` variant + parse arm in `detect.rs` → preflight arm in `main.rs::create_hosting`. Reuse `hosting::run_cli`.
 - **New command/flow:** clap variant in `cli.rs` → `Action` variant + menu entry gated by `BranchType` → flow fn in `flows/` taking `&dyn` deps → dispatch arm in `run_flow`.
+- **New work-branch type** (e.g. `perf/`): variant on `BranchType` → entry in the `WORK_TYPES` table + arm in `work_kind` in `git/branch.rs` (the compiler forces both — `work_kind` has no wildcard) → clap `StartKind` variant + arms in `cli.rs::resolve_action` → `pr_template_keys` arm. Menus, parent-branch detection, and `commit_type` (kind name, unless special-cased like feature→feat) follow from the table automatically.
 
 ## Plug-in Points
 
@@ -15,6 +16,7 @@ Catalog of deliberate choices — each entry: the choice, why, and the rejected 
 | `Git` | `GitCli`; `MockGit` in tests | Built once in `main.rs` |
 | `HostingPlatform` | `GitHub` (`gh`), `AzureDevOps` (`az`); `MockHosting` | Auto-detected from origin remote URL (`hosting/detect.rs`) |
 | `Editor` | `CommandEditor` (any command); `MockEditor` | `bflow.worktree.editor` git config |
+| `Prompter` | `MenuPrompter` (interactive select); `MockPrompter` (scripted) | Built once in `main.rs` |
 
 User-configurable without code changes: the worktree flow (`bflow.worktree.*` git config, local/global scope, `bflow worktree` wizard) and PR templates (`.github/pr-templates/bflow-<key>.md`, most-specific-first, falling back to the repo's native template).
 
@@ -70,7 +72,7 @@ User-configurable without code changes: the worktree flow (`bflow.worktree.*` gi
 - **`Git` is ~45 fine-grained primitives** so ordering logic lives in flows and mocks can record exact sequences. Rejected: coarse `finish_release()`-style methods (untestable ordering).
 - **`HostingPlatform` stays minimal (3 methods)**: `create_or_get_pr` is deliberately one method ("PR already open" is a normal resume outcome and the check-then-create dance is provider-specific); `open_url` is a default method (provider-agnostic, but on the trait as a test seam); the `template` param is a *path* (only `az` needs the contents read; `gh` takes `--body-file`).
 - **Detection: pure core, thin shell.** `resolve`/`parse_remote` are pure functions unit-tested without a repo (same pattern in `template.rs` and `devops.rs` helpers). Unknown host → GitHub (preserves pre-detection behavior for GitLab/Enterprise users), but an *explicit* `devops` override with an unparseable remote is a hard error — asymmetric on purpose. `Provider::AzureDevOps` carries `{org, project, repo}` so detection and construction are one step. ADO PR URLs are synthesized from parsed coordinates (`az`'s `webUrl` is unreliable); `validate_pr_id` rejects `az`'s literal `"None"`.
-- **Library crate + thin binary exists solely so `tests/` can link the flows.** Consequence: visibility falls exactly on the test boundary — `pub mod` at the top, tight function-level privacy inside (`run_cli`, parsers, runners all private). Orchestration (ordering, stash, state lifecycle) stays in `main.rs`, not the library.
+- **Library crate + thin binary exists solely so `tests/` can link the flows.** Consequence: visibility falls exactly on the test boundary — `pub mod` at the top, tight function-level privacy inside (`run_cli`, parsers, runners all private). Orchestration (ordering, stash, state lifecycle) lives in `lifecycle::run` in the library, taking `&dyn` ports, so the reject → stash → write-state → dispatch contract and the three-way stash-pop policy are mock-tested (`tests/lifecycle_test.rs`); `main.rs` keeps only adapter construction, preflight, and the `bflow worktree` dispatch. *(Amended: this previously read "orchestration stays in main.rs" — that made the state-before-mutation invariant untestable, and a resume/`--base` bug slipped through this layer.)*
 - **PR templates are repo files** (`.github/pr-templates/bflow-<key>.md`, specific → group → default → the repo's own native template → empty). The fix family shares one `bflow-fix.md` group key. Native-template path lists are per-provider knowledge, intentionally not shared.
 
 ## Testing Strategy
@@ -78,7 +80,7 @@ User-configurable without code changes: the worktree flow (`bflow.worktree.*` gi
 - **Call-recording mock: one `Vec<String>` of `format!`-encoded calls; assertions are exact sequences** (23-element scripts in `finish_release_test.rs`) — a reorder of merge-before-tag is a test failure. Strings, not a typed `Call` enum: expectations read as a runnable script and diff legibly.
 - **One configurable `MockGit` with knob fields (state axes of git: what exists, what's merged, what's pushed), not a mock family.** Targeted failure injection (`fail_nth_merge` distinguishes "main merge conflicted" from "develop merge conflicted"); `RefCell` interior mutability keeps the trait `&self` so test bookkeeping never infects production signatures. Stateful where flows read back their own writes (stash save→find), dumb constants where nothing branches on the value.
 - **Negative assertions prove guards fire before damage** (no `checkout:main` in the log after a gate error; `rev_list_count_result = 99` proves the RC gate didn't even run on resume). Idempotent-resume tests build a fully-completed world and assert *zero* mutating calls.
-- **No real git anywhere in tests** (flows push/delete/PR — a sandbox would need a fake remote and stubs, and be slow on Windows CI). The one filesystem exception is `state.rs` round-trip tests. Tests split by *reachability*, not dogma: public behavior in `tests/` (one file per flow), private logic inline `#[cfg(test)]`. Scenario builders stay local per test file (DAMP over DRY); the tiny `stash_test.rs` deliberately pins the mock's own recording contract.
+- **No real git anywhere in tests** (flows push/delete/PR — a sandbox would need a fake remote and stubs, and be slow on Windows CI). The one filesystem exception is `state.rs` round-trip tests. Tests split by *reachability*, not dogma: public behavior in `tests/` (one file per flow), private logic inline `#[cfg(test)]`. Scenario builders stay local per test file (DAMP over DRY); the tiny `mock_contract_test.rs` deliberately pins the mock's own recording contract.
 
 ## Delivery & CI
 

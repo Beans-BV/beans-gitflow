@@ -31,6 +31,36 @@ fn run_cli(program: &str, args: &[impl AsRef<str>]) -> Result<String> {
     }
 }
 
+/// PR-body precedence shared by all providers: a bflow-resolved template wins,
+/// else the first existing native default-template path, else `None` (empty
+/// body). The native path *lists* stay per-provider knowledge on purpose.
+fn resolve_body_file(template: Option<&str>, native_paths: &[&str]) -> Option<String> {
+    template
+        .map(|p| p.to_string())
+        .or_else(|| {
+            native_paths.iter()
+                .find(|p| std::path::Path::new(p).exists())
+                .map(|p| p.to_string())
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_body_file;
+
+    #[test]
+    fn bflow_template_wins_over_native_paths() {
+        // The native path need not even exist for the template to win.
+        let result = resolve_body_file(Some(".github/pr-templates/bflow-fix.md"), &["nope.md"]);
+        assert_eq!(result, Some(".github/pr-templates/bflow-fix.md".to_string()));
+    }
+
+    #[test]
+    fn no_template_and_no_existing_native_path_is_empty_body() {
+        assert_eq!(resolve_body_file(None, &["definitely/not/a/real/path.md"]), None);
+    }
+}
+
 /// Open a URL in the OS default browser (platform dispatch, provider-agnostic).
 pub fn open_in_browser(url: &str) -> Result<()> {
     use std::process::Command;
