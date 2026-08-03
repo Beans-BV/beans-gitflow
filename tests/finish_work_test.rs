@@ -89,8 +89,8 @@ fn finish_work_branch_feature_breaking() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[1].ends_with(":feat!: remove-api"),
-        "Expected PR title to end with 'feat!: remove-api', got: {}", calls[1]);
+    assert!(calls[1].ends_with(":feat!: remove api"),
+        "Expected PR title to end with 'feat!: remove api', got: {}", calls[1]);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn finish_work_branch_chore_breaking_honored() {
     finish_work_branch(&git, &hosting, &MockPrompter::new(), &branch_type, Some(true), None, None).unwrap();
 
     let calls = hosting.calls();
-    assert!(calls[1].ends_with(":chore!: drop-node-16"),
+    assert!(calls[1].ends_with(":chore!: drop node 16"),
         "Explicit --breaking should be honored on chore, got: {}", calls[1]);
 }
 
