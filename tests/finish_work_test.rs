@@ -330,6 +330,25 @@ fn busy_develop_stays_a_candidate_even_when_far_ahead_of_us() {
         "develop must be selectable as PR target, got: {}", hosting.calls()[1]);
 }
 
+#[test]
+fn develop_is_offered_even_when_it_already_contains_our_tip() {
+    let mut git = MockGit::new();
+    git.current_branch = "fix/already-merged".to_string();
+    git.remote_branches = vec!["develop".to_string(), "feature/sibling".to_string()];
+    // develop was merged/fast-forwarded outside a PR the host reports as
+    // merged, so it contains our tip: the child-branch shape, but develop is
+    // never a child of a work branch and must stay selectable.
+    add_candidate(&mut git, "fix/already-merged", "develop", "our-tip", 0, 5);
+    add_candidate(&mut git, "fix/already-merged", "feature/sibling", "base-s", 4, 1);
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::scripted(&[0]);
+    let branch_type = BranchType::Fix { name: "already-merged".to_string() };
+
+    finish_work_branch(&git, &hosting, &prompter, &branch_type, Some(false), None, None).unwrap();
+
+    assert_eq!(prompter.calls(), vec!["select:PR target branch:[develop, feature/sibling]"]);
+}
+
 // --- Already-merged PR: finish is complete, clean up instead of a new PR ---
 
 use bflow::hosting::MergedPr;
