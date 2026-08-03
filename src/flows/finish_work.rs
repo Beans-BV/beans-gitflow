@@ -73,6 +73,13 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, current: &st
     Ok(())
 }
 
+/// Branch names are hyphenated slugs; PR titles read as prose, so the hyphens
+/// become spaces (`feat/foo-bar` → `feat: foo bar`).
+fn pr_title(commit_type: &str, breaking: bool, name: &str) -> String {
+    let bang = if breaking { "!" } else { "" };
+    format!("{commit_type}{bang}: {}", name.replace('-', " "))
+}
+
 fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -> Result<String, String> {
     let remote_branches = git.list_remote_branches()?;
     let mut candidates: Vec<(String, u32)> = Vec::new();
@@ -174,11 +181,7 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter
         None => false,
     };
 
-    let title = if bang {
-        format!("{commit_type}!: {name}")
-    } else {
-        format!("{commit_type}: {name}")
-    };
+    let title = pr_title(commit_type, bang, name);
 
     push_and_create_pr(git, hosting, &current, &base, &title, template)
 }
@@ -200,7 +203,7 @@ pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     if try_cleanup_merged(git, hosting, &current)? {
         return Ok(());
     }
-    let title = format!("fix: {}", name.replace('-', " "));
+    let title = pr_title("fix", false, name);
     push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).release_branch(), &title, template)
 }
 
@@ -212,6 +215,26 @@ pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_ty
     if try_cleanup_merged(git, hosting, &current)? {
         return Ok(());
     }
-    let title = format!("fix: {}", name.replace('-', " "));
+    let title = pr_title("fix", false, name);
     push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, template)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pr_title;
+
+    #[test]
+    fn hyphens_become_spaces() {
+        assert_eq!(pr_title("feat", false, "foo-bar"), "feat: foo bar");
+    }
+
+    #[test]
+    fn breaking_adds_bang_before_colon() {
+        assert_eq!(pr_title("feat", true, "drop-legacy-api"), "feat!: drop legacy api");
+    }
+
+    #[test]
+    fn single_word_name_is_unchanged() {
+        assert_eq!(pr_title("chore", false, "cleanup"), "chore: cleanup");
+    }
 }
