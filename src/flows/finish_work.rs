@@ -99,9 +99,12 @@ fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -
             Ok(c) => c,
             Err(_) => continue,
         };
-        // Skip child branches: if we have fewer commits since divergence
-        // than the candidate, it likely branched from us
-        if current_count < candidate_count {
+        // Skip child branches: a candidate that already contains our whole
+        // history (nothing of ours is missing from it) while carrying commits
+        // of its own branched *from* us. Comparing the two counts instead
+        // would drop a busy `develop` — every teammate's merge inflates its
+        // count past ours.
+        if current_count == 0 && candidate_count > 0 {
             continue;
         }
         candidates.push((branch.clone(), current_count));
