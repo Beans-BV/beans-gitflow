@@ -99,9 +99,17 @@ fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -
             Ok(c) => c,
             Err(_) => continue,
         };
-        // Skip child branches: if we have fewer commits since divergence
-        // than the candidate, it likely branched from us
-        if current_count < candidate_count {
+        // Skip child work branches: a candidate that already contains our whole
+        // history (nothing of ours is missing from it) while carrying commits
+        // of its own branched *from* us. Comparing the two counts instead
+        // would drop a busy `develop` — every teammate's merge inflates its
+        // count past ours.
+        //
+        // `develop` is never a child: in this branch model every work branch
+        // targets it. Exempting it keeps a develop that already contains our
+        // tip (merged outside a PR the host reports) in the menu, matching the
+        // no-candidates fallback below, which targets develop too.
+        if parsed != BranchType::Develop && current_count == 0 && candidate_count > 0 {
             continue;
         }
         candidates.push((branch.clone(), current_count));
