@@ -73,6 +73,13 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, current: &st
     Ok(())
 }
 
+/// Branch names are hyphenated slugs; PR titles read as prose, so the hyphens
+/// become spaces (`feat/foo-bar` → `feat: foo bar`).
+fn pr_title(commit_type: &str, breaking: bool, name: &str) -> String {
+    let bang = if breaking { "!" } else { "" };
+    format!("{commit_type}{bang}: {}", name.replace('-', " "))
+}
+
 fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -> Result<String, String> {
     let remote_branches = git.list_remote_branches()?;
     let mut candidates: Vec<(String, u32)> = Vec::new();
@@ -99,9 +106,17 @@ fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -
             Ok(c) => c,
             Err(_) => continue,
         };
-        // Skip child branches: if we have fewer commits since divergence
-        // than the candidate, it likely branched from us
-        if current_count < candidate_count {
+        // Skip child work branches: a candidate that already contains our whole
+        // history (nothing of ours is missing from it) while carrying commits
+        // of its own branched *from* us. Comparing the two counts instead
+        // would drop a busy `develop` — every teammate's merge inflates its
+        // count past ours.
+        //
+        // `develop` is never a child: in this branch model every work branch
+        // targets it. Exempting it keeps a develop that already contains our
+        // tip (merged outside a PR the host reports) in the menu, matching the
+        // no-candidates fallback below, which targets develop too.
+        if parsed != BranchType::Develop && current_count == 0 && candidate_count > 0 {
             continue;
         }
         candidates.push((branch.clone(), current_count));
@@ -166,11 +181,7 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter
         None => false,
     };
 
-    let title = if bang {
-        format!("{commit_type}!: {name}")
-    } else {
-        format!("{commit_type}: {name}")
-    };
+    let title = pr_title(commit_type, bang, name);
 
     push_and_create_pr(git, hosting, &current, &base, &title, template)
 }
@@ -192,7 +203,7 @@ pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_t
     if try_cleanup_merged(git, hosting, &current)? {
         return Ok(());
     }
-    let title = format!("fix: {}", name.replace('-', " "));
+    let title = pr_title("fix", false, name);
     push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).release_branch(), &title, template)
 }
 
@@ -204,6 +215,26 @@ pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_ty
     if try_cleanup_merged(git, hosting, &current)? {
         return Ok(());
     }
-    let title = format!("fix: {}", name.replace('-', " "));
+    let title = pr_title("fix", false, name);
     push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, template)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pr_title;
+
+    #[test]
+    fn hyphens_become_spaces() {
+        assert_eq!(pr_title("feat", false, "foo-bar"), "feat: foo bar");
+    }
+
+    #[test]
+    fn breaking_adds_bang_before_colon() {
+        assert_eq!(pr_title("feat", true, "drop-legacy-api"), "feat!: drop legacy api");
+    }
+
+    #[test]
+    fn single_word_name_is_unchanged() {
+        assert_eq!(pr_title("chore", false, "cleanup"), "chore: cleanup");
+    }
 }
