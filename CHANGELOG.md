@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-08-03
+
+### Changed
+- PR titles for work branches now convert dashes in the branch name to spaces, matching what `release-fix` and `hotfix-fix` already did (e.g. `feature/foo-bar` → `feat: foo bar`, breaking: `feat!: foo bar`). All flows share one title formatter, so squash-merged history reads as prose everywhere ([#17](https://github.com/Beans-BV/beans-gitflow/pull/17)).
+
+### Fixed
+- Parent-branch detection no longer drops `develop` from the PR target candidates when it is ahead of the branch being finished. A busy `develop` — one carrying teammates' merges since you branched — was misread as a child work branch and filtered out, leaving the wrong target or none at all ([#16](https://github.com/Beans-BV/beans-gitflow/pull/16)).
+
 ## [3.0.0] - 2026-07-29
 
 ### Added
@@ -134,6 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[3.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.4.0...v3.0.0
 [2.4.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.2.0...v2.3.0
