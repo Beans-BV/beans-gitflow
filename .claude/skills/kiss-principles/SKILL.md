@@ -65,7 +65,7 @@ Extra layers *beyond the standard CA layer model* that add no logic — a facade
 
 Extracting a shared abstraction from coincidental similarity — cases that share structure without sharing a meaningful concept.
 
-**Rule (this project — knowledge-based, never count-based):** extract at the SECOND occurrence when the cases share knowledge (same rule/contract, same reason to change) AND the extraction passes three guards: a clean name without "and"/"or", zero boolean flags or mode params at birth, and all callers change for the same reason. Coincidental shape-similarity is never extracted, at any count. One-liners never earn the indirection. Decided mechanisms/infrastructure go further: framework-first at the FIRST occurrence (see `.claude/rules/coding-rules.md`).
+**Rule (this project — knowledge-based, never count-based):** extract at the SECOND occurrence when the cases share knowledge (same rule/contract, same reason to change) AND the extraction passes three guards: a clean name without "and"/"or", zero boolean flags or mode params at birth, and all callers change for the same reason. Coincidental shape-similarity is never extracted, at any count. One-liners never earn the indirection. Decided mechanisms/infrastructure go further: framework-first at the FIRST occurrence.
 
 **Detection:** a shared abstraction whose name contains "and"/"or", or that needed a flag/mode parameter at birth to serve its callers.
 
