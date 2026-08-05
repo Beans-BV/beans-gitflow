@@ -324,8 +324,12 @@ pub fn show_menu(prompter: &dyn Prompter, branch_type: &BranchType, current_bran
             Ok(Action::FinishHotfixFix)
         }
         BranchType::Hotfix { .. } => {
-            prompter.select("What would you like to do?", &["finish hotfix"])?;
-            Ok(Action::FinishHotfix)
+            let idx = prompter.select("What would you like to do?", &["finish hotfix", "start hotfix fix"])?;
+            if idx == 0 {
+                return Ok(Action::FinishHotfix);
+            }
+            let name = prompter.prompt_name("Name for hotfix-fix branch")?;
+            Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
         BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
     }

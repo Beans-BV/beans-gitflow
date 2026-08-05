@@ -125,6 +125,26 @@ fn the_release_fix_entry_asks_for_a_name() {
 }
 
 #[test]
+fn a_hotfix_branch_offers_finish_and_start_hotfix_fix() {
+    // The CLI is the spec: `start hotfix-fix` is legal on Main | Hotfix
+    // (cli.rs::resolve_action). Principle 8 — a feature exists in both
+    // interfaces or neither — so the menu offers it too.
+    let branch_type = BranchType::Hotfix { major: 2, minor: 5, patch: 1 };
+
+    let prompter = MockPrompter::scripted(&[0]);
+    let action = show_menu(&prompter, &branch_type, "hotfix/2.5.1").unwrap();
+    assert_eq!(prompter.calls(), vec![
+        "select:What would you like to do?:[finish hotfix, start hotfix fix]",
+    ]);
+    assert!(matches!(action, Action::FinishHotfix), "{action:?}");
+
+    let prompter = MockPrompter::scripted(&[1]).with_lines(&["npe"]);
+    let action = show_menu(&prompter, &branch_type, "hotfix/2.5.1").unwrap();
+    assert_eq!(prompter.calls()[1], "prompt_name:Name for hotfix-fix branch");
+    assert!(matches!(action, Action::StartHotfixFix { ref name, .. } if name == "npe"), "{action:?}");
+}
+
+#[test]
 fn single_item_menus_still_confirm_rather_than_auto_execute() {
     // decisions.md: "single-item menus still confirm rather than auto-execute".
     for (branch_type, branch, label, expected) in [
@@ -132,8 +152,6 @@ fn single_item_menus_still_confirm_rather_than_auto_execute() {
          "release-fix/2.5.0/db", "finish release fix", Action::FinishReleaseFix),
         (BranchType::HotfixFix { major: 2, minor: 5, patch: 1, name: "npe".to_string() },
          "hotfix-fix/2.5.1/npe", "finish hotfix fix", Action::FinishHotfixFix),
-        (BranchType::Hotfix { major: 2, minor: 5, patch: 1 },
-         "hotfix/2.5.1", "finish hotfix", Action::FinishHotfix),
     ] {
         let prompter = MockPrompter::scripted(&[0]);
 
