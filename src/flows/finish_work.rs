@@ -195,28 +195,32 @@ fn prompt_breaking_change(prompter: &dyn Prompter) -> Result<bool, String> {
     Ok(idx == 1)
 }
 
-pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
-    let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
-        return Err("Cannot finish: not on a release-fix branch".to_string());
-    };
+/// Finishing a fix-family branch is one rule: if its PR already merged, clean
+/// up; otherwise open a `fix: <name>` PR against the branch it patches. The two
+/// public entry points below differ only in the variant they accept and the
+/// parent they derive from it — the rule itself lives here once
+/// (`has_fixed_finish_target` already treats them as one family, and they share
+/// the `bflow-fix.md` template group).
+fn finish_fix(git: &dyn Git, hosting: &dyn HostingPlatform, name: &str, parent: &str, template: Option<&Path>) -> Result<(), String> {
     let current = git.current_branch()?;
     if try_cleanup_merged(git, hosting, &current)? {
         return Ok(());
     }
-    let title = pr_title("fix", false, name);
-    push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).release_branch(), &title, template)
+    push_and_create_pr(git, hosting, &current, parent, &pr_title("fix", false, name), template)
+}
+
+pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
+    let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
+        return Err("Cannot finish: not on a release-fix branch".to_string());
+    };
+    finish_fix(git, hosting, name, &SemVer::new(*major, *minor, *patch).release_branch(), template)
 }
 
 pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
     let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
-    let current = git.current_branch()?;
-    if try_cleanup_merged(git, hosting, &current)? {
-        return Ok(());
-    }
-    let title = pr_title("fix", false, name);
-    push_and_create_pr(git, hosting, &current, &SemVer::new(*major, *minor, *patch).hotfix_branch(), &title, template)
+    finish_fix(git, hosting, name, &SemVer::new(*major, *minor, *patch).hotfix_branch(), template)
 }
 
 #[cfg(test)]
