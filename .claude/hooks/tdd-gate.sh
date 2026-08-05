@@ -12,12 +12,14 @@ command -v jq >/dev/null 2>&1 || exit 0
 BASELINE_FILE=.claude/hooks/coverage-baseline.txt
 CACHE_FILE=.claude/hooks/.tdd-gate-pass
 
-# Hash only Rust-relevant state: src tree oid at HEAD, plus pending changes to
-# Rust sources. Commits or edits that touch no Rust code keep the hash stable,
-# so the expensive coverage run happens once per Rust change, not per stop.
+# Hash only Rust-relevant state: the src AND tests tree oids at HEAD, plus
+# pending changes to Rust sources. Commits or edits that touch no Rust code keep
+# the hash stable, so the expensive coverage run happens once per Rust change,
+# not per stop. `HEAD:tests` matters: a commit that changes only tests moves no
+# other input, and without it the gate would serve a stale pass from cache.
 state_hash() {
   {
-    git rev-parse HEAD:src HEAD:Cargo.toml 2>/dev/null
+    git rev-parse HEAD:src HEAD:tests HEAD:Cargo.toml 2>/dev/null
     git diff HEAD -- '*.rs' Cargo.toml Cargo.lock 2>/dev/null
     git status --porcelain -- '*.rs' Cargo.toml Cargo.lock 2>/dev/null
   } | shasum -a 256 | cut -d' ' -f1
