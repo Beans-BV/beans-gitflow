@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::flows::{
     delete_branch_guarded, delete_source_branch, merge_into, push_if_needed, push_tag_if_missing,
     require_clean_tree, resume_hint, run_version_script, tag_if_missing,
@@ -155,7 +157,15 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
     Ok(())
 }
 
-pub fn finish_release(git: &dyn Git, major: u32, minor: u32, main_branch: &str) -> Result<(), String> {
+pub fn finish_release(
+    git: &dyn Git,
+    _hosting: &dyn HostingPlatform,
+    cfg: &RepoConfig,
+    major: u32,
+    minor: u32,
+    main_branch: &str,
+    _template: Option<&Path>,
+) -> Result<(), String> {
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
 
@@ -200,7 +210,11 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32, main_branch: &str) 
     push_if_needed(git, "develop")?;
 
     println!("Cleaning up release branch...");
-    delete_source_branch(git, &release_branch, main_branch)?;
+    if cfg.keep_release_branches {
+        println!("Keeping {release_branch} (keep-release-branches=true).");
+    } else {
+        delete_source_branch(git, &release_branch, main_branch)?;
+    }
 
     println!("Release {release_version} complete.");
     Ok(())

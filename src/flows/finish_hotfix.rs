@@ -1,8 +1,22 @@
+use std::path::Path;
+
 use crate::flows::{delete_source_branch, merge_into, open_versioned_branches, push_if_needed, push_tag_if_missing, resume_hint, tag_if_missing};
 use crate::git::Git;
+use crate::hosting::HostingPlatform;
+use crate::repo_config::RepoConfig;
 use crate::version::SemVer;
 
-pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32, main_branch: &str) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+pub fn finish_hotfix(
+    git: &dyn Git,
+    _hosting: &dyn HostingPlatform,
+    cfg: &RepoConfig,
+    major: u32,
+    minor: u32,
+    patch: u32,
+    main_branch: &str,
+    _template: Option<&Path>,
+) -> Result<(), String> {
     let version = SemVer::new(major, minor, patch);
     let hotfix_branch = version.hotfix_branch();
     let tag = version.tag_name();
@@ -43,7 +57,11 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32, main_bra
     }
 
     println!("Cleaning up hotfix branch...");
-    delete_source_branch(git, &hotfix_branch, main_branch)?;
+    if cfg.keep_release_branches {
+        println!("Keeping {hotfix_branch} (keep-release-branches=true).");
+    } else {
+        delete_source_branch(git, &hotfix_branch, main_branch)?;
+    }
 
     if release_branches.is_empty() {
         println!("Hotfix {version} complete.");

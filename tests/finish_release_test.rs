@@ -310,7 +310,8 @@ fn finish_release_creates_clean_tag_from_rc() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1", "v1.1.0-rc.2"]);
     git.rev_list_count_result = 0;
 
-    finish_release(&git, 1, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1.0",
@@ -337,6 +338,7 @@ fn finish_release_creates_clean_tag_from_rc() {
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
     ]);
+    assert!(hosting.calls().is_empty(), "free mode must make zero hosting calls; calls: {:?}", hosting.calls());
 }
 
 #[test]
@@ -344,7 +346,8 @@ fn finish_release_targets_master_when_that_is_the_mainline() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.rev_list_count_result = 0;
 
-    finish_release(&git, 1, 1, "master").unwrap();
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "master", None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1.0",
@@ -378,7 +381,8 @@ fn the_rc_gate_error_names_the_configured_mainline() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.rev_list_count_result = 3;
 
-    let err = finish_release(&git, 1, 1, "master").unwrap_err();
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "master", None).unwrap_err();
 
     assert!(err.contains("merged to master"), "got: {err}");
 }
@@ -388,7 +392,8 @@ fn finish_release_single_rc() {
     let mut git = fresh_release_mock(2, 0, &["v2.0.0-rc.1"]);
     git.rev_list_count_result = 0;
 
-    finish_release(&git, 2, 0, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &RepoConfig::default(), 2, 0, "main", None).unwrap();
 
     let calls = git.calls();
     assert!(calls.iter().any(|c| c == "rev_list_count:v2.0.0-rc.1:release/2.0.0"),
@@ -402,7 +407,8 @@ fn finish_release_fails_when_head_past_latest_rc() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1", "v1.1.0-rc.2"]);
     git.rev_list_count_result = 2; // 2 commits on release/1.1.0 past v1.1.0-rc.2
 
-    let result = finish_release(&git, 1, 1, "main");
+    let hosting = MockHosting::new();
+    let result = finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None);
 
     assert!(result.is_err(), "expected guard to reject finish when HEAD is past latest RC");
     let err = result.unwrap_err();
@@ -422,7 +428,8 @@ fn finish_release_error_message_uses_singular_for_one_commit() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.rev_list_count_result = 1;
 
-    let err = finish_release(&git, 1, 1, "main").unwrap_err();
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap_err();
     assert!(err.contains("1 commit past"), "expected singular 'commit'; got: {err}");
     assert!(!err.contains("1 commits"), "should not use plural for 1; got: {err}");
 }
@@ -440,7 +447,8 @@ fn finish_release_resume_after_main_already_merged_and_tagged() {
     git.existing_remote_tags.insert("v1.1.0".to_string());
     git.pushed_branches.insert("main".to_string());
 
-    finish_release(&git, 1, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap();
 
     let calls = git.calls();
     // No re-merge into main, no re-tag, no re-push
@@ -463,7 +471,8 @@ fn finish_release_resume_skips_rc_gate_when_already_merged_to_main() {
     git.rev_list_count_result = 99;
     git.ancestors.insert(("release/1.1.0".to_string(), "main".to_string()));
 
-    let result = finish_release(&git, 1, 1, "main");
+    let hosting = MockHosting::new();
+    let result = finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None);
     assert!(result.is_ok(), "expected resume to succeed past the gate; got: {result:?}");
 }
 
@@ -480,13 +489,41 @@ fn finish_release_fully_idempotent_no_op_on_second_run() {
     git.pushed_branches.insert("develop".to_string());
     // No entries in existing_local_branches/existing_remote_branches → already deleted
 
-    finish_release(&git, 1, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("merge:")), "no merges; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("create_tag:")));
     assert!(!calls.iter().any(|c| c.starts_with("push:")));
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")));
+}
+
+#[test]
+fn finish_release_keeps_branch_when_configured() {
+    // Same fully-completed world as finish_release_fully_idempotent_no_op_on_second_run,
+    // except the source branch still exists and HEAD is still on it — proving
+    // keep-release-branches=true skips delete_source_branch entirely, not just
+    // its individual deletion calls.
+    let mut git = MockGit::new();
+    git.current_branch = "release/1.1.0".to_string();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+    git.ancestors.insert(("release/1.1.0".to_string(), "main".to_string()));
+    git.ancestors.insert(("release/1.1.0".to_string(), "develop".to_string()));
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.pushed_branches.insert("main".to_string());
+    git.pushed_branches.insert("develop".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true };
+    finish_release(&git, &hosting, &cfg, 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
 }
 
 // --- Conflict guidance: every merge step must tell the user to switch back ---
@@ -496,7 +533,8 @@ fn finish_release_main_merge_conflict_names_source_branch_to_switch_back() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.fail_nth_merge = Some(1); // main merge
 
-    let err = finish_release(&git, 1, 1, "main").unwrap_err();
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap_err();
     assert!(err.contains("git switch release/1.1.0"),
         "main conflict should tell user to switch back to the release branch; got: {err}");
     assert!(err.contains("bflow finish"), "should mention re-running bflow finish; got: {err}");
@@ -507,7 +545,8 @@ fn finish_release_develop_merge_conflict_names_source_branch_to_switch_back() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.fail_nth_merge = Some(2); // develop merge
 
-    let err = finish_release(&git, 1, 1, "main").unwrap_err();
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap_err();
     assert!(err.contains("git switch release/1.1.0"),
         "develop conflict should tell user to switch back to the release branch; got: {err}");
 }

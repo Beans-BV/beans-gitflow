@@ -323,7 +323,8 @@ fn run_flow(
                 };
                 (*major, *minor)
             };
-            finish_release::finish_release(git, major, minor, main_branch)?;
+            // Task 16 wires the real hosting/config/template values through the lifecycle.
+            finish_release::finish_release(git, hosting, &RepoConfig::default(), major, minor, main_branch, None)?;
         }
         Action::FinishHotfix => {
             let (major, minor, patch) = if let Some(s) = resume_state {
@@ -334,7 +335,8 @@ fn run_flow(
                 };
                 (*major, *minor, *patch)
             };
-            finish_hotfix::finish_hotfix(git, major, minor, patch, main_branch)?;
+            // Task 16 wires the real hosting/config/template values through the lifecycle.
+            finish_hotfix::finish_hotfix(git, hosting, &RepoConfig::default(), major, minor, patch, main_branch, None)?;
         }
         Action::AbortFinish => {
             unreachable!("AbortFinish is handled before run_flow");

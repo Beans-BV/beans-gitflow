@@ -1,7 +1,8 @@
 mod common;
 
-use common::MockGit;
+use common::{MockGit, MockHosting};
 use bflow::flows::finish_hotfix::finish_hotfix;
+use bflow::repo_config::{Mode, RepoConfig};
 
 /// Configure a MockGit for a "fresh start" hotfix finish: nothing is yet merged,
 /// no tags exist, source branch still exists locally and remotely.
@@ -17,7 +18,8 @@ fn fresh_hotfix_mock(major: u32, minor: u32, patch: u32) -> MockGit {
 fn finish_hotfix_full_sequence() {
     let git = fresh_hotfix_mock(1, 0, 1);
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/1.0.1:main",
@@ -43,13 +45,15 @@ fn finish_hotfix_full_sequence() {
         "remote_branch_exists:hotfix/1.0.1",
         "delete_branch_remote:hotfix/1.0.1",
     ]);
+    assert!(hosting.calls().is_empty(), "free mode must make zero hosting calls; calls: {:?}", hosting.calls());
 }
 
 #[test]
 fn finish_hotfix_targets_master_when_that_is_the_mainline() {
     let git = fresh_hotfix_mock(2, 3, 4);
 
-    finish_hotfix(&git, 2, 3, 4, "master").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 2, 3, 4, "master", None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/2.3.4:master",
@@ -82,7 +86,8 @@ fn finish_hotfix_propagates_to_open_release_branch() {
     let mut git = fresh_hotfix_mock(1, 0, 1);
     git.branches_matching = vec!["release/1.2.0".to_string()];
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/1.0.1:main",
@@ -125,7 +130,8 @@ fn finish_hotfix_excludes_shipped_release_branch() {
     git.branches_matching = vec!["release/1.2.0".to_string(), "release/1.3.0".to_string()];
     git.existing_tags.insert("v1.2.0".to_string());
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"tag_exists:v1.2.0".to_string()));
@@ -150,7 +156,8 @@ fn finish_hotfix_propagates_to_multiple_release_branches_in_sorted_order() {
         "release/1.5.0".to_string(),
     ];
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     let expected_tail = vec![
@@ -188,7 +195,8 @@ fn finish_hotfix_excludes_release_fix_branches() {
         "release-fix/1.2.0/foo".to_string(),
     ];
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     assert!(
@@ -212,7 +220,8 @@ fn finish_hotfix_aborts_on_release_merge_conflict_without_deleting_hotfix() {
     // 1st merge: into main (ok), 2nd: into develop (ok), 3rd: into release (fail).
     git.fail_nth_merge = Some(3);
 
-    let result = finish_hotfix(&git, 1, 0, 1, "main");
+    let hosting = MockHosting::new();
+    let result = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None);
 
     assert!(result.is_err(), "expected merge conflict to surface");
     let err = result.unwrap_err();
@@ -250,7 +259,8 @@ fn finish_hotfix_resume_skips_already_merged_main_and_develop() {
     git.pushed_branches.insert("main".to_string());
     git.pushed_branches.insert("develop".to_string());
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     // No re-merges of main or develop
@@ -285,7 +295,8 @@ fn finish_hotfix_resume_skips_already_propagated_release() {
     git.existing_local_branches.insert("hotfix/1.0.1".to_string());
     git.existing_remote_branches.insert("hotfix/1.0.1".to_string());
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("merge:")), "no merges should run; calls: {calls:?}");
@@ -312,7 +323,8 @@ fn finish_hotfix_switches_off_source_before_deleting_when_currently_on_it() {
     git.existing_local_branches.insert("hotfix/1.0.1".to_string());
     git.existing_remote_branches.insert("hotfix/1.0.1".to_string());
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     let checkout_main_idx = calls.iter().position(|c| c == "checkout:main")
@@ -330,7 +342,8 @@ fn finish_hotfix_skips_cleanup_checkout_when_already_off_source() {
     let mut git = fresh_hotfix_mock(1, 0, 1);
     git.current_branch = "develop".to_string();
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     // The only checkouts should be the ones the flow explicitly drives (main, develop).
@@ -353,10 +366,37 @@ fn finish_hotfix_resume_when_branch_already_deleted_is_idempotent() {
     git.pushed_branches.insert("develop".to_string());
     // Note: no entries in existing_local_branches / existing_remote_branches → already deleted
 
-    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "deletions should be skipped; calls: {calls:?}");
+}
+
+#[test]
+fn finish_hotfix_keeps_branch_when_configured() {
+    // Same fully-completed world as finish_hotfix_resume_when_branch_already_deleted_is_idempotent,
+    // except the source branch still exists and HEAD is still on it — proving
+    // keep-release-branches=true skips delete_source_branch entirely, not just
+    // its individual deletion calls.
+    let mut git = MockGit::new();
+    git.current_branch = "hotfix/1.0.1".to_string();
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "main".to_string()));
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "develop".to_string()));
+    git.existing_tags.insert("v1.0.1".to_string());
+    git.existing_remote_tags.insert("v1.0.1".to_string());
+    git.pushed_branches.insert("main".to_string());
+    git.pushed_branches.insert("develop".to_string());
+    git.existing_local_branches.insert("hotfix/1.0.1".to_string());
+    git.existing_remote_branches.insert("hotfix/1.0.1".to_string());
+
+    let hosting = MockHosting::new();
+    let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true };
+    finish_hotfix(&git, &hosting, &cfg, 1, 0, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
 }
 
 // --- Conflict guidance: every merge step must tell the user to switch back ---
@@ -366,7 +406,8 @@ fn finish_hotfix_main_merge_conflict_names_source_branch_to_switch_back() {
     let mut git = fresh_hotfix_mock(1, 0, 1);
     git.fail_nth_merge = Some(1); // main merge
 
-    let err = finish_hotfix(&git, 1, 0, 1, "main").unwrap_err();
+    let hosting = MockHosting::new();
+    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
     assert!(err.contains("git switch hotfix/1.0.1"),
         "main conflict should tell user to switch back to the hotfix branch; got: {err}");
     assert!(err.contains("bflow finish"), "should mention re-running bflow finish; got: {err}");
@@ -377,7 +418,8 @@ fn finish_hotfix_develop_merge_conflict_names_source_branch_to_switch_back() {
     let mut git = fresh_hotfix_mock(1, 0, 1);
     git.fail_nth_merge = Some(2); // develop merge
 
-    let err = finish_hotfix(&git, 1, 0, 1, "main").unwrap_err();
+    let hosting = MockHosting::new();
+    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
     assert!(err.contains("git switch hotfix/1.0.1"),
         "develop conflict should tell user to switch back to the hotfix branch; got: {err}");
 }
