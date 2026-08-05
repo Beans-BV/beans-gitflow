@@ -312,6 +312,13 @@ keys, which you can also set by hand (`git config --global bflow.worktree.enable
 | `bflow.worktree.editor` | `code` | Command to open the worktree (`<editor> <path>`). Use `none` to skip opening |
 | `bflow.worktree.path` | _(unset)_ | Directory to place worktree folders in (`~` is expanded). Defaults to the repo's parent directory |
 
+One other key lives outside this family and is **repo-local**, because the
+mainline is a property of the repository rather than a per-developer preference:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `bflow.branch.main` | detected on first use | The repo's mainline branch — `main` or `master`. See [Mainline branch](#mainline-branch-main-or-master) |
+
 The editor accepts any command whose CLI opens a folder as `<command> <path>` — VS Code (`code`),
 Cursor (`cursor`), Windsurf (`windsurf`), Zed (`zed`), and JetBrains launchers
 (`idea` / `pycharm` / `webstorm` / …) all work once their shell command is on your `PATH`.
@@ -601,6 +608,7 @@ src/
 ├── action.rs            — Action enum: the single currency both interfaces resolve into
 ├── cli.rs               — CLI subcommands (clap); resolves to Action
 ├── lifecycle.rs         — Resume lookup, stash/state ordering contract, dispatch
+├── mainline.rs          — Resolves the repo's mainline branch (main vs master)
 ├── git/
 │   ├── mod.rs           — Git trait, GitCli adapter, CommandRunner port
 │   └── branch.rs        — Branch type detection and parsing

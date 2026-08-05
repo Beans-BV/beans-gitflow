@@ -30,8 +30,17 @@ bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start release [--major | --minor] # from develop, prompts if no flag given
 bflow start release-fix --name <name> [--no-checkout] [--no-worktree]
-bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]  # from the mainline or a hotfix branch
 ```
+
+#### Mainline branch (`main` or `master`)
+
+Either name works. On its first run in a repo bflow detects which exists and
+saves it to `bflow.branch.main` (**local** scope — the mainline belongs to the
+repo, unlike `bflow.worktree.*`), announcing the save. Set it yourself with
+`git config bflow.branch.main master`. Only `main` and `master` are accepted;
+anything else is a hard error. Everything below that says "main" means this
+resolved branch.
 
 #### Worktree integration (optional)
 
