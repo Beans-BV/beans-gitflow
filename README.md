@@ -603,6 +603,14 @@ src/
 
 The `Git`, `HostingPlatform`, `Editor`, and `Prompter` traits keep every flow fully mockable and make hosting providers swappable (GitHub and Azure DevOps today, GitLab/Bitbucket-ready).
 
+## Development
+
+bflow is developed test-first (TDD) with a coverage ratchet:
+
+- `cargo test` — runs the full suite. All tests run against mocks; none touch real git, the network, or installed CLIs.
+- `cargo llvm-cov --summary-only` — line-coverage report (`brew install cargo-llvm-cov`).
+- Coverage may never decrease: `.claude/hooks/coverage-baseline.txt` records the high-water mark and `.claude/hooks/tdd-gate.sh` enforces it (wired as a Claude Code Stop hook). The long-term target is 100% of the mock-testable core; the subprocess/TTY shell (`main.rs`, `menu.rs`, the concrete adapters) is exempt by design.
+
 ## License
 
 [Apache 2.0](LICENSE)

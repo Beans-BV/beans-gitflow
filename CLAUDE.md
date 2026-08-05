@@ -35,6 +35,15 @@ failure whether it lives in `src/` or in a test plan.
 before exploring, not after — the checks must shape the design, not audit a
 design you already converged on.
 
+# TDD Policy (mandatory)
+
+Applies to EVERY change to `.rs` files, `Cargo.toml`, or shell scripts — even one-liners.
+
+- Load `superpowers:test-driven-development` BEFORE writing any production code. Red → green → refactor; watch every test fail before making it pass. No production code without a failing test first.
+- Enforced by the harness, not just this file: the Stop hook `.claude/hooks/tdd-gate.sh` blocks ending a turn while tests are red or total line coverage is below `.claude/hooks/coverage-baseline.txt`. The baseline ratchets up automatically. NEVER edit it downward — only the user may approve lowering it.
+- Target: 100% of the mock-testable core (`flows/`, `lifecycle.rs`, `state.rs`, `git/branch.rs`, parsing/detection helpers). The subprocess/TTY shell (`main.rs`, `menu.rs`, `editor.rs`, `git/mod.rs`, CLI-calling adapter methods) is exempt per architecture principle 9 — tests never touch real CLIs. Keep business logic out of that shell so the exemption stays honest.
+- **Backfilling tests for existing uncovered code: spec-first, not characterization.** First understand how the code SHOULD behave (README, `decisions.md`, the flow's intent) — never codify current behavior blindly. If intended behavior is unclear, ask the user before writing the test. A failing test on existing code is a finding (the code is wrong), not a reason to weaken the test.
+
 # WorkfLow Orchestration
 
 ## 1. Plan Node Default
