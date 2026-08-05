@@ -292,6 +292,10 @@ fn run_flow(
             let template = resolve_pr_template(git, branch_type)?;
             finish_work::finish_hotfix_fix(git, hosting, branch_type, template.as_deref())?;
         }
+        Action::FinishReleaseChore => {
+            let template = resolve_pr_template(git, branch_type)?;
+            finish_work::finish_release_chore(git, hosting, branch_type, template.as_deref())?;
+        }
         Action::BumpVersion => {
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("BumpVersion action only from Release branch");

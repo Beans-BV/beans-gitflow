@@ -26,6 +26,17 @@ pub fn resolve(repo_root: &Path, branch_type: &BranchType) -> Option<PathBuf> {
 /// scratch dir without touching the process working directory.
 fn resolve_in(dir: &Path, branch_type: &BranchType) -> Option<PathBuf> {
     let (specific, group) = branch_type.pr_template_keys()?;
+    resolve_keys_in(dir, specific, group)
+}
+
+/// Resolve a PR template by explicit `(specific, group)` keys instead of a
+/// `BranchType` — for callers that already know which keys they want (e.g. a
+/// landing flow with no single branch type to derive them from).
+pub fn resolve_keys(repo_root: &Path, specific: &str, group: &str) -> Option<PathBuf> {
+    resolve_keys_in(&repo_root.join(DIR), specific, group)
+}
+
+fn resolve_keys_in(dir: &Path, specific: &str, group: &str) -> Option<PathBuf> {
     let mut keys = vec![specific];
     if group != specific {
         keys.push(group);
@@ -118,5 +129,38 @@ mod tests {
         let bt = BranchType::parse("release/1.2.0");
         assert_eq!(resolve_in(&dir, &bt), None);
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_keys_specific_wins_over_group_and_default() {
+        let root = tmp_dir();
+        let dir = root.join(DIR);
+        fs::create_dir_all(&dir).unwrap();
+        touch(&dir, "bflow-release-chore.md");
+        touch(&dir, "bflow-chore.md");
+        touch(&dir, "bflow-default.md");
+        assert_eq!(resolve_keys(&root, "release-chore", "chore"), Some(dir.join("bflow-release-chore.md")));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn resolve_keys_group_wins_over_default_when_no_specific() {
+        let root = tmp_dir();
+        let dir = root.join(DIR);
+        fs::create_dir_all(&dir).unwrap();
+        touch(&dir, "bflow-chore.md");
+        touch(&dir, "bflow-default.md");
+        assert_eq!(resolve_keys(&root, "release-chore", "chore"), Some(dir.join("bflow-chore.md")));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn resolve_keys_falls_back_to_default() {
+        let root = tmp_dir();
+        let dir = root.join(DIR);
+        fs::create_dir_all(&dir).unwrap();
+        touch(&dir, "bflow-default.md");
+        assert_eq!(resolve_keys(&root, "release-chore", "chore"), Some(dir.join("bflow-default.md")));
+        fs::remove_dir_all(&root).ok();
     }
 }

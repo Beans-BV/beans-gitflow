@@ -162,6 +162,17 @@ fn single_item_menus_still_confirm_rather_than_auto_execute() {
 }
 
 #[test]
+fn a_release_chore_branch_offers_only_finish_release_chore() {
+    let branch_type = BranchType::ReleaseChore { major: 1, minor: 1, patch: 0, name: "set-version".to_string() };
+    let prompter = MockPrompter::scripted(&[0]);
+
+    let action = show_menu(&prompter, &branch_type, "release-chore/1.1.0/set-version", "main").unwrap();
+
+    assert_eq!(prompter.calls(), vec!["select:What would you like to do?:[finish release chore]"]);
+    assert!(matches!(action, Action::FinishReleaseChore), "{action:?}");
+}
+
+#[test]
 fn an_unrecognized_branch_gets_the_interactive_error_with_a_next_step() {
     // The interactive and scripted variants differ on purpose: the menu adds
     // "Switch to main or develop first", the CLI stays terse.

@@ -391,6 +391,20 @@ fn finish_release_fix_dispatches_and_targets_its_release_branch() {
 }
 
 #[test]
+fn finish_release_chore_dispatches_and_targets_its_release_branch() {
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
+    git.current_branch = "release-chore/2.5.0/set-version".to_string();
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new();
+    let editor = MockEditor::new();
+
+    run(&git, &hosting, &prompter, &editor, &wt_config(), finish_cmd()).unwrap();
+
+    assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:release-chore/2.5.0/set-version:release/2.5.0:")),
+        "a release chore PRs back into its own release branch; calls: {:?}", hosting.calls());
+}
+
+#[test]
 fn finish_hotfix_fix_dispatches_and_targets_its_hotfix_branch() {
     let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "hotfix-fix/2.5.1/npe".to_string();
