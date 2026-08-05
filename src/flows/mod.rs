@@ -65,12 +65,12 @@ pub(crate) fn push_tag_if_missing(git: &dyn Git, tag: &str) -> Result<(), String
 }
 
 /// Delete the finished source branch locally and remotely, both idempotent.
-/// Switches to `main` first when HEAD is still on the branch — a resume that
-/// skipped the develop merge leaves it there, git refuses to delete the
-/// checked-out branch, and `main` is always safe (the work is merged there).
-pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str) -> Result<(), String> {
+/// Switches to the mainline first when HEAD is still on the branch — a resume
+/// that skipped the develop merge leaves it there, git refuses to delete the
+/// checked-out branch, and the mainline is always safe (the work is merged there).
+pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &str) -> Result<(), String> {
     if git.current_branch()? == branch {
-        git.checkout("main")?;
+        git.checkout(main_branch)?;
     }
     if git.local_branch_exists(branch)? {
         git.delete_branch_local(branch)?;

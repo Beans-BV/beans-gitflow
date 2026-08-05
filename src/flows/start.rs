@@ -92,9 +92,9 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout)?;
+    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch)?;
     let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
@@ -200,7 +200,7 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
     }
 }
 
-fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, String> {
+fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str) -> Result<String, String> {
     let hotfix_branches = super::branches_with_prefix(git, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
@@ -217,10 +217,10 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool) -> Result<String, 
 
     println!("Creating hotfix branch: {branch}");
     if no_checkout {
-        git.create_branch_no_checkout(&branch, "main")?;
+        git.create_branch_no_checkout(&branch, main_branch)?;
     } else {
-        git.checkout("main")?;
-        git.create_branch(&branch, "main")?;
+        git.checkout(main_branch)?;
+        git.create_branch(&branch, main_branch)?;
     }
     git.push(&branch)?;
 

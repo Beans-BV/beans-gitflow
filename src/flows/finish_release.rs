@@ -46,7 +46,7 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
     Ok(())
 }
 
-pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), String> {
+pub fn finish_release(git: &dyn Git, major: u32, minor: u32, main_branch: &str) -> Result<(), String> {
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
 
@@ -58,31 +58,31 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
 
     println!("Finishing release {release_branch} (tag: {tag})...");
 
-    // Merge into main — inline rather than merge_into(): the RC gate must run
-    // inside the not-yet-merged branch, so a resume past the main merge never
-    // re-evaluates it (negative-tested in finish_release_test.rs).
-    if !git.is_ancestor(&release_branch, "main")? {
+    // Merge into the mainline — inline rather than merge_into(): the RC gate
+    // must run inside the not-yet-merged branch, so a resume past that merge
+    // never re-evaluates it (negative-tested in finish_release_test.rs).
+    if !git.is_ancestor(&release_branch, main_branch)? {
         let latest_rc_tag = latest_rc.tag_name();
         let commits_past_rc = git.rev_list_count(&latest_rc_tag, &release_branch)?;
         if commits_past_rc > 0 {
             let noun = if commits_past_rc == 1 { "commit" } else { "commits" };
             return Err(format!(
                 "HEAD of {release_branch} is {commits_past_rc} {noun} past {latest_rc_tag}.\n\
-                 Every commit merged to main must be validated on staging via an RC deploy.\n\
+                 Every commit merged to {main_branch} must be validated on staging via an RC deploy.\n\
                  Run 'bflow bump' to cut the next RC, wait for staging to pass, then 'bflow finish'."
             ));
         }
-        println!("Merging into main...");
-        git.checkout("main")?;
-        git.ff_merge("origin/main")?;
-        git.merge(&release_branch, &format!("chore: merge release {release} into main"))
+        println!("Merging into {main_branch}...");
+        git.checkout(main_branch)?;
+        git.ff_merge(&format!("origin/{main_branch}"))?;
+        git.merge(&release_branch, &format!("chore: merge release {release} into {main_branch}"))
             .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
     } else {
-        println!("↷ skipped: merge into main (already merged)");
+        println!("↷ skipped: merge into {main_branch} (already merged)");
     }
 
     tag_if_missing(git, &tag, &format!("chore: release {release_version}"))?;
-    push_if_needed(git, "main")?;
+    push_if_needed(git, main_branch)?;
     push_tag_if_missing(git, &tag)?;
 
     merge_into(git, &release_branch, "develop",
@@ -91,7 +91,7 @@ pub fn finish_release(git: &dyn Git, major: u32, minor: u32) -> Result<(), Strin
     push_if_needed(git, "develop")?;
 
     println!("Cleaning up release branch...");
-    delete_source_branch(git, &release_branch)?;
+    delete_source_branch(git, &release_branch, main_branch)?;
 
     println!("Release {release_version} complete.");
     Ok(())

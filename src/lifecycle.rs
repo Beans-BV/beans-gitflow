@@ -12,6 +12,7 @@ use crate::flows::{finish_hotfix, finish_release, finish_work, start};
 use crate::git::branch::BranchType;
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
+use crate::mainline::resolve_main_branch;
 use crate::menu;
 use crate::prompt::Prompter;
 use crate::state::{current_timestamp, FinishKind, FinishState};
@@ -32,6 +33,12 @@ pub fn run(
     FinishState::migrate_legacy(&git_dir)?;
 
     let branch_type = BranchType::parse(&branch_name);
+
+    // The mainline (main vs master) is a per-repo fact: resolved once here and
+    // threaded into the interfaces and flows as data, never looked up again
+    // mid-flow. Precedent: hosting/detect.rs picks the provider at composition
+    // and passes the result down.
+    let main_branch = resolve_main_branch(git)?;
 
     // Derived once and reused by the resume load, the state write, and the
     // clear, so those three can never encode the branch→identity rule
@@ -109,7 +116,7 @@ pub fn run(
     // rather than reassembled from three values inside each dispatch arm.
     let worktree = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
 
-    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref());
+    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch);
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -255,6 +262,7 @@ fn run_flow(
     skip_current_branch_sync: bool,
     worktree: Option<WorktreeContext<'_>>,
     resume_state: Option<&FinishState>,
+    main_branch: &str,
 ) -> Result<(), String> {
     // Fast-forward the current branch to origin when the flow will operate on
     // this checkout and we're not resuming (on resume the user may be on
@@ -279,7 +287,7 @@ fn run_flow(
             start::start_release_fix(git, name, *no_checkout, worktree)?;
         }
         Action::StartHotfixFix { name, no_checkout, .. } => {
-            start::start_hotfix_fix(git, name, *no_checkout, worktree)?;
+            start::start_hotfix_fix(git, name, *no_checkout, worktree, main_branch)?;
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;
@@ -315,7 +323,7 @@ fn run_flow(
                 };
                 (*major, *minor)
             };
-            finish_release::finish_release(git, major, minor)?;
+            finish_release::finish_release(git, major, minor, main_branch)?;
         }
         Action::FinishHotfix => {
             let (major, minor, patch) = if let Some(s) = resume_state {
@@ -326,7 +334,7 @@ fn run_flow(
                 };
                 (*major, *minor, *patch)
             };
-            finish_hotfix::finish_hotfix(git, major, minor, patch)?;
+            finish_hotfix::finish_hotfix(git, major, minor, patch, main_branch)?;
         }
         Action::AbortFinish => {
             unreachable!("AbortFinish is handled before run_flow");

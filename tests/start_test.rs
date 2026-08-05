@@ -124,7 +124,7 @@ fn start_hotfix_fix_creates_and_pushes_existing_hotfix() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["hotfix/1.0.1".to_string()];
 
-    start_hotfix_fix(&git, "urgent-crash", false, None).unwrap();
+    start_hotfix_fix(&git, "urgent-crash", false, None, "main").unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
@@ -140,13 +140,32 @@ fn start_hotfix_fix_creates_hotfix_branch_when_none_exists() {
     git.branches_matching = vec![];
     git.tags = vec!["1.0.0".to_string()];
 
-    start_hotfix_fix(&git, "urgent-crash", false, None).unwrap();
+    start_hotfix_fix(&git, "urgent-crash", false, None, "main").unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
         "list_tags",
         "checkout:main",
         "create_branch:hotfix/1.0.1:main",
+        "push:hotfix/1.0.1",
+        "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
+        "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
+}
+
+#[test]
+fn a_new_hotfix_branch_is_cut_from_the_configured_mainline() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+
+    start_hotfix_fix(&git, "urgent-crash", false, None, "master").unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*",
+        "list_tags",
+        "checkout:master",
+        "create_branch:hotfix/1.0.1:master",
         "push:hotfix/1.0.1",
         "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
         "push:hotfix-fix/1.0.1/urgent-crash",
@@ -193,7 +212,7 @@ fn start_hotfix_fix_no_checkout_existing_hotfix() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["hotfix/1.0.1".to_string()];
 
-    start_hotfix_fix(&git, "urgent-crash", true, None).unwrap();
+    start_hotfix_fix(&git, "urgent-crash", true, None, "main").unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
@@ -208,7 +227,7 @@ fn start_hotfix_fix_no_checkout_creates_hotfix_branch_when_none_exists() {
     git.branches_matching = vec![];
     git.tags = vec!["1.0.0".to_string()];
 
-    start_hotfix_fix(&git, "urgent-crash", true, None).unwrap();
+    start_hotfix_fix(&git, "urgent-crash", true, None, "main").unwrap();
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
@@ -419,7 +438,7 @@ fn start_hotfix_fix_worktree_active_discovers_and_opens() {
     let editor = MockEditor::new();
     let config = test_worktree_config("code");
 
-    start_hotfix_fix(&git, "npe", false, Some(WorktreeContext { config: &config, editor: &editor })).unwrap();
+    start_hotfix_fix(&git, "npe", false, Some(WorktreeContext { config: &config, editor: &editor }), "main").unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"create_branch_no_checkout:hotfix-fix/2.5.1/npe:hotfix/2.5.1".to_string()),

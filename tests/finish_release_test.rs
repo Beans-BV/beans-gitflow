@@ -102,7 +102,7 @@ fn finish_release_creates_clean_tag_from_rc() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1", "v1.1.0-rc.2"]);
     git.rev_list_count_result = 0;
 
-    finish_release(&git, 1, 1).unwrap();
+    finish_release(&git, 1, 1, "main").unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/1.1.0",
@@ -132,11 +132,59 @@ fn finish_release_creates_clean_tag_from_rc() {
 }
 
 #[test]
+fn finish_release_targets_master_when_that_is_the_mainline() {
+    // The mainline is data, resolved once from bflow.branch.main. Every
+    // checkout/merge/push target the release finish aims at the mainline must
+    // follow it — a master repo previously got main-branch menus that then
+    // failed on the first checkout.
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
+    git.rev_list_count_result = 0;
+
+    finish_release(&git, 1, 1, "master").unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "is_ancestor:release/1.1.0:master",
+        "rev_list_count:v1.1.0-rc.1:release/1.1.0",
+        "checkout:master",
+        "ff_merge:origin/master",
+        "merge:release/1.1.0:chore: merge release 1.1.0 into master",
+        "tag_exists:v1.1.0",
+        "create_tag:v1.1.0:chore: release 1.1.0",
+        "is_pushed:master",
+        "push:master",
+        "remote_tag_exists:v1.1.0",
+        "push_tag:v1.1.0",
+        "is_ancestor:release/1.1.0:develop",
+        "checkout:develop",
+        "ff_merge:origin/develop",
+        "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
+        "is_pushed:develop",
+        "push:develop",
+        "current_branch",
+        "local_branch_exists:release/1.1.0",
+        "delete_branch_local:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "delete_branch_remote:release/1.1.0",
+    ]);
+}
+
+#[test]
+fn the_rc_gate_error_names_the_configured_mainline() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
+    git.rev_list_count_result = 3;
+
+    let err = finish_release(&git, 1, 1, "master").unwrap_err();
+
+    assert!(err.contains("merged to master"), "got: {err}");
+}
+
+#[test]
 fn finish_release_single_rc() {
     let mut git = fresh_release_mock(2, 0, &["v2.0.0-rc.1"]);
     git.rev_list_count_result = 0;
 
-    finish_release(&git, 2, 0).unwrap();
+    finish_release(&git, 2, 0, "main").unwrap();
 
     assert_eq!(git.calls(), vec![
         "tags_on_branch:release/2.0.0",
@@ -170,7 +218,7 @@ fn finish_release_fails_when_head_past_latest_rc() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1", "v1.1.0-rc.2"]);
     git.rev_list_count_result = 2; // 2 commits on release/1.1.0 past v1.1.0-rc.2
 
-    let result = finish_release(&git, 1, 1);
+    let result = finish_release(&git, 1, 1, "main");
 
     assert!(result.is_err(), "expected guard to reject finish when HEAD is past latest RC");
     let err = result.unwrap_err();
@@ -190,7 +238,7 @@ fn finish_release_error_message_uses_singular_for_one_commit() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.rev_list_count_result = 1;
 
-    let err = finish_release(&git, 1, 1).unwrap_err();
+    let err = finish_release(&git, 1, 1, "main").unwrap_err();
     assert!(err.contains("1 commit past"), "expected singular 'commit'; got: {err}");
     assert!(!err.contains("1 commits"), "should not use plural for 1; got: {err}");
 }
@@ -208,7 +256,7 @@ fn finish_release_resume_after_main_already_merged_and_tagged() {
     git.existing_remote_tags.insert("v1.1.0".to_string());
     git.pushed_branches.insert("main".to_string());
 
-    finish_release(&git, 1, 1).unwrap();
+    finish_release(&git, 1, 1, "main").unwrap();
 
     let calls = git.calls();
     // No re-merge into main, no re-tag, no re-push
@@ -231,7 +279,7 @@ fn finish_release_resume_skips_rc_gate_when_already_merged_to_main() {
     git.rev_list_count_result = 99;
     git.ancestors.insert(("release/1.1.0".to_string(), "main".to_string()));
 
-    let result = finish_release(&git, 1, 1);
+    let result = finish_release(&git, 1, 1, "main");
     assert!(result.is_ok(), "expected resume to succeed past the gate; got: {result:?}");
 }
 
@@ -248,7 +296,7 @@ fn finish_release_fully_idempotent_no_op_on_second_run() {
     git.pushed_branches.insert("develop".to_string());
     // No entries in existing_local_branches/existing_remote_branches → already deleted
 
-    finish_release(&git, 1, 1).unwrap();
+    finish_release(&git, 1, 1, "main").unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("merge:")), "no merges; calls: {calls:?}");
@@ -264,7 +312,7 @@ fn finish_release_main_merge_conflict_names_source_branch_to_switch_back() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.fail_nth_merge = Some(1); // main merge
 
-    let err = finish_release(&git, 1, 1).unwrap_err();
+    let err = finish_release(&git, 1, 1, "main").unwrap_err();
     assert!(err.contains("git switch release/1.1.0"),
         "main conflict should tell user to switch back to the release branch; got: {err}");
     assert!(err.contains("bflow finish"), "should mention re-running bflow finish; got: {err}");
@@ -275,7 +323,7 @@ fn finish_release_develop_merge_conflict_names_source_branch_to_switch_back() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.fail_nth_merge = Some(2); // develop merge
 
-    let err = finish_release(&git, 1, 1).unwrap_err();
+    let err = finish_release(&git, 1, 1, "main").unwrap_err();
     assert!(err.contains("git switch release/1.1.0"),
         "develop conflict should tell user to switch back to the release branch; got: {err}");
 }
