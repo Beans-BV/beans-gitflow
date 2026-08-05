@@ -85,6 +85,16 @@ pub struct MockGit {
     pub head_sha: String,
     /// Whether the current checkout is a linked worktree.
     pub linked_worktree: bool,
+    /// Commit SHA each annotated tag resolves to via `tag_commit_sha`. A tag
+    /// missing here fails, modeling "tag doesn't exist" (flows only call this
+    /// after `tag_exists`).
+    pub tag_commits: HashMap<String, String>,
+    /// SHA each branch's tip resolves to via `branch_sha`. A branch missing
+    /// here falls back to `head_sha`.
+    pub branch_shas: HashMap<String, String>,
+    /// Scripted `is_working_tree_clean` answers, consumed front-first. Empty
+    /// (the default) falls back to `working_tree_clean`.
+    pub working_tree_clean_seq: RefCell<VecDeque<bool>>,
     _git_dir_guard: Option<TempDir>,
 }
 
@@ -127,6 +137,9 @@ impl MockGit {
             repo_root: PathBuf::from("/repos/beans-gitflow"),
             head_sha: "headsha".to_string(),
             linked_worktree: false,
+            tag_commits: HashMap::new(),
+            branch_shas: HashMap::new(),
+            working_tree_clean_seq: RefCell::new(VecDeque::new()),
             _git_dir_guard: None,
         }
     }
@@ -222,7 +235,10 @@ impl Git for MockGit {
 
     fn is_working_tree_clean(&self) -> Result<bool, String> {
         self.calls.borrow_mut().push("is_working_tree_clean".to_string());
-        Ok(self.working_tree_clean)
+        match self.working_tree_clean_seq.borrow_mut().pop_front() {
+            Some(clean) => Ok(clean),
+            None => Ok(self.working_tree_clean),
+        }
     }
 
     fn delete_branch_local(&self, branch: &str) -> Result<(), String> {
@@ -400,6 +416,31 @@ impl Git for MockGit {
     fn detach_head(&self) -> Result<(), String> {
         self.calls.borrow_mut().push("detach_head".to_string());
         Ok(())
+    }
+
+    fn stage_all(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("stage_all".to_string());
+        Ok(())
+    }
+
+    fn commit(&self, message: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("commit:{message}"));
+        Ok(())
+    }
+
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("create_tag_at:{tag}:{message}:{sha}"));
+        Ok(())
+    }
+
+    fn tag_commit_sha(&self, tag: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("tag_commit_sha:{tag}"));
+        self.tag_commits.get(tag).cloned().ok_or_else(|| format!("tag {tag} does not exist"))
+    }
+
+    fn branch_sha(&self, branch: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("branch_sha:{branch}"));
+        Ok(self.branch_shas.get(branch).cloned().unwrap_or_else(|| self.head_sha.clone()))
     }
 }
 

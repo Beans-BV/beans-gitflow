@@ -380,6 +380,16 @@ fn every_primitive_issues_its_documented_git_command() {
         ("git stash push -u -m bflow-finish:develop:1", Box::new(|g| { g.stash_push_with_message("bflow-finish:develop:1").ok(); })),
         ("git stash list --format=%gd %s", Box::new(|g| { g.find_stash_by_message("x").ok(); })),
         ("git stash pop stash@{1}", Box::new(|g| { g.stash_pop_ref("stash@{1}").ok(); })),
+        ("git add -A", Box::new(|g| { g.stage_all().ok(); })),
+        ("git commit -m chore: set version 2.5.0", Box::new(|g| { g.commit("chore: set version 2.5.0").ok(); })),
+        // A separate method from create_tag: it tags a specific sha (a merge
+        // commit), not HEAD.
+        ("git tag -a v2.5.0 -m chore: release 2.5.0 abc123",
+            Box::new(|g| { g.create_tag_at("v2.5.0", "chore: release 2.5.0", "abc123").ok(); })),
+        // ^{commit} dereferences an annotated tag to its commit (trap 10) —
+        // plain rev-parse would return the tag object's own SHA.
+        ("git rev-parse v2.5.0^{commit}", Box::new(|g| { g.tag_commit_sha("v2.5.0").ok(); })),
+        ("git rev-parse refs/heads/release/2.5.0", Box::new(|g| { g.branch_sha("release/2.5.0").ok(); })),
     ];
 
     for (expected, call) in cases {
@@ -387,6 +397,13 @@ fn every_primitive_issues_its_documented_git_command() {
         call(&GitCli::new(&runner));
         assert_eq!(runner.calls(), vec![expected]);
     }
+}
+
+#[test]
+fn tag_commit_sha_returns_the_trimmed_commit_sha() {
+    let runner = MockCommandRunner::ok("  abc123def456  \n");
+
+    assert_eq!(git(&runner).tag_commit_sha("v2.5.0").unwrap(), "abc123def456");
 }
 
 #[test]

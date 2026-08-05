@@ -74,6 +74,21 @@ pub trait Git {
     fn stash_push_with_message(&self, msg: &str) -> Result<()>;
     fn find_stash_by_message(&self, msg: &str) -> Result<Option<String>>;
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()>;
+
+    // Version commits and merge-commit tagging
+    fn stage_all(&self) -> Result<()>;
+    fn commit(&self, message: &str) -> Result<()>;
+    /// Tags `sha` (not HEAD) — a separate method from `create_tag` because a
+    /// landing PR's merge commit is created by the hosting platform, not by a
+    /// local `git merge`.
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()>;
+    /// Resolves an annotated tag to the commit it points at (`^{commit}`).
+    /// Plain `rev-parse <tag>` on an annotated tag returns the tag object's own
+    /// SHA, not the commit's.
+    fn tag_commit_sha(&self, tag: &str) -> Result<String>;
+    /// SHA of a branch's tip — never HEAD, which is only the source branch when
+    /// the caller happens to be standing on it.
+    fn branch_sha(&self, branch: &str) -> Result<String>;
 }
 
 /// One finished `git` invocation, in a form tests can construct. `std::process::
@@ -374,5 +389,17 @@ impl Git for GitCli<'_> {
     }
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()> {
         self.run(&["stash", "pop", stash_ref]).map(|_| ())
+    }
+
+    fn stage_all(&self) -> Result<()> { self.run(&["add", "-A"]).map(|_| ()) }
+    fn commit(&self, message: &str) -> Result<()> { self.run(&["commit", "-m", message]).map(|_| ()) }
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()> {
+        self.run(&["tag", "-a", tag, "-m", message, sha]).map(|_| ())
+    }
+    fn tag_commit_sha(&self, tag: &str) -> Result<String> {
+        self.run(&["rev-parse", &format!("{tag}^{{commit}}")])
+    }
+    fn branch_sha(&self, branch: &str) -> Result<String> {
+        self.run(&["rev-parse", &format!("refs/heads/{branch}")])
     }
 }
