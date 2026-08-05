@@ -56,14 +56,9 @@ pub(crate) fn push_tag_if_missing(git: &dyn Git, tag: &str) -> Result<(), String
     git.push_tag(tag)
 }
 
-/// Delete the finished source branch locally and remotely, both idempotent.
-/// Switches to the mainline first when HEAD is still on the branch — a resume
-/// that skipped the develop merge leaves it there, git refuses to delete the
-/// checked-out branch, and the mainline is always safe (the work is merged there).
-pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &str) -> Result<(), String> {
-    if git.current_branch()? == branch {
-        git.checkout(main_branch)?;
-    }
+/// Delete `branch` locally and remotely, each guarded by an existence check so
+/// re-running after a partial cleanup is a no-op.
+pub(crate) fn delete_branch_guarded(git: &dyn Git, branch: &str) -> Result<(), String> {
     if git.local_branch_exists(branch)? {
         git.delete_branch_local(branch)?;
     } else {
@@ -75,6 +70,17 @@ pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &st
         println!("↷ skipped: delete remote {branch} (already gone)");
     }
     Ok(())
+}
+
+/// Delete the finished source branch locally and remotely, both idempotent.
+/// Switches to the mainline first when HEAD is still on the branch — a resume
+/// that skipped the develop merge leaves it there, git refuses to delete the
+/// checked-out branch, and the mainline is always safe (the work is merged there).
+pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &str) -> Result<(), String> {
+    if git.current_branch()? == branch {
+        git.checkout(main_branch)?;
+    }
+    delete_branch_guarded(git, branch)
 }
 
 /// Fail with the catalog error unless the tree is clean. Callers run this

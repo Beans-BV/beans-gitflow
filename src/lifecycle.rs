@@ -303,7 +303,9 @@ fn run_flow(
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("BumpVersion action only from Release branch");
             };
-            finish_release::bump_version(git, *major, *minor)?;
+            // Task 16 wires the real hosting/script/config values through the
+            // lifecycle; for now bump only ever runs the free-mode, no-script path.
+            finish_release::bump_version(git, hosting, None, &RepoConfig::default(), *major, *minor)?;
         }
         Action::SyncWithDevelop => {
             let BranchType::Release { major, minor, .. } = branch_type else {
