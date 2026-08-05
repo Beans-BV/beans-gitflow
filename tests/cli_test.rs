@@ -417,3 +417,78 @@ fn start_feature_with_no_worktree_flag() {
 // it before any branch-type gate; see
 // `abort_is_accepted_from_any_branch_including_unrecognized_ones` in
 // lifecycle_test.rs.
+
+// --- The clap surface itself ---
+//
+// Everything above starts from an already-constructed `Commands`, so nothing
+// pinned the argument parsing that produces one: which flags exist, which
+// combinations clap must reject, and — the real gap — that the `WORK_TYPES`
+// table and the `StartKind` variants stay in step. Adding `perf/` to the table
+// makes the menu offer it while `bflow start perf` still fails, violating
+// principle 8 ("a feature exists in both interfaces or neither") with every
+// existing test green.
+
+#[derive(clap::Parser)]
+#[command(name = "bflow")]
+struct TestCli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+fn parse(args: &[&str]) -> Result<Commands, clap::Error> {
+    let argv = std::iter::once("bflow").chain(args.iter().copied());
+    clap::Parser::try_parse_from(argv).map(|c: TestCli| c.command)
+}
+
+#[test]
+fn every_work_kind_in_the_table_has_a_working_start_subcommand() {
+    for kind in BranchType::work_kinds() {
+        let cmd = parse(&["start", kind, "--name", "x"])
+            .unwrap_or_else(|e| panic!("`bflow start {kind}` must parse — the WORK_TYPES table \
+                offers it in the menu, so the CLI must accept it too.\n{e}"));
+
+        let action = resolve_action(cmd, &BranchType::Develop, false, "main").unwrap();
+
+        match action {
+            Action::StartWorkBranch { prefix, name, from, .. } => {
+                assert_eq!(prefix, kind, "`start {kind}` must resolve to the same prefix");
+                assert_eq!((name.as_str(), from.as_str()), ("x", "develop"),
+                    "--base defaults to develop");
+            }
+            other => panic!("`start {kind}` produced {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_flag_surface_parses_what_it_promises() {
+    // --breaking is tri-state: absent = prompt, present = true, =false for CI.
+    assert!(matches!(parse(&["finish"]).unwrap(),
+        Commands::Finish { breaking: None, base: None, abort: false }));
+    assert!(matches!(parse(&["finish", "--breaking"]).unwrap(),
+        Commands::Finish { breaking: Some(true), .. }));
+    assert!(matches!(parse(&["finish", "--breaking=false"]).unwrap(),
+        Commands::Finish { breaking: Some(false), .. }));
+    assert!(matches!(parse(&["finish", "--abort"]).unwrap(),
+        Commands::Finish { abort: true, .. }));
+
+    // --local is global = true, so it is position-independent.
+    assert!(matches!(parse(&["worktree", "--local", "enable"]).unwrap(),
+        Commands::Worktree { local: true, .. }));
+    assert!(matches!(parse(&["worktree", "enable", "--local"]).unwrap(),
+        Commands::Worktree { local: true, .. }));
+}
+
+#[test]
+fn incompatible_flag_combinations_are_rejected_by_clap_not_by_the_flow() {
+    // decisions.md: "incompatibilities are declarative clap conflicts_with" —
+    // these must fail at parse time, before any branch is touched.
+    for args in [
+        vec!["finish", "--breaking", "--abort"],
+        vec!["finish", "--base", "develop", "--abort"],
+        vec!["start", "release", "--major", "--minor"],
+        vec!["start", "feature"], // --name is required
+    ] {
+        assert!(parse(&args).is_err(), "`bflow {}` must be rejected", args.join(" "));
+    }
+}
