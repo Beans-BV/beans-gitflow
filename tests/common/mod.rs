@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use bflow::action::validate_branch_name;
 use bflow::editor::Editor;
 use bflow::git::{CliOutput, CommandRunner, Git};
 use bflow::hosting::{CliRunner, HostingPlatform};
@@ -526,7 +527,18 @@ impl Prompter for MockPrompter {
     }
 
     fn prompt_name(&self, prompt: &str) -> Result<String, String> {
-        self.next_line("prompt_name", prompt)
+        let name = self.next_line("prompt_name", prompt)?;
+        // The trait promises a name that passes validate_branch_name — it owns
+        // its re-prompt loop precisely so callers never receive invalid input.
+        // A mock with a weaker postcondition is an LSP violation that lets tests
+        // feed flows a branch name the real prompter could never produce.
+        assert!(
+            validate_branch_name(&name).is_ok(),
+            "MockPrompter scripted '{name}' for prompt_name, which the real prompter \
+             would have rejected and re-prompted for: {:?}",
+            validate_branch_name(&name),
+        );
+        Ok(name)
     }
 
     fn prompt_line(&self, prompt: &str) -> Result<String, String> {
