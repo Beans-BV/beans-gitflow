@@ -198,7 +198,11 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
         },
         Commands::Finish { breaking, base, abort } => {
             if abort {
-                return Ok(Action::AbortFinish);
+                // Same shape as the Worktree arm below: `--abort` never reaches
+                // here because it must win over the branch-type gate AND over the
+                // resume shortcut, both of which live upstream. Encoding it twice
+                // is how the two copies drift.
+                unreachable!("--abort is intercepted in lifecycle::resolve_action_with_state before dispatch")
             }
             if base.is_some() && branch_type.has_fixed_finish_target() {
                 return Err("--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.".to_string());

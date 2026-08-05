@@ -254,6 +254,26 @@ fn resume_state_resumes_finish_without_base() {
     assert!(matches!(action, Action::FinishRelease));
 }
 
+#[test]
+fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
+    // decisions.md: "--abort short-circuits before every check" — abort is itself
+    // a recovery action, so the branch-type gate that rejects `finish` elsewhere
+    // must never fire for it. The rule lives HERE, ahead of the resume shortcut
+    // and of cli::resolve_action, which is why cli.rs's own arm is unreachable.
+    for branch_type in [
+        BranchType::Other,
+        BranchType::Main,
+        BranchType::Develop,
+        BranchType::Release { major: 2, minor: 5, patch: 0 },
+    ] {
+        let cmd = Some(Commands::Finish { breaking: None, base: None, abort: true });
+
+        let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "whatever", None, false).unwrap();
+
+        assert!(matches!(action, Action::AbortFinish), "branch type {branch_type:?} rejected --abort");
+    }
+}
+
 // --- run_flow dispatch: every Action arm reaches its own flow ---
 //
 // decisions.md: "One Action enum is the single currency" — lifecycle::run_flow is
