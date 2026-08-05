@@ -3,7 +3,10 @@ pub mod finish_work;
 pub mod finish_release;
 pub mod finish_hotfix;
 
+use std::path::Path;
+
 use crate::git::Git;
+use crate::hosting::{HostingPlatform, LandedPr};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
 
@@ -54,6 +57,70 @@ pub(crate) fn push_tag_if_missing(git: &dyn Git, tag: &str) -> Result<(), String
         return Ok(());
     }
     git.push_tag(tag)
+}
+
+// --- Protected-mode landing helpers ----------------------------------------
+// bflow never merges a PR (SKILL.md principle: protected mode never pushes
+// main/develop) — a landing step opens a PR and stops; a human merges it, and
+// the next run picks up from there. Completion is derived from the hosting
+// platform the same way `finish_work.rs::try_cleanup_merged` derives it, but
+// keyed by a specific (source, target) pair rather than "any merge".
+
+/// Whether `source` has already landed into `target` via a merged PR. `None`
+/// also covers "the PR merged, but source moved on since": new commits after
+/// the merge are new work, so the caller re-enters its own gate rather than
+/// trusting a stale merge (compares `branch_sha`, not `head_sha`, so this
+/// reads the named branch regardless of what HEAD currently is).
+pub(crate) fn landed_pr(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
+    let Some(pr) = hosting.merged_pr_to(source, target)? else {
+        return Ok(None);
+    };
+    if git.branch_sha(source)? != pr.head_sha {
+        println!("PR {} was merged, but {source} has new commits since — opening a new PR.", pr.url);
+        return Ok(None);
+    }
+    Ok(Some(pr))
+}
+
+/// Reconcile `source` with its remote, then open (or reuse) its landing PR
+/// into `target`. Protected-mode source branches are typically already
+/// pushed from an earlier run, so this generalizes `finish_work.rs`'s
+/// unconditional push to a branch that may be missing on the remote, ahead,
+/// behind, or diverged.
+pub(crate) fn open_landing_pr(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>) -> Result<String, String> {
+    let origin = format!("origin/{source}");
+    if !git.remote_branch_exists(source)? {
+        git.push(source)?;
+    } else if !git.is_pushed(source)? {
+        if git.is_ancestor(&origin, source)? {
+            git.push(source)?;
+        } else if git.is_ancestor(source, &origin)? {
+            return Err(format!("Local {source} is behind origin/{source}. Run 'git pull --ff-only', then re-run."));
+        } else {
+            return Err(format!("Local {source} and origin/{source} have diverged. Reconcile them (e.g. 'git pull --rebase'), then re-run."));
+        }
+    }
+    hosting.create_or_get_pr(source, target, title, template.and_then(|p| p.to_str()))
+}
+
+/// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and
+/// when it does, verify it points at that same commit rather than trusting a
+/// stale or hand-created tag (a mismatch is fatal, not silently skipped).
+pub(crate) fn tag_at_if_missing(git: &dyn Git, tag: &str, message: &str, sha: &str) -> Result<(), String> {
+    if !git.tag_exists(tag)? {
+        println!("Tagging: {tag}");
+        return git.create_tag_at(tag, message, sha);
+    }
+    let actual = git.tag_commit_sha(tag)?;
+    if actual == sha {
+        println!("↷ skipped: tag {tag} (already exists)");
+        Ok(())
+    } else {
+        Err(format!(
+            "Tag {tag} exists but points at {actual}, not the PR merge commit {sha}. \
+             Move or delete the tag, then re-run 'bflow finish'."
+        ))
+    }
 }
 
 /// Delete `branch` locally and remotely, each guarded by an existence check so

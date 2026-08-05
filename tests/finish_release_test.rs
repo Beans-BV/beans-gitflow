@@ -550,3 +550,246 @@ fn finish_release_develop_merge_conflict_names_source_branch_to_switch_back() {
     assert!(err.contains("git switch release/1.1.0"),
         "develop conflict should tell user to switch back to the release branch; got: {err}");
 }
+
+// --- Protected mode: sequential landing PRs (run 1 → RC gate → main PR) ---
+
+fn protected_cfg(keep: bool) -> RepoConfig {
+    RepoConfig { mode: Mode::Protected, keep_release_branches: keep }
+}
+
+fn landed(head_sha: &str, merge_commit_sha: &str) -> bflow::hosting::LandedPr {
+    bflow::hosting::LandedPr {
+        url: "https://github.com/org/repo/pull/1".to_string(),
+        head_sha: head_sha.to_string(),
+        merge_commit_sha: merge_commit_sha.to_string(),
+    }
+}
+
+#[test]
+fn protected_finish_opens_main_pr_and_stops() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.2".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "rev_list_count:v1.1.0-rc.2:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "is_pushed:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:main",
+        "create_or_get_pr:release/1.1.0:main:chore: merge release 1.1.0 into main",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("merge:")), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("create_tag")), "must not tag before main lands; calls: {calls:?}");
+}
+
+#[test]
+fn protected_finish_rc_gate_blocks_before_pr() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.2".to_string()];
+    git.rev_list_count_result = 2;
+
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("v1.1.0-rc.2"), "got: {err}");
+    assert!(err.contains("bflow bump"), "got: {err}");
+    assert_eq!(hosting.calls(), vec!["merged_pr_to:release/1.1.0:main"]);
+}
+
+#[test]
+fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("release/1.1.0".to_string(), "main".to_string()),
+        landed("relsha", "mc1"),
+    );
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "branch_sha:release/1.1.0",
+        "tag_exists:v1.1.0",
+        "create_tag_at:v1.1.0:chore: release 1.1.0:mc1",
+        "remote_tag_exists:v1.1.0",
+        "push_tag:v1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "is_pushed:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:main",
+        "merged_pr_to:release/1.1.0:develop",
+        "create_or_get_pr:release/1.1.0:develop:chore: merge release 1.1.0 into develop",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("rev_list_count")), "gate must be skipped once landed; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("tags_on_branch")), "gate must be skipped once landed; calls: {calls:?}");
+}
+
+#[test]
+fn protected_finish_completes_after_develop_merge() {
+    let mut git = MockGit::new();
+    git.current_branch = "release/1.1.0".to_string();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("relsha", "mc2"));
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "branch_sha:release/1.1.0",
+        "tag_exists:v1.1.0",
+        "tag_commit_sha:v1.1.0",
+        "remote_tag_exists:v1.1.0",
+        "branch_sha:release/1.1.0",
+        "current_branch",
+        "checkout:main",
+        "local_branch_exists:release/1.1.0",
+        "delete_branch_local:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "delete_branch_remote:release/1.1.0",
+    ]);
+}
+
+#[test]
+fn protected_finish_tag_identity_mismatch_is_fatal() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "other".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
+
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("points at other"), "got: {err}");
+    assert!(err.contains("mc1"), "got: {err}");
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("push_tag")), "must not push a mismatched tag; calls: {calls:?}");
+    assert!(!hosting.calls().iter().any(|c| c.contains(":develop")), "must not probe develop; calls: {:?}", hosting.calls());
+}
+
+#[test]
+fn protected_finish_branch_moved_on_reopens_pr() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+    git.rev_list_count_result = 1;
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("stale", "mc1"));
+
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("1 commit past"), "moved-on commits must re-enter the RC gate; got: {err}");
+    assert!(err.contains("bflow bump"), "got: {err}");
+}
+
+#[test]
+fn protected_finish_keeps_branch_when_configured() {
+    let mut git = MockGit::new();
+    git.current_branch = "release/1.1.0".to_string();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("relsha", "mc2"));
+
+    finish_release(&git, &hosting, &protected_cfg(true), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
+}
+
+// --- Reconcile edges (exercised through run 1's main-PR step) ---
+
+#[test]
+fn protected_finish_pushes_when_remote_branch_missing_before_opening_pr() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "rev_list_count:v1.1.0-rc.1:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "push:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:main",
+        "create_or_get_pr:release/1.1.0:main:chore: merge release 1.1.0 into main",
+    ]);
+}
+
+#[test]
+fn protected_finish_pushes_when_local_ahead_of_origin() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("origin/release/1.1.0".to_string(), "release/1.1.0".to_string()));
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "rev_list_count:v1.1.0-rc.1:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "is_pushed:release/1.1.0",
+        "is_ancestor:origin/release/1.1.0:release/1.1.0",
+        "push:release/1.1.0",
+    ]);
+}
+
+#[test]
+fn protected_finish_errors_when_local_behind_origin() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("release/1.1.0".to_string(), "origin/release/1.1.0".to_string()));
+
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("is behind origin/release/1.1.0"), "got: {err}");
+    assert!(err.contains("git pull --ff-only"), "got: {err}");
+}
+
+#[test]
+fn protected_finish_errors_when_local_and_origin_diverged() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("have diverged"), "got: {err}");
+    assert!(err.contains("git pull --rebase"), "got: {err}");
+}

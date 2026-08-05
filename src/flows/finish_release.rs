@@ -1,14 +1,31 @@
 use std::path::Path;
 
 use crate::flows::{
-    delete_branch_guarded, delete_source_branch, merge_into, push_if_needed, push_tag_if_missing,
-    require_clean_tree, resume_hint, run_version_script, tag_if_missing,
+    delete_branch_guarded, delete_source_branch, landed_pr, merge_into, open_landing_pr,
+    push_if_needed, push_tag_if_missing, require_clean_tree, resume_hint, run_version_script,
+    tag_at_if_missing, tag_if_missing,
 };
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
 use crate::repo_config::{Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
+
+const NO_RC_TAG_ERROR: &str = "No RC tag found on this release branch. Run 'bflow bump' first.";
+
+/// The RC-deploy gate's catalog error: names the branch, the tag it must
+/// catch up to, and the remedy. Shared by free mode's ancestor-guarded check
+/// and protected mode's PR-guarded one (mutation trap 5: a squash-merged
+/// landing PR leaves no ancestor relationship, so protected mode cannot reuse
+/// `is_ancestor` here — only this message is common between them).
+fn past_rc_error(release_branch: &str, main_branch: &str, latest_rc_tag: &str, commits_past_rc: u32) -> String {
+    let noun = if commits_past_rc == 1 { "commit" } else { "commits" };
+    format!(
+        "HEAD of {release_branch} is {commits_past_rc} {noun} past {latest_rc_tag}.\n\
+         Every commit merged to {main_branch} must be validated on staging via an RC deploy.\n\
+         Run 'bflow bump' to cut the next RC, wait for staging to pass, then 'bflow finish'."
+    )
+}
 
 /// Highest `v{major}.{minor}.0-rc.N` tag on `branch`, or `None` when the branch
 /// has no matching RC tag. Callers turn `None` into their own per-command error.
@@ -159,18 +176,22 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
 
 pub fn finish_release(
     git: &dyn Git,
-    _hosting: &dyn HostingPlatform,
+    hosting: &dyn HostingPlatform,
     cfg: &RepoConfig,
     major: u32,
     minor: u32,
     main_branch: &str,
-    _template: Option<&Path>,
+    template: Option<&Path>,
 ) -> Result<(), String> {
+    if cfg.mode == Mode::Protected {
+        return finish_release_protected(git, hosting, cfg, major, minor, main_branch, template);
+    }
+
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
 
     let latest_rc = latest_rc(git, &release_branch, major, minor)?
-        .ok_or_else(|| "No RC tag found on this release branch. Run 'bflow bump' first.".to_string())?;
+        .ok_or_else(|| NO_RC_TAG_ERROR.to_string())?;
 
     let release_version = latest_rc.to_release();
     let tag = release_version.tag_name();
@@ -184,12 +205,7 @@ pub fn finish_release(
         let latest_rc_tag = latest_rc.tag_name();
         let commits_past_rc = git.rev_list_count(&latest_rc_tag, &release_branch)?;
         if commits_past_rc > 0 {
-            let noun = if commits_past_rc == 1 { "commit" } else { "commits" };
-            return Err(format!(
-                "HEAD of {release_branch} is {commits_past_rc} {noun} past {latest_rc_tag}.\n\
-                 Every commit merged to {main_branch} must be validated on staging via an RC deploy.\n\
-                 Run 'bflow bump' to cut the next RC, wait for staging to pass, then 'bflow finish'."
-            ));
+            return Err(past_rc_error(&release_branch, main_branch, &latest_rc_tag, commits_past_rc));
         }
         println!("Merging into {main_branch}...");
         git.checkout(main_branch)?;
@@ -217,5 +233,64 @@ pub fn finish_release(
     }
 
     println!("Release {release_version} complete.");
+    Ok(())
+}
+
+/// Protected mode's RC-deploy gate: same rule and remedy as free mode's, but
+/// reached only when there is no landed PR yet (a landed main PR already
+/// proves every commit shipped through review, so this never re-runs after —
+/// negative-tested: no `rev_list_count`/`tags_on_branch` once landed).
+fn rc_gate(git: &dyn Git, release_branch: &str, main_branch: &str, major: u32, minor: u32) -> Result<(), String> {
+    let latest = latest_rc(git, release_branch, major, minor)?.ok_or_else(|| NO_RC_TAG_ERROR.to_string())?;
+    let latest_rc_tag = latest.tag_name();
+    let commits_past_rc = git.rev_list_count(&latest_rc_tag, release_branch)?;
+    if commits_past_rc > 0 {
+        return Err(past_rc_error(release_branch, main_branch, &latest_rc_tag, commits_past_rc));
+    }
+    Ok(())
+}
+
+fn announce_pending_landing(url: &str) {
+    println!("PR: {url}");
+    println!("Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.");
+}
+
+/// Protected mode: bflow never merges into `main`/`develop` itself (SKILL.md
+/// principle 1), so each landing step opens a PR and stops for a human to
+/// merge; the next run picks up from wherever `landed_pr` finds it landed.
+fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, main_branch: &str, template: Option<&Path>) -> Result<(), String> {
+    let release = SemVer::new(major, minor, 0);
+    let release_branch = release.release_branch();
+    let tag = release.tag_name();
+
+    match landed_pr(git, hosting, &release_branch, main_branch)? {
+        None => {
+            rc_gate(git, &release_branch, main_branch, major, minor)?;
+            let title = format!("chore: merge release {release} into {main_branch}");
+            let url = open_landing_pr(git, hosting, &release_branch, main_branch, &title, template)?;
+            announce_pending_landing(&url);
+            return Ok(());
+        }
+        Some(pr) => {
+            tag_at_if_missing(git, &tag, &format!("chore: release {release}"), &pr.merge_commit_sha)?;
+            push_tag_if_missing(git, &tag)?;
+        }
+    }
+
+    if landed_pr(git, hosting, &release_branch, "develop")?.is_none() {
+        let title = format!("chore: merge release {release} into develop");
+        let url = open_landing_pr(git, hosting, &release_branch, "develop", &title, template)?;
+        announce_pending_landing(&url);
+        return Ok(());
+    }
+
+    println!("Cleaning up release branch...");
+    if cfg.keep_release_branches {
+        println!("Keeping {release_branch} (keep-release-branches=true).");
+    } else {
+        delete_source_branch(git, &release_branch, main_branch)?;
+    }
+
+    println!("Release {release} complete.");
     Ok(())
 }
