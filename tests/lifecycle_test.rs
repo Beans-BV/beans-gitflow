@@ -2,7 +2,7 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::{tmp_dir, MockEditor, MockGit, MockHosting, MockPrompter};
+use common::{MockEditor, MockGit, MockHosting, MockPrompter};
 use bflow::action::Action;
 use bflow::cli::{Commands, StartKind, StartOptions};
 use bflow::git::branch::BranchType;
@@ -25,9 +25,8 @@ fn finish_cmd() -> Option<Commands> {
 /// A MockGit standing on release/2.5.0 with one RC tag and a fake `.git` dir,
 /// ready for a `bflow finish`.
 fn release_git() -> MockGit {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "release/2.5.0".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.tags_on_branch = vec!["v2.5.0-rc.1".to_string()];
     git.existing_local_branches.insert("release/2.5.0".to_string());
     git.existing_remote_branches.insert("release/2.5.0".to_string());
@@ -59,7 +58,6 @@ fn crashed_finish_leaves_resumable_state_on_disk() {
         .unwrap()
         .expect("state must have been written BEFORE the first mutating git call, so a crash mid-flow leaves a resumable record");
     assert_eq!(state.source_branch(), "release/2.5.0");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -72,7 +70,6 @@ fn successful_finish_clears_state() {
         "state must be cleared after a successful finish");
     assert!(git.calls().iter().any(|c| c.starts_with("merge:release/2.5.0:")),
         "the finish flow must actually have run");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -90,7 +87,6 @@ fn dirty_tree_finish_rejected_before_any_side_effect() {
         "no state may be written before the reject");
     assert!(!calls.iter().any(|c| c.starts_with("merge:")),
         "no mutation may run; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -109,7 +105,6 @@ fn mid_merge_preflight_blocks_and_names_pending_resume() {
     assert!(err.contains("release/2.5.0"), "must name the waiting finish; got: {err}");
     assert!(!git.calls().iter().any(|c| c == "fetch"),
         "preflight must block before fetch");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -130,16 +125,14 @@ fn unmerged_paths_block_even_when_the_merge_was_committed() {
         "preflight must block before fetch; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("merge:") || c.starts_with("stash_push_with_message")),
         "no mutation may run; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Stash policy (dirty start: stash before mutation, pop on success) ---
 
 #[test]
 fn dirty_start_stashes_before_mutating_and_pops_on_success() {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "develop".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.working_tree_clean = false;
     let start = Some(Commands::Start { kind: StartKind::Feature {
         name: "login".to_string(),
@@ -160,7 +153,6 @@ fn dirty_start_stashes_before_mutating_and_pops_on_success() {
     assert!(pop_idx > create_idx, "pop must follow the flow; calls: {calls:?}");
     assert!(!state_path(&git.git_dir).exists(),
         "start actions never write finish state");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Resume ---
@@ -188,7 +180,6 @@ fn resume_runs_flow_from_state_and_clears_it_on_success() {
         "resume of a completed finish must not re-merge; calls: {calls:?}");
     assert!(!state_path(&git.git_dir).exists(),
         "state must be cleared after a successful resume");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -205,7 +196,6 @@ fn failed_resume_keeps_state_for_the_next_attempt() {
     assert!(result.is_err());
     assert!(state_path(&git.git_dir).exists(),
         "a failed resume must keep the state file for the next attempt");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Abort ---
@@ -227,7 +217,6 @@ fn abort_clears_state_without_touching_the_repo() {
     assert!(!calls.iter().any(|c| c.starts_with("merge:") || c.starts_with("checkout:")
             || c.starts_with("stash_pop_ref:")),
         "abort must not mutate the repo or auto-pop the stash; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Action resolution (moved from main.rs with the lifecycle) ---
@@ -286,10 +275,8 @@ fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
 // exercised by one invocation.
 
 fn worktree_lifecycle_git() -> MockGit {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "develop".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
-    git.repo_root = tmp_dir("bflow-wt-root").join("app");
     git.branches_matching = vec!["release/2.5.0".to_string()];
     git
 }
@@ -324,7 +311,6 @@ fn an_enabled_worktree_flow_waives_the_gate_and_actually_materializes_a_worktree
         "the gate was waived, so the branch must be created without switching; calls: {calls:?}");
     assert!(calls.iter().any(|c| c.starts_with("add_worktree:")),
         "waiving the gate without materializing a worktree is the divergence this pins; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -340,7 +326,6 @@ fn no_worktree_re_arms_the_gate_it_waived() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("add_worktree:") || c.starts_with("create_branch")),
         "nothing may be created; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- run_flow dispatch: every Action arm reaches its own flow ---
@@ -352,9 +337,8 @@ fn no_worktree_re_arms_the_gate_it_waived() {
 
 #[test]
 fn start_release_dispatches_to_the_release_flow() {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "develop".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.tags = vec!["v2.4.0".to_string()];
 
     run_lifecycle(&git, Some(Commands::Start {
@@ -366,7 +350,6 @@ fn start_release_dispatches_to_the_release_flow() {
         "--major must cut release/3.0.0 from v2.4.0; calls: {calls:?}");
     assert!(calls.contains(&"push_tag:v3.0.0-rc.1".to_string()),
         "a new release branch is tagged rc.1; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -383,14 +366,12 @@ fn start_release_fix_dispatches_from_the_release_branch() {
     let calls = git.calls();
     assert!(calls.contains(&"create_branch:release-fix/2.5.0/db-index:release/2.5.0".to_string()),
         "release fixes branch off the release they fix; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
 fn start_hotfix_fix_dispatches_and_creates_the_hotfix_branch() {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "main".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.tags = vec!["v2.5.0".to_string()];
 
     run_lifecycle(&git, Some(Commands::Start {
@@ -405,14 +386,12 @@ fn start_hotfix_fix_dispatches_and_creates_the_hotfix_branch() {
         "no hotfix branch yet — one is cut from main at the next patch; calls: {calls:?}");
     assert!(calls.contains(&"create_branch:hotfix-fix/2.5.1/npe:hotfix/2.5.1".to_string()),
         "the fix branches off that hotfix; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
 fn finish_release_fix_dispatches_and_targets_its_release_branch() {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "release-fix/2.5.0/db-index".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     let hosting = MockHosting::new();
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
@@ -421,14 +400,12 @@ fn finish_release_fix_dispatches_and_targets_its_release_branch() {
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:release-fix/2.5.0/db-index:release/2.5.0:")),
         "a release fix PRs back into its own release branch; calls: {:?}", hosting.calls());
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
 fn finish_hotfix_fix_dispatches_and_targets_its_hotfix_branch() {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "hotfix-fix/2.5.1/npe".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     let hosting = MockHosting::new();
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
@@ -437,7 +414,6 @@ fn finish_hotfix_fix_dispatches_and_targets_its_hotfix_branch() {
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:hotfix-fix/2.5.1/npe:hotfix/2.5.1:")),
         "a hotfix fix PRs back into its own hotfix branch; calls: {:?}", hosting.calls());
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -450,7 +426,6 @@ fn bump_dispatches_and_cuts_the_next_rc() {
     assert!(calls.contains(&"push_tag:v2.5.0-rc.2".to_string()),
         "bump cuts the next RC on the release branch; calls: {calls:?}");
     assert!(!state_path(&git.git_dir).exists(), "bump writes no finish state");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -465,15 +440,13 @@ fn sync_dispatches_and_returns_to_the_release_branch() {
     assert!(calls.contains(&"push:develop".to_string()), "calls: {calls:?}");
     assert_eq!(calls.last().map(String::as_str), Some("checkout:release/2.5.0"),
         "sync must leave you where you started; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Hotfix finish identity (the release half was covered; this half was not) ---
 
 fn hotfix_git() -> MockGit {
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "hotfix/2.5.1".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.existing_local_branches.insert("hotfix/2.5.1".to_string());
     git.existing_remote_branches.insert("hotfix/2.5.1".to_string());
     git
@@ -493,7 +466,6 @@ fn crashed_hotfix_finish_writes_hotfix_state_not_release_state() {
     assert_eq!(state.source_branch(), "hotfix/2.5.1");
     assert!(FinishState::load(&git.git_dir, FinishKind::Release, 2, 5, 1).unwrap().is_none(),
         "per-branch state identity: a hotfix finish must never be loadable as a release finish");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -520,7 +492,6 @@ fn hotfix_resume_takes_its_version_from_state_not_the_branch() {
         "resume of a completed hotfix must not re-merge; calls: {calls:?}");
     assert!(!FinishState::path(&git.git_dir, FinishKind::Hotfix, 2, 5, 1).exists(),
         "state must be cleared after a successful hotfix resume");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Abort with nothing in progress ---
@@ -536,7 +507,6 @@ fn abort_without_state_succeeds_and_does_nothing() {
     assert!(!calls.iter().any(|c| c == "fetch"), "abort must not fetch; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("merge:") || c.starts_with("checkout:")),
         "abort must not mutate the repo; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Stash-pop policy: the failure branches ---
@@ -545,9 +515,8 @@ fn abort_without_state_succeeds_and_does_nothing() {
 fn failed_stash_pop_warns_and_still_reports_the_flow_result() {
     // Warn-and-continue: the work already succeeded, so a failed pop must not turn
     // a successful start into an error — the user is told where their changes are.
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "develop".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.working_tree_clean = false;
     git.fail_stash_pop = true;
 
@@ -560,16 +529,14 @@ fn failed_stash_pop_warns_and_still_reports_the_flow_result() {
     assert!(result.is_ok(), "a failed pop must not fail the finished work: {result:?}");
     let calls = git.calls();
     assert!(calls.iter().any(|c| c.starts_with("stash_pop_ref:")), "pop must be attempted; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
 fn stash_lookup_failure_warns_and_never_pops_blindly() {
     // decisions.md, Stash Policy: never a blind `stash pop`. If the message lookup
     // fails we warn — popping stash@{0} could destroy a stash the user pushed.
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "develop".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.working_tree_clean = false;
     git.fail_find_stash = true;
 
@@ -583,7 +550,6 @@ fn stash_lookup_failure_warns_and_never_pops_blindly() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("stash_pop_ref:")),
         "no blind pop when the lookup failed; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -604,7 +570,6 @@ fn failed_release_finish_keeps_the_stash_for_resume() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("stash_pop_ref:")),
         "a failed finish must keep the stash for the resume; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 // --- Current-branch sync before the flow ---
@@ -622,7 +587,6 @@ fn missing_upstream_is_swallowed_but_a_real_ff_merge_error_aborts() {
     assert!(err.contains("unrelated histories"), "the real error must surface; got: {err}");
     assert!(!git.calls().iter().any(|c| c.starts_with("merge:")),
         "the flow must not run after a real sync failure; calls: {:?}", git.calls());
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -635,7 +599,6 @@ fn brand_new_branch_without_upstream_still_runs_its_flow() {
     assert!(result.is_err(), "the release flow itself fails later — on the main ff_merge");
     assert!(git.calls().iter().any(|c| c == "ff_merge:origin/release/2.5.0"),
         "the current-branch sync must have been attempted; calls: {:?}", git.calls());
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -655,9 +618,8 @@ fn explicit_base_rejected_even_when_resume_state_exists() {
 fn finish_work_branch_dispatches_with_its_resolved_pr_template() {
     // The work-branch finish is the only arm that resolves a PR template before
     // dispatch — flows never probe the filesystem themselves.
-    let mut git = MockGit::new();
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
     git.current_branch = "feature/login".to_string();
-    git.git_dir = tmp_dir("bflow-lifecycle-test");
     git.remote_branches = vec!["develop".to_string()];
     let hosting = MockHosting::new();
     let prompter = MockPrompter::scripted(&[0]); // "no" to breaking changes
@@ -669,7 +631,6 @@ fn finish_work_branch_dispatches_with_its_resolved_pr_template() {
         "calls: {:?}", hosting.calls());
     assert!(git.calls().contains(&"repo_root".to_string()),
         "template resolution is anchored to the repo root; calls: {:?}", git.calls());
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]
@@ -697,7 +658,6 @@ fn a_stash_that_vanished_before_the_pop_is_not_an_error() {
         "calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("stash_pop_ref:")),
         "nothing to pop — and never a blind pop; calls: {calls:?}");
-    std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
 #[test]

@@ -406,7 +406,6 @@ fn a_mid_merge_repo_is_detected_from_the_marker_files_git_leaves() {
         std::fs::write(dir.join(marker), b"").unwrap();
 
         assert!(GitCli::new(&runner).is_mid_merge().unwrap(), "{marker} must block a finish");
-        std::fs::remove_dir_all(&dir).ok();
     }
 }
 
@@ -417,5 +416,4 @@ fn a_repo_with_no_interrupted_operation_is_not_mid_merge() {
     let runner = MockCommandRunner::ok(dir.to_str().unwrap());
 
     assert!(!GitCli::new(&runner).is_mid_merge().unwrap());
-    std::fs::remove_dir_all(&dir).ok();
 }

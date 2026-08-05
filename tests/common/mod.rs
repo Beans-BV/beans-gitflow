@@ -84,6 +84,9 @@ pub struct MockGit {
     pub linked_worktree: bool,
     /// Path returned by `remove_current_worktree`.
     pub worktree_path: PathBuf,
+    /// Owns the temp directory `git_dir` points at, when there is one, so it
+    /// outlives the test exactly as long as the mock does.
+    _git_dir_guard: Option<TempDir>,
 }
 
 impl MockGit {
@@ -127,7 +130,16 @@ impl MockGit {
             head_sha: "headsha".to_string(),
             linked_worktree: false,
             worktree_path: PathBuf::from("/repos/beans-gitflow-feature-x"),
+            _git_dir_guard: None,
         }
+    }
+
+    /// A mock whose `git_dir()` is a real, unique temp directory — needed by any
+    /// test that drives the finish-state lifecycle. The directory is removed
+    /// when the mock is dropped, including when the test panics.
+    pub fn with_tmp_git_dir(prefix: &str) -> Self {
+        let dir = tmp_dir(prefix);
+        Self { git_dir: dir.to_path_buf(), _git_dir_guard: Some(dir), ..Self::new() }
     }
 
     pub fn calls(&self) -> Vec<String> {
@@ -635,12 +647,34 @@ impl CommandRunner for MockCommandRunner {
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// A temp directory that deletes itself when it goes out of scope. Derefs to
+/// `Path`, so it is used exactly like the `PathBuf` it replaced.
+///
+/// DAMP says duplicate the *scenario*, DRY the *how* — and teardown is the how.
+/// A trailing `remove_dir_all` also has a second problem beyond repetition: it
+/// never runs when a test panics mid-assertion, so a failing test leaks its
+/// directory into the next run.
+pub struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
 /// Unique temp directory for integration tests that need a fake `.git` dir
 /// (state files). Mirrors the lib's #[cfg(test)] helper, which integration
 /// tests cannot link.
-pub fn tmp_dir(prefix: &str) -> PathBuf {
+pub fn tmp_dir(prefix: &str) -> TempDir {
     let n = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    dir
+    TempDir(dir)
 }
