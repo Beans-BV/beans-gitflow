@@ -39,7 +39,10 @@ pub struct FinishState {
     pub minor: u32,
     pub patch: u32,
     pub started_at: String,
-    pub stash_ref: Option<String>,
+    /// The stash *message* (`bflow-finish:<branch>:<ts>`), not a `stash@{n}`
+    /// ref — indices shift, so the stash is always looked up by message before
+    /// popping (decisions.md, Stash Policy).
+    pub stash_message: Option<String>,
 }
 
 impl FinishState {
@@ -127,8 +130,12 @@ impl FinishState {
         out.push_str(&format!("minor={}\n", self.minor));
         out.push_str(&format!("patch={}\n", self.patch));
         out.push_str(&format!("started_at={}\n", self.started_at));
-        if let Some(stash_ref) = &self.stash_ref {
-            out.push_str(&format!("stash_ref={stash_ref}\n"));
+        if let Some(message) = &self.stash_message {
+            // The serialized key stays `stash_ref=` on purpose: an older bflow
+            // reading a file written by a newer one ignores unknown keys, so
+            // renaming it would silently drop the stash it must restore. The
+            // field name is the thing that was wrong, not the format.
+            out.push_str(&format!("stash_ref={message}\n"));
         }
         out
     }
@@ -140,7 +147,7 @@ impl FinishState {
         let mut minor: Option<u32> = None;
         let mut patch: Option<u32> = None;
         let mut started_at: Option<String> = None;
-        let mut stash_ref: Option<String> = None;
+        let mut stash_message: Option<String> = None;
 
         for line in contents.lines() {
             let line = line.trim();
@@ -156,7 +163,7 @@ impl FinishState {
                 "minor" => minor = value.trim().parse().ok(),
                 "patch" => patch = value.trim().parse().ok(),
                 "started_at" => started_at = Some(value.trim().to_string()),
-                "stash_ref" => stash_ref = Some(value.trim().to_string()),
+                "stash_ref" => stash_message = Some(value.trim().to_string()),
                 _ => {}
             }
         }
@@ -174,7 +181,7 @@ impl FinishState {
             minor: minor.ok_or("Missing minor in state file")?,
             patch: patch.ok_or("Missing patch in state file")?,
             started_at: started_at.ok_or("Missing started_at in state file")?,
-            stash_ref,
+            stash_message,
         })
     }
 }
@@ -201,7 +208,7 @@ mod tests {
             kind: FinishKind::Release,
             major, minor, patch,
             started_at: "1234".to_string(),
-            stash_ref: None,
+            stash_message: None,
         }
     }
 
@@ -210,7 +217,8 @@ mod tests {
             kind: FinishKind::Hotfix,
             major, minor, patch,
             started_at: "5678".to_string(),
-            stash_ref: Some("stash@{0}".to_string()),
+            // The real shape a finish writes — a message, never a stash@{n} ref.
+            stash_message: Some("bflow-finish:hotfix/2.5.2:5678".to_string()),
         }
     }
 
@@ -303,7 +311,7 @@ worktree_path=/somewhere/new
 
         assert_eq!(state.kind, FinishKind::Release);
         assert_eq!((state.major, state.minor, state.patch), (2, 5, 0));
-        assert_eq!(state.stash_ref, None);
+        assert_eq!(state.stash_message, None);
     }
 
     #[test]

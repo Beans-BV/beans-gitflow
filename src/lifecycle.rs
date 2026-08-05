@@ -89,7 +89,7 @@ pub fn run(
 
     // Stash if needed. On resume, inherit the prior stash ref from state.
     let stash_msg = if resume_state.is_some() {
-        resume_state.as_ref().and_then(|s| s.stash_ref.clone())
+        resume_state.as_ref().and_then(|s| s.stash_message.clone())
     } else if needs_stash {
         println!("Stashing uncommitted changes...");
         let msg = format!("bflow-finish:{branch_name}:{}", current_timestamp());
@@ -107,7 +107,7 @@ pub fn run(
         FinishState {
             kind, major, minor, patch,
             started_at: current_timestamp(),
-            stash_ref: stash_msg.clone(),
+            stash_message: stash_msg.clone(),
         }.save(&git_dir)?;
     }
 
@@ -230,7 +230,7 @@ fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result
             println!("Aborting in-progress {} finish for {} (started_at={}).",
                 s.kind.as_str(), s.source_branch(), s.started_at);
             FinishState::clear(git_dir, s.kind, s.major, s.minor, s.patch)?;
-            if let Some(msg) = &s.stash_ref {
+            if let Some(msg) = &s.stash_message {
                 println!("Your original uncommitted changes are still stashed as '{msg}'.");
                 println!("Run 'git stash list' to find it, then 'git stash pop <ref>' to restore.");
             }

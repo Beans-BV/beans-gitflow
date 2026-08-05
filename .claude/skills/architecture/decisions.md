@@ -49,7 +49,7 @@ User-configurable without code changes: the worktree flow (`bflow.worktree.*` gi
 
 ## Stash Policy
 
-- **Stash by unique message (`bflow-finish:{branch}:{ts}`), looked up by message before popping — never blind `stash pop`** (which could pop a stash the user pushed meanwhile). The state's `stash_ref` field stores the *message*, not `stash@{n}` (indices shift).
+- **Stash by unique message (`bflow-finish:{branch}:{ts}`), looked up by message before popping — never blind `stash pop`** (which could pop a stash the user pushed meanwhile). The state's `stash_message` field stores exactly that — the message, not `stash@{n}` (indices shift). Its serialized key stays `stash_ref=` for forward compatibility: unknown keys are ignored, so renaming it would make an older bflow silently drop a stash it must restore.
 - **Three-way pop policy**: success → pop; failed release/hotfix finish → keep for resume (announced with recovery commands); any other failure → pop (restore the user's tree). Resume inherits the prior stash instead of stashing again; abort keeps the stash and tells you how to pop it (auto-pop could conflict with the aborted merge's tree).
 
 ## Resume & Idempotency
@@ -107,4 +107,3 @@ User-configurable without code changes: the worktree flow (`bflow.worktree.*` gi
 - No `clippy`/`fmt --check` in CI; unpinned stable toolchain; no MSRV; no build cache.
 - Version triple (`Cargo.toml` / nuspec / tag) synced only by the release-skill checklist (nuspec is overridden at pack time, so drift is bounded).
 - `git_dir()` is unresolved/relative and per-worktree in linked worktrees; `state.save` is not write-temp-then-rename (a truncated file fails safe via version/field validation, but noisily).
-- `stash_ref` field name is misleading (stores a message); one state test seeds a literal `stash@{0}` that isn't the real-world shape.

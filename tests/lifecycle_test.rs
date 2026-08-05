@@ -96,7 +96,7 @@ fn mid_merge_preflight_blocks_and_names_pending_resume() {
     // An in-progress finish is waiting.
     FinishState {
         kind: FinishKind::Release, major: 2, minor: 5, patch: 0,
-        started_at: "1".to_string(), stash_ref: None,
+        started_at: "1".to_string(), stash_message: None,
     }.save(&git.git_dir).unwrap();
 
     let err = run_lifecycle(&git, finish_cmd()).unwrap_err();
@@ -170,7 +170,7 @@ fn resume_runs_flow_from_state_and_clears_it_on_success() {
     git.pushed_branches.insert("develop".to_string());
     FinishState {
         kind: FinishKind::Release, major: 2, minor: 5, patch: 0,
-        started_at: "1".to_string(), stash_ref: None,
+        started_at: "1".to_string(), stash_message: None,
     }.save(&git.git_dir).unwrap();
 
     run_lifecycle(&git, finish_cmd()).unwrap();
@@ -188,7 +188,7 @@ fn failed_resume_keeps_state_for_the_next_attempt() {
     git.fail_nth_merge = Some(1);
     FinishState {
         kind: FinishKind::Release, major: 2, minor: 5, patch: 0,
-        started_at: "1".to_string(), stash_ref: None,
+        started_at: "1".to_string(), stash_message: None,
     }.save(&git.git_dir).unwrap();
 
     let result = run_lifecycle(&git, finish_cmd());
@@ -206,7 +206,7 @@ fn abort_clears_state_without_touching_the_repo() {
     git.mid_merge = true; // abort must work even mid-merge
     FinishState {
         kind: FinishKind::Release, major: 2, minor: 5, patch: 0,
-        started_at: "1".to_string(), stash_ref: Some("bflow-finish:release/2.5.0:1".to_string()),
+        started_at: "1".to_string(), stash_message: Some("bflow-finish:release/2.5.0:1".to_string()),
     }.save(&git.git_dir).unwrap();
 
     run_lifecycle(&git, Some(Commands::Finish { breaking: None, base: None, abort: true })).unwrap();
@@ -228,7 +228,7 @@ fn release_state() -> FinishState {
         minor: 5,
         patch: 0,
         started_at: "0".to_string(),
-        stash_ref: None,
+        stash_message: None,
     }
 }
 
@@ -482,7 +482,7 @@ fn hotfix_resume_takes_its_version_from_state_not_the_branch() {
     git.pushed_branches.insert("develop".to_string());
     FinishState {
         kind: FinishKind::Hotfix, major: 2, minor: 5, patch: 1,
-        started_at: "1".to_string(), stash_ref: None,
+        started_at: "1".to_string(), stash_message: None,
     }.save(&git.git_dir).unwrap();
 
     run_lifecycle(&git, finish_cmd()).unwrap();
@@ -561,7 +561,7 @@ fn failed_release_finish_keeps_the_stash_for_resume() {
     git.fail_nth_merge = Some(1);
     FinishState {
         kind: FinishKind::Release, major: 2, minor: 5, patch: 0,
-        started_at: "1".to_string(), stash_ref: Some("bflow-finish:release/2.5.0:1".to_string()),
+        started_at: "1".to_string(), stash_message: Some("bflow-finish:release/2.5.0:1".to_string()),
     }.save(&git.git_dir).unwrap();
 
     let result = run_lifecycle(&git, finish_cmd());
@@ -648,7 +648,7 @@ fn a_stash_that_vanished_before_the_pop_is_not_an_error() {
     FinishState {
         kind: FinishKind::Release, major: 2, minor: 5, patch: 0,
         started_at: "1".to_string(),
-        stash_ref: Some("bflow-finish:release/2.5.0:1".to_string()), // never actually stashed
+        stash_message: Some("bflow-finish:release/2.5.0:1".to_string()), // never actually stashed
     }.save(&git.git_dir).unwrap();
 
     run_lifecycle(&git, finish_cmd()).unwrap();
