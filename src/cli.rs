@@ -60,7 +60,7 @@ pub enum WorktreeAction {
     Status,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct StartOptions {
     /// Create and push the branch without checking it out
     #[arg(long)]

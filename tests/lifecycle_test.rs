@@ -137,7 +137,7 @@ fn dirty_start_stashes_before_mutating_and_pops_on_success() {
     let start = Some(Commands::Start { kind: StartKind::Feature {
         name: "login".to_string(),
         base: "develop".to_string(),
-        opts: StartOptions { no_checkout: false, no_worktree: false },
+        opts: StartOptions::default(),
     }});
 
     run_lifecycle(&git, start).unwrap();
@@ -284,7 +284,7 @@ fn worktree_lifecycle_git() -> MockGit {
 fn start_release_fix_cmd(no_worktree: bool) -> Option<Commands> {
     Some(Commands::Start { kind: StartKind::ReleaseFix {
         name: "db-index".to_string(),
-        opts: StartOptions { no_checkout: false, no_worktree },
+        opts: StartOptions { no_worktree, ..Default::default() },
     }})
 }
 
@@ -359,7 +359,7 @@ fn start_release_fix_dispatches_from_the_release_branch() {
     run_lifecycle(&git, Some(Commands::Start {
         kind: StartKind::ReleaseFix {
             name: "db-index".to_string(),
-            opts: StartOptions { no_checkout: false, no_worktree: false },
+            opts: StartOptions::default(),
         },
     })).unwrap();
 
@@ -377,7 +377,7 @@ fn start_hotfix_fix_dispatches_and_creates_the_hotfix_branch() {
     run_lifecycle(&git, Some(Commands::Start {
         kind: StartKind::HotfixFix {
             name: "npe".to_string(),
-            opts: StartOptions { no_checkout: false, no_worktree: false },
+            opts: StartOptions::default(),
         },
     })).unwrap();
 
@@ -523,7 +523,7 @@ fn failed_stash_pop_warns_and_still_reports_the_flow_result() {
     let result = run_lifecycle(&git, Some(Commands::Start { kind: StartKind::Feature {
         name: "login".to_string(),
         base: "develop".to_string(),
-        opts: StartOptions { no_checkout: false, no_worktree: false },
+        opts: StartOptions::default(),
     }}));
 
     assert!(result.is_ok(), "a failed pop must not fail the finished work: {result:?}");
@@ -543,7 +543,7 @@ fn stash_lookup_failure_warns_and_never_pops_blindly() {
     let result = run_lifecycle(&git, Some(Commands::Start { kind: StartKind::Feature {
         name: "login".to_string(),
         base: "develop".to_string(),
-        opts: StartOptions { no_checkout: false, no_worktree: false },
+        opts: StartOptions::default(),
     }}));
 
     assert!(result.is_ok(), "a failed stash lookup must not fail the finished work: {result:?}");
