@@ -10,4 +10,26 @@ consequence-not-shape and mutation verification (Verification Before Done).
 
 ---
 
-(no open lessons)
+## Re-load the principle skills between tasks, not once per session
+
+**Correction (2026-08-05):** loading `kiss-principles` / `dry-principles` /
+`solid-principles` / `architecture` + CLAUDE.md once at the start of a long
+multi-task run is not enough — as context grows, the earliest material is the
+first to stop shaping decisions.
+
+**Rule:** on a run with more than a couple of chunks, re-invoke the four skills
+and re-read CLAUDE.md between chunks, and always at a phase boundary. When a
+skill is already in context the harness answers "instructions unchanged", so the
+cost is near zero; when it is not, that is exactly when the reload was needed.
+Do not skip it to save tokens — the user has explicitly traded tokens for
+quality here.
+
+## A mock is an implementation of the trait
+
+A mock that ignores an argument or returns values the real impl could never
+produce is an LSP violation, and it manufactures false confidence: tests pass on
+input production cannot generate. Two bugs in this repo traced to exactly that.
+
+**Rule:** whenever a trait method's doc states a guarantee, the mock must model
+it or assert it. If production code exists to correct a mock's output, the
+relationship is inverted — fix the mock and delete the production code.
