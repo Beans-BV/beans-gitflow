@@ -38,7 +38,11 @@ pub fn run(
     // is no resume — bflow behaves normally — so a stalled finish never hijacks
     // other work. To continue after a conflict you switch back to the source
     // branch and re-run 'bflow finish'.
-    let resume_state = match finish_identity(&branch_type) {
+    // Derived once and reused for the load, the write, and the clear, so those
+    // three can never encode the branch→identity rule differently.
+    let identity = finish_identity(&branch_type);
+
+    let resume_state = match identity {
         Some((kind, major, minor, patch)) => FinishState::load(&git_dir, kind, major, minor, patch)?,
         None => None,
     };
@@ -89,7 +93,14 @@ pub fn run(
 
     // Write state file BEFORE the first side effect of a release/hotfix finish.
     if is_finish_with_state && resume_state.is_none() {
-        write_state_for_action(&action, &branch_type, &git_dir, stash_msg.clone())?;
+        let Some((kind, major, minor, patch)) = identity else {
+            unreachable!("FinishRelease/FinishHotfix are only ever dispatched from their own release/hotfix branch, which always yields a finish identity");
+        };
+        FinishState {
+            kind, major, minor, patch,
+            started_at: current_timestamp(),
+            stash_ref: stash_msg.clone(),
+        }.save(&git_dir)?;
     }
 
     let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree_active, wt_config, editor, resume_state.as_ref());
@@ -97,7 +108,7 @@ pub fn run(
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
     if result.is_ok() && (is_finish_with_state || resume_state.is_some()) {
-        if let Some((kind, major, minor, patch)) = finish_identity(&branch_type) {
+        if let Some((kind, major, minor, patch)) = identity {
             FinishState::clear(&git_dir, kind, major, minor, patch)?;
         }
     }
@@ -193,29 +204,6 @@ fn finish_identity(branch_type: &BranchType) -> Option<(FinishKind, u32, u32, u3
         }
         _ => None,
     }
-}
-
-fn write_state_for_action(
-    action: &Action,
-    branch_type: &BranchType,
-    git_dir: &std::path::Path,
-    stash_ref: Option<String>,
-) -> Result<(), String> {
-    // The action decides *whether* state is written; the branch supplies the
-    // identity via the same finish_identity mapping the resume lookup uses,
-    // so the two can never encode the branch→identity rule differently.
-    let expected_kind = match action {
-        Action::FinishRelease => FinishKind::Release,
-        Action::FinishHotfix => FinishKind::Hotfix,
-        _ => return Ok(()),
-    };
-    let Some((kind, major, minor, patch)) = finish_identity(branch_type) else {
-        return Ok(());
-    };
-    if kind != expected_kind {
-        return Ok(());
-    }
-    FinishState { kind, major, minor, patch, started_at: current_timestamp(), stash_ref }.save(git_dir)
 }
 
 fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result<(), String> {

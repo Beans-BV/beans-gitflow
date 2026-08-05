@@ -106,5 +106,4 @@ User-configurable without code changes: the worktree flow (`bflow.worktree.*` gi
 - No `clippy`/`fmt --check` in CI; unpinned stable toolchain; no MSRV; no build cache.
 - Version triple (`Cargo.toml` / nuspec / tag) synced only by the release-skill checklist (nuspec is overridden at pack time, so drift is bounded).
 - `git_dir()` is unresolved/relative and per-worktree in linked worktrees; `state.save` is not write-temp-then-rename (a truncated file fails safe via version/field validation, but noisily).
-- `lifecycle::write_state_for_action` re-derives guards its only caller already enforces: its `_ => Ok(())`, missing-identity, and kind-mismatch arms are unreachable in practice (and show as permanently uncovered). Harmless, but it is defensive code with no live path.
 - `stash_ref` field name is misleading (stores a message); one state test seeds a literal `stash@{0}` that isn't the real-world shape.
