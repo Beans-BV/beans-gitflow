@@ -367,8 +367,8 @@ fn resolve_pr_template(git: &dyn Git, branch_type: &BranchType) -> Result<Option
 /// protected mode — free mode never opens a landing PR, so it must not call
 /// `git.repo_root()` (free-mode lifecycle sequences are pinned byte-for-byte).
 fn resolve_landing_template(git: &dyn Git, repo_cfg: &RepoConfig, key: &str) -> Result<Option<std::path::PathBuf>, String> {
-    if repo_cfg.mode != Mode::Protected {
-        return Ok(None);
+    if repo_cfg.mode == Mode::Protected {
+        return Ok(crate::hosting::template::resolve_keys(&git.repo_root()?, key, key));
     }
-    Ok(crate::hosting::template::resolve_keys(&git.repo_root()?, key, key))
+    Ok(None)
 }

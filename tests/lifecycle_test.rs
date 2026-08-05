@@ -71,6 +71,8 @@ fn successful_finish_clears_state() {
         "state must be cleared after a successful finish");
     assert!(git.calls().iter().any(|c| c.starts_with("merge:release/2.5.0:")),
         "the finish flow must actually have run");
+    assert!(!git.calls().contains(&"repo_root".to_string()),
+        "free mode never opens a landing PR, so it must never resolve a landing template; calls: {:?}", git.calls());
 }
 
 #[test]
@@ -113,6 +115,8 @@ fn protected_finish_writes_no_state_file() {
         "protected finishes never write FinishState");
     assert!(!FinishState::dir(&git.git_dir).exists(),
         "no per-branch state directory may be created; nothing to resume");
+    assert!(git.calls().contains(&"repo_root".to_string()),
+        "protected finishes resolve a landing PR template; calls: {:?}", git.calls());
 }
 
 #[test]
@@ -131,6 +135,8 @@ fn protected_finish_rejects_dirty_tree() {
         "nothing may be stashed before the reject; calls: {calls:?}");
     assert!(!state_path(&git.git_dir).exists(),
         "no state may be written before the reject");
+    assert!(!calls.iter().any(|c| c.starts_with("merge:")),
+        "no mutation may run; calls: {calls:?}");
 }
 
 #[test]
