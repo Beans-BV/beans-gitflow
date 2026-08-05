@@ -15,6 +15,7 @@ use crate::hosting::HostingPlatform;
 use crate::mainline::resolve_main_branch;
 use crate::menu;
 use crate::prompt::Prompter;
+use crate::repo_config::RepoConfig;
 use crate::state::{current_timestamp, FinishKind, FinishState};
 use crate::worktree::{WorktreeConfig, WorktreeContext};
 
@@ -272,7 +273,9 @@ fn run_flow(
             start::start_work_branch(git, prefix, name, from, *no_checkout, worktree)?;
         }
         Action::StartRelease(release_type) => {
-            start::start_release(git, prompter, None, *release_type)?;
+            // Task 16 threads the real RepoConfig read from .bflow/config; until
+            // then every run behaves as free mode (today's behavior).
+            start::start_release(git, prompter, hosting, None, &RepoConfig::default(), *release_type)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {
             start::start_release_fix(git, name, *no_checkout, worktree)?;

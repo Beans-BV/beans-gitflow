@@ -1,6 +1,8 @@
 use crate::flows::{require_clean_tree, run_version_script};
 use crate::git::Git;
+use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
+use crate::repo_config::{Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
 use crate::worktree::{open_worktree, WorktreeContext};
@@ -61,8 +63,8 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })
 }
 
-pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, script: Option<&dyn VersionScript>, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, prompter, script, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type)?;
     Ok(())
 }
 
@@ -92,7 +94,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: 
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
-fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, script: Option<&dyn VersionScript>, release_type: Option<ReleaseType>) -> Result<String, String> {
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<String, String> {
     let release_branches = git.list_branches_matching("release/*")?;
 
     if let Some(branch) = release_branches.first() {
@@ -128,7 +130,69 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, script: Opt
     git.create_tag(&tag, &format!("chore: create release branch {next}"))?;
     git.push_tag(&tag)?;
 
+    if let Some(script) = script {
+        let dev = next.bump_minor();
+        if let Err(e) = bump_develop(git, hosting, script, cfg, &dev, &branch) {
+            eprintln!("Warning: develop version bump failed: {e}");
+            eprintln!(
+                "The release was created successfully. Update develop's version manually: run {} {dev} on develop and commit.",
+                script.display_name()
+            );
+            let _ = git.checkout(&branch);
+        }
+    }
+
     Ok(branch)
+}
+
+/// Moment 2: after the release is cut (and its rc.1 tag pushed), bump develop
+/// to the next dev version so it never regresses behind the release branch.
+/// Always ends back on `release_branch` on its own success paths; a failure
+/// here is caught by the caller, which restores the checkout itself.
+fn bump_develop(git: &dyn Git, hosting: &dyn HostingPlatform, script: &dyn VersionScript, cfg: &RepoConfig, dev: &SemVer, release_branch: &str) -> Result<(), String> {
+    git.checkout("develop")?;
+    git.ff_merge("origin/develop")?;
+
+    match cfg.mode {
+        Mode::Free => {
+            require_clean_tree(git)?;
+            if run_version_script(git, script, dev)? {
+                git.push("develop")?;
+            } else {
+                println!("↷ skipped: develop version bump (no changes)");
+            }
+        }
+        Mode::Protected => bump_develop_protected(git, hosting, script, dev)?,
+    }
+
+    git.checkout(release_branch)
+}
+
+/// Protected-mode M2: never push develop directly. Reuses a leftover
+/// `chore/set-version-*` branch instead of recreating it — the resume case
+/// after a prior run's crash between branch creation and the version PR.
+fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: &dyn VersionScript, dev: &SemVer) -> Result<(), String> {
+    let chore_branch = format!("chore/set-version-{dev}");
+    let title = format!("chore: set version {dev}");
+
+    if git.remote_branch_exists(&chore_branch)? {
+        let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+        println!("Version PR: {url}");
+        return Ok(());
+    }
+
+    git.create_branch(&chore_branch, "develop")?;
+    require_clean_tree(git)?;
+    if run_version_script(git, script, dev)? {
+        git.push(&chore_branch)?;
+        let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+        println!("Version PR: {url}");
+    } else {
+        git.checkout("develop")?;
+        git.delete_branch_local(&chore_branch)?;
+        println!("↷ skipped: develop version bump (no changes)");
+    }
+    Ok(())
 }
 
 pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
