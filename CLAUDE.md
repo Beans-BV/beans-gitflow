@@ -95,6 +95,21 @@ For non-trivial changes: pause and ask "is there a more elegant way?"
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 
+## Comments & Code Documentation
+
+Default is **no comments**. Code that speaks for itself needs none — and most code should.
+
+- Before writing a comment, first try to make it unnecessary: a better name, an
+  extracted function, a simpler structure. Self-explanatory code beats a comment
+  explaining unclear code.
+- A comment earns its place only for what code cannot express: a non-obvious
+  constraint, a surprising "why", an external quirk or workaround.
+- **Never** write comments addressed to the reviewer or the conversation —
+  "added X to fix Y", "this now handles Z", narration of what you changed or why
+  your change is correct. That context belongs in the commit message or the chat,
+  never in the code. The next developer reading the file was not in this session.
+- Same for doc comments: no boilerplate that restates the signature.
+
 # Architectural Decisions
 
 When a change involves a design choice, the answer is never just the first workable approach. It is: the real options, the axis that separates them, one recommendation, and a reversibility call.
