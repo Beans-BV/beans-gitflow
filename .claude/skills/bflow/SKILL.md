@@ -103,13 +103,13 @@ bflow sync # merge release into develop (on release/* only)
 
 `.bflow/config` (committed file, not git config — repo policy, not per-clone): `mode=free|protected` (default `free` = today's behavior), `keep-release-branches=true|false` (default `false`; skips deleting `release/*`/`hotfix/*` on finish, work branches unaffected).
 
-**`mode=protected`** — `main`/`develop` require PRs. `finish`/`bump`/`sync` open (or reuse) a PR for every landing instead of merging directly, print its URL, and **exit 0** — bflow never merges a PR. **Re-run the same command after a human merges it**; it continues from there. One PR per run, in order (main → develop → each open release branch for hotfixes); only the last landing deletes the branch. Nothing is stored on disk to resume — progress is re-derived from PR/tag state each run.
+**`mode=protected`** — `main`/`develop` require PRs. `finish`/`bump`/`sync` open (or reuse) a PR for every landing instead of merging directly, print its URL, and **exit 0** — bflow never merges a PR. **Re-run the same command after a human merges it**; it continues from there. One PR per run, in order (main → develop → each open release branch for hotfixes); only the last landing deletes the branch. Nothing is stored on disk to resume — progress is re-derived from PR/tag state each run. Once a release's `main` PR has merged, don't commit further to the release branch (the clean tag is already placed) — ship fixes as a hotfix instead.
 
 `bump` may print `Version PR: {url}` and defer the RC tag when a version-script commit needs its own PR on an already-pushed release branch — re-run `bflow bump` after that PR merges; it tags the **PR's merge commit**, it does not re-run the script.
 
 **Version script** (`.bflow/set-version.sh` / `.bflow/set-version.cmd`, platform-picked; both missing = feature off): runs with the clean `X.Y.Z` at release/hotfix branch creation, the post-release develop bump, and `bump`; commits `chore: set version {v}` only if it changed files. Requires a clean tree first.
 
-`chore/set-version-{v}` and `release-chore/{v}/set-version` are **bflow-created** — merge their PR, never commit to them. A `release-chore/*` branch finishes like `release-fix` (PR into its release branch, no `--base`).
+`chore/set-version-{v}` and `release-chore/{v}/set-version` are **bflow-created** — merge their PR, never commit to them. `chore/set-version-*` is also excluded from `finish`'s PR-target candidates (it gets merged and deleted out from under a PR that targeted it). A `release-chore/*` branch finishes like `release-fix` (PR into its release branch, no `--base`).
 
 **Papercut**: version files can conflict on merge (hotfix vs. develop, major release vs. develop) — resolve manually, bflow does not auto-resolve.
 

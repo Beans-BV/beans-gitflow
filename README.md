@@ -479,6 +479,7 @@ Use `mode=protected` when `main`/`develop` require pull requests (branch protect
 - `finish`, `bump`, and `sync` **exit 0** with the PR pending — nothing is left half-done, there's just a human step in between. Re-run the same command after the PR is merged; it continues from there.
 - Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch (unless `keep-release-branches=true`).
 - Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
+- Once a release's PR into `main` has merged, don't add new commits to the release branch — the clean tag is already placed there. Ship further fixes as a hotfix instead.
 
 A `bflow finish` loop on a release branch looks like this:
 
