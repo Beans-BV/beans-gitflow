@@ -17,27 +17,45 @@ fn effective_no_checkout(no_checkout: bool, worktree: &Option<WorktreeContext<'_
     no_checkout || worktree.is_some()
 }
 
+/// Bring `branch` into existence off `base`: create it (checked out or not),
+/// push it, narrate both, and materialize a worktree when one is active.
+///
+/// The three `start_*` flows differ only in how they derive `branch` and
+/// `base` — everything after that is one piece of knowledge, and the
+/// create/push/narrate/worktree ordering is what the start tests assert.
+fn materialize_branch(
+    git: &dyn Git,
+    branch: &str,
+    base: &str,
+    no_checkout: bool,
+    worktree: Option<WorktreeContext<'_>>,
+) -> Result<(), String> {
+    println!("Creating branch: {branch}");
+    if no_checkout {
+        git.create_branch_no_checkout(branch, base)?;
+    } else {
+        git.create_branch(branch, base)?;
+    }
+    git.push(branch)?;
+    println!("Branch '{branch}' created and pushed.");
+    if let Some(ctx) = worktree {
+        open_worktree(git, ctx.editor, ctx.config, branch)?;
+    }
+    Ok(())
+}
+
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
-    println!("Creating branch: {branch}");
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    if effective_no_checkout {
-        git.create_branch_no_checkout(&branch, from)
-    } else {
-        git.create_branch(&branch, from)
-    }.map_err(|e| {
+    // Unlike the fix flows, `from` comes straight from the user (`--base`), so
+    // git's "not a commit" is rewritten into guidance naming the flag.
+    materialize_branch(git, &branch, from, effective_no_checkout, worktree).map_err(|e| {
         if e.contains("not a commit") {
             format!("Branch '{from}' does not exist. Use --base to specify a different base branch.")
         } else {
             e
         }
-    })?;
-    git.push(&branch)?;
-    println!("Branch '{branch}' created and pushed.");
-    if let Some(ctx) = worktree {
-        open_worktree(git, ctx.editor, ctx.config, &branch)?;
-    }
-    Ok(())
+    })
 }
 
 pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<(), String> {
@@ -62,18 +80,7 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
 
     let version = release_branch.strip_prefix("release/").unwrap();
     let branch = format!("release-fix/{version}/{name}");
-    println!("Creating branch: {branch}");
-    if effective_no_checkout {
-        git.create_branch_no_checkout(&branch, &release_branch)?;
-    } else {
-        git.create_branch(&branch, &release_branch)?;
-    }
-    git.push(&branch)?;
-    println!("Branch '{branch}' created and pushed.");
-    if let Some(ctx) = worktree {
-        open_worktree(git, ctx.editor, ctx.config, &branch)?;
-    }
-    Ok(())
+    materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
 pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
@@ -81,18 +88,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: 
     let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout)?;
     let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
     let branch = format!("hotfix-fix/{version}/{name}");
-    println!("Creating branch: {branch}");
-    if effective_no_checkout {
-        git.create_branch_no_checkout(&branch, &hotfix_branch)?;
-    } else {
-        git.create_branch(&branch, &hotfix_branch)?;
-    }
-    git.push(&branch)?;
-    println!("Branch '{branch}' created and pushed.");
-    if let Some(ctx) = worktree {
-        open_worktree(git, ctx.editor, ctx.config, &branch)?;
-    }
-    Ok(())
+    materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
 fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<String, String> {
