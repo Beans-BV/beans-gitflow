@@ -89,7 +89,63 @@ fn start_release_checks_out_existing_release_branch() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
+        "tag_exists:v1.1.0",
         "checkout:release/1.1.0",
+    ]);
+}
+
+#[test]
+fn start_release_skips_shipped_release_branch() {
+    // Trap 1: release/1.1.0 already has a v1.1.0 tag — it shipped and is not
+    // open. Reuse must skip it and land on the still-open release/1.2.0.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["release/1.1.0".to_string(), "release/1.2.0".to_string()];
+    git.existing_tags.insert("v1.1.0".to_string());
+
+    start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &RepoConfig::default(), Some(ReleaseType::Minor)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "tag_exists:v1.1.0",
+        "tag_exists:v1.2.0",
+        "checkout:release/1.2.0",
+    ]);
+}
+
+#[test]
+fn start_release_creates_new_when_all_releases_shipped() {
+    // Every candidate is shipped, so reuse falls through to the create path.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["release/1.1.0".to_string()];
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tags = vec!["v1.1.0".to_string()];
+
+    start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &RepoConfig::default(), Some(ReleaseType::Minor)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "tag_exists:v1.1.0",
+        "list_tags",
+        "checkout:develop",
+        "create_branch:release/1.2.0:develop",
+        "push:release/1.2.0",
+        "create_tag:v1.2.0-rc.1:chore: create release branch 1.2.0",
+        "push_tag:v1.2.0-rc.1",
+    ]);
+}
+
+#[test]
+fn start_release_reuse_keeps_unparseable_branch_open() {
+    // A release branch whose version does not parse cannot be checked against
+    // a tag, so it stays in the open set — today's behavior, unchanged by trap 1.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["release/wip".to_string()];
+
+    start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &RepoConfig::default(), Some(ReleaseType::Minor)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "checkout:release/wip",
     ]);
 }
 
@@ -129,9 +185,30 @@ fn start_hotfix_fix_creates_and_pushes_existing_hotfix() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
+        "tag_exists:v1.0.1",
         "checkout:hotfix/1.0.1",
         "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
         "push:hotfix-fix/1.0.1/urgent-crash",
+    ]);
+}
+
+#[test]
+fn start_hotfix_fix_skips_shipped_hotfix_branch() {
+    // Trap 1: hotfix/1.0.1 already has a v1.0.1 tag — it shipped. Reuse must
+    // skip it and land on the still-open hotfix/1.0.2.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["hotfix/1.0.1".to_string(), "hotfix/1.0.2".to_string()];
+    git.existing_tags.insert("v1.0.1".to_string());
+
+    start_hotfix_fix(&git, "urgent-crash", false, None, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*",
+        "tag_exists:v1.0.1",
+        "tag_exists:v1.0.2",
+        "checkout:hotfix/1.0.2",
+        "create_branch:hotfix-fix/1.0.2/urgent-crash:hotfix/1.0.2",
+        "push:hotfix-fix/1.0.2/urgent-crash",
     ]);
 }
 
@@ -194,6 +271,27 @@ fn start_release_fix_no_checkout_discovers_release_branch() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
+        "tag_exists:v1.2.0",
+        "create_branch_no_checkout:release-fix/1.2.0/broken-login:release/1.2.0",
+        "push:release-fix/1.2.0/broken-login",
+    ]);
+}
+
+#[test]
+fn start_release_fix_no_checkout_skips_shipped_release_branch() {
+    // Trap 1: release/1.1.0 already shipped (tagged v1.1.0). Discovery must
+    // skip it and pick the still-open release/1.2.0.
+    let mut git = MockGit::new();
+    git.current_branch = "develop".to_string();
+    git.branches_matching = vec!["release/1.1.0".to_string(), "release/1.2.0".to_string()];
+    git.existing_tags.insert("v1.1.0".to_string());
+
+    start_release_fix(&git, "broken-login", true, None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "tag_exists:v1.1.0",
+        "tag_exists:v1.2.0",
         "create_branch_no_checkout:release-fix/1.2.0/broken-login:release/1.2.0",
         "push:release-fix/1.2.0/broken-login",
     ]);
@@ -217,6 +315,7 @@ fn start_hotfix_fix_no_checkout_existing_hotfix() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
+        "tag_exists:v1.0.1",
         "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
         "push:hotfix-fix/1.0.1/urgent-crash",
     ]);
@@ -362,6 +461,7 @@ fn start_release_fix_worktree_active_discovers_and_opens() {
     let expected = expected.display().to_string();
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*".to_string(),
+        "tag_exists:v1.2.0".to_string(),
         "create_branch_no_checkout:release-fix/1.2.0/broken-login:release/1.2.0".to_string(),
         "push:release-fix/1.2.0/broken-login".to_string(),
         "repo_root".to_string(),
@@ -467,6 +567,7 @@ fn start_release_reuse_path_never_runs_script() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
+        "tag_exists:v1.1.0",
         "checkout:release/1.1.0",
     ]);
     assert!(script.calls().is_empty());
@@ -773,6 +874,7 @@ fn start_hotfix_fix_reuse_path_never_runs_script() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
+        "tag_exists:v1.0.1",
         "checkout:hotfix/1.0.1",
         "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
         "push:hotfix-fix/1.0.1/urgent-crash",

@@ -102,6 +102,7 @@ fn finish_hotfix_propagates_to_open_release_branch() {
         "is_pushed:develop",
         "push:develop",
         "list_branches_matching:release/*",
+        "tag_exists:v1.2.0",
         "is_ancestor:hotfix/1.0.1:release/1.2.0",
         "checkout:release/1.2.0",
         "ff_merge:origin/release/1.2.0",
@@ -114,6 +115,30 @@ fn finish_hotfix_propagates_to_open_release_branch() {
         "remote_branch_exists:hotfix/1.0.1",
         "delete_branch_remote:hotfix/1.0.1",
     ]);
+}
+
+#[test]
+fn finish_hotfix_excludes_shipped_release_branch() {
+    // Trap 1: release/1.2.0 already shipped (tagged v1.2.0) — fan-out must
+    // not merge or push into it, only into the still-open release/1.3.0.
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.branches_matching = vec!["release/1.2.0".to_string(), "release/1.3.0".to_string()];
+    git.existing_tags.insert("v1.2.0".to_string());
+
+    finish_hotfix(&git, 1, 0, 1, "main").unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"tag_exists:v1.2.0".to_string()));
+    assert!(calls.contains(&"tag_exists:v1.3.0".to_string()));
+    assert!(
+        !calls.iter().any(|c| c.contains("release/1.2.0")),
+        "shipped release/1.2.0 must receive no merge/push; calls: {calls:?}"
+    );
+    assert!(
+        calls.contains(&"merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into release/1.3.0".to_string()),
+        "open release/1.3.0 must still be merged into; calls: {calls:?}"
+    );
+    assert!(calls.contains(&"push:release/1.3.0".to_string()));
 }
 
 #[test]
@@ -130,6 +155,8 @@ fn finish_hotfix_propagates_to_multiple_release_branches_in_sorted_order() {
     let calls = git.calls();
     let expected_tail = vec![
         "list_branches_matching:release/*",
+        "tag_exists:v2.0.0",
+        "tag_exists:v1.5.0",
         "is_ancestor:hotfix/1.0.1:release/1.5.0",
         "checkout:release/1.5.0",
         "ff_merge:origin/release/1.5.0",

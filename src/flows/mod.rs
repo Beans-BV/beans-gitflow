@@ -104,6 +104,27 @@ pub(crate) fn run_version_script(git: &dyn Git, script: &dyn VersionScript, vers
     Ok(true)
 }
 
+/// List `{prefix}/*` branches that are still open, excluding any whose clean
+/// release already shipped. A release/hotfix branch is shipped once its clean
+/// tag (e.g. `v1.1.0`, never the `-rc.N` tag) exists — reusing it would make
+/// `bflow start` loop onto a dead branch forever and hotfix fan-out merge into
+/// history that already landed. Branches whose version does not parse stay in,
+/// unchanged from today's behavior.
+pub(crate) fn open_versioned_branches(git: &dyn Git, prefix: &str) -> Result<Vec<String>, String> {
+    let branches = git.list_branches_matching(&format!("{prefix}/*"))?;
+    let mut open = Vec::with_capacity(branches.len());
+    for branch in branches {
+        let shipped = match branch.strip_prefix(&format!("{prefix}/")).and_then(SemVer::parse) {
+            Some(version) => git.tag_exists(&version.to_release().tag_name())?,
+            None => false,
+        };
+        if !shipped {
+            open.push(branch);
+        }
+    }
+    Ok(open)
+}
+
 /// Guidance appended to a merge conflict during a release/hotfix finish.
 ///
 /// Resume is branch-scoped: bflow only continues an interrupted finish when you

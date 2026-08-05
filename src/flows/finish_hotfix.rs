@@ -1,4 +1,4 @@
-use crate::flows::{delete_source_branch, merge_into, push_if_needed, push_tag_if_missing, resume_hint, tag_if_missing};
+use crate::flows::{delete_source_branch, merge_into, open_versioned_branches, push_if_needed, push_tag_if_missing, resume_hint, tag_if_missing};
 use crate::git::Git;
 use crate::version::SemVer;
 
@@ -21,10 +21,11 @@ pub fn finish_hotfix(git: &dyn Git, major: u32, minor: u32, patch: u32, main_bra
         &resume_hint(&hotfix_branch))?;
     push_if_needed(git, "develop")?;
 
-    // `release/*` cannot match `release-fix/*`, so no extra filtering is needed.
+    // `release/*` cannot match `release-fix/*`, so no extra filtering is needed
+    // for that; `open_versioned_branches` also drops any release already shipped.
     // Sorted despite the trait contract already promising it: deterministic
     // replay on resume is a crash-safety invariant, not something to delegate.
-    let mut release_branches = git.list_branches_matching("release/*")?;
+    let mut release_branches = open_versioned_branches(git, "release")?;
     release_branches.sort();
 
     for release in &release_branches {

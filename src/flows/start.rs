@@ -1,4 +1,4 @@
-use crate::flows::{require_clean_tree, run_version_script};
+use crate::flows::{open_versioned_branches, require_clean_tree, run_version_script};
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
@@ -71,7 +71,7 @@ pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn Hosti
 pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let release_branch = if effective_no_checkout {
-        git.list_branches_matching("release/*")?
+        open_versioned_branches(git, "release")?
             .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
             .clone()
@@ -95,7 +95,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: 
 }
 
 fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let release_branches = git.list_branches_matching("release/*")?;
+    let release_branches = open_versioned_branches(git, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -262,7 +262,7 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
 }
 
 fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
-    let hotfix_branches = git.list_branches_matching("hotfix/*")?;
+    let hotfix_branches = open_versioned_branches(git, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");
