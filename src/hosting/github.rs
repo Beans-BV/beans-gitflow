@@ -1,8 +1,5 @@
 use super::{resolve_body_file, CliRunner, HostingPlatform, MergedPr, Result};
 
-/// Appended to every `gh` query failure: the command that fixes the overwhelmingly
-/// most common cause, plus the bflow command to re-run (Error Model — every error
-/// message names the exact next command).
 const AUTH_REMEDY: &str = "If authentication expired, run 'gh auth login', then re-run 'bflow finish'.";
 
 pub struct GitHub<'a> {

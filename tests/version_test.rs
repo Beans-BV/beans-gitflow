@@ -157,17 +157,15 @@ fn hotfix_branch_name() {
 fn fix_family_branch_names() {
     assert_eq!(SemVer::new(2, 6, 0).release_fix_branch("db-index"), "release-fix/2.6.0/db-index");
     assert_eq!(SemVer::new(2, 5, 4).hotfix_fix_branch("npe"), "hotfix-fix/2.5.4/npe");
-    // Like hotfix_branch, the pre-release is dropped — a fix branches off the
-    // release line, not off one of its RCs.
+    // Pre-release dropped: a fix branches off the release line, not off an RC.
     assert_eq!(SemVer::new(2, 6, 0).with_rc(1).release_fix_branch("db-index"), "release-fix/2.6.0/db-index");
     assert_eq!(SemVer::new(2, 5, 4).with_rc(1).hotfix_fix_branch("npe"), "hotfix-fix/2.5.4/npe");
 }
 
 #[test]
 fn generated_branch_names_round_trip_through_parse() {
-    // decisions.md: "branch/tag names are always generated from SemVer methods,
-    // never string-concatenated". These generators and BranchType::parse are two
-    // directions of one mapping; this pins that they cannot drift apart.
+    // decisions.md: branch/tag names are always generated from SemVer methods,
+    // never string-concatenated.
     let v = SemVer::new(2, 6, 0);
 
     assert_eq!(BranchType::parse(&v.release_branch()),

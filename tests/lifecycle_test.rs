@@ -109,10 +109,8 @@ fn mid_merge_preflight_blocks_and_names_pending_resume() {
 
 #[test]
 fn unmerged_paths_block_even_when_the_merge_was_committed() {
-    // The second half of the preflight: `git commit` ends the MERGE_HEAD state
-    // but conflict markers can still be staged unresolved. mid_merge=false +
-    // unmerged=true must block just as hard — otherwise the flow would merge a
-    // tree containing conflict markers.
+    // `git commit` ends the MERGE_HEAD state, but conflict markers can still be
+    // staged unresolved.
     let mut git = release_git();
     git.mid_merge = false;
     git.unmerged_paths = true;
@@ -245,10 +243,8 @@ fn resume_state_resumes_finish_without_base() {
 
 #[test]
 fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
-    // decisions.md: "--abort short-circuits before every check" — abort is itself
-    // a recovery action, so the branch-type gate that rejects `finish` elsewhere
-    // must never fire for it. The rule lives HERE, ahead of the resume shortcut
-    // and of cli::resolve_action, which is why cli.rs's own arm is unreachable.
+    // decisions.md: "--abort short-circuits before every check" — abort is
+    // itself a recovery action, so no branch-type gate may fire for it.
     for branch_type in [
         BranchType::Other,
         BranchType::Main,
@@ -265,14 +261,9 @@ fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
 
 // --- The worktree-active predicate pair ---
 //
-// Two places encode "the worktree flow is active for this command":
-// cli::auto_discovers_target, which waives the must-be-standing-on-it gate for
-// release-fix/hotfix-fix, and lifecycle's `worktree_active`, which decides
-// whether a WorktreeContext is built at all. Nothing pinned their agreement —
-// and the failure is asymmetric and silent: the gate gets waived, the user is
-// allowed to run `start release-fix` from develop, and then no worktree
-// materializes. These two tests run the whole lifecycle so both encodings are
-// exercised by one invocation.
+// Two places encode "the worktree flow is active": cli::auto_discovers_target,
+// which waives the must-be-standing-on-it gate, and lifecycle's
+// `worktree_active`, which decides whether a WorktreeContext is built.
 
 fn worktree_lifecycle_git() -> MockGit {
     let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
@@ -315,9 +306,6 @@ fn an_enabled_worktree_flow_waives_the_gate_and_actually_materializes_a_worktree
 
 #[test]
 fn no_worktree_re_arms_the_gate_it_waived() {
-    // The inverse: opting out must restore the standing-branch requirement, so
-    // `start release-fix` from develop is rejected rather than silently taking
-    // the checkout path.
     let git = worktree_lifecycle_git();
 
     let err = run_with_worktree(&git, start_release_fix_cmd(true)).unwrap_err();

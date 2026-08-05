@@ -34,15 +34,8 @@ pub fn run(
 
     let branch_type = BranchType::parse(&branch_name);
 
-    // The mainline (main vs master) is a per-repo fact: resolved once here and
-    // threaded into the interfaces and flows as data, never looked up again
-    // mid-flow. Precedent: hosting/detect.rs picks the provider at composition
-    // and passes the result down.
     let main_branch = resolve_main_branch(git)?;
 
-    // Derived once and reused by the resume load, the state write, and the
-    // clear, so those three can never encode the branch→identity rule
-    // differently.
     let identity = finish_identity(&branch_type);
 
     // Resume context: an in-progress finish only resumes when you are standing on
@@ -111,9 +104,6 @@ pub fn run(
         }.save(&git_dir)?;
     }
 
-    // The three worktree-eligible start actions all need the same context, and
-    // an inactive worktree flow is simply its absence — so it is built once here
-    // rather than reassembled from three values inside each dispatch arm.
     let worktree = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
 
     let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch);

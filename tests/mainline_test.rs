@@ -3,11 +3,6 @@ mod common;
 use common::MockGit;
 use bflow::mainline::{resolve_main_branch, MAIN_BRANCH_KEY};
 
-// The mainline branch is a per-repo fact, resolved ONCE at startup and threaded
-// into the flows as data (same shape as hosting/detect.rs: detect at the
-// composition root, pass the result down). These pin the five paths through
-// that resolution.
-
 fn git_with_branches(local: &[&str], remote: &[&str]) -> MockGit {
     let mut git = MockGit::new();
     for b in local { git.existing_local_branches.insert(b.to_string()); }
@@ -41,8 +36,6 @@ fn an_unsupported_configured_value_is_a_hard_error_naming_the_key() {
 
 #[test]
 fn an_unset_key_detects_main_and_saves_it_locally() {
-    // The mainline belongs to the repo, not the developer — so unlike
-    // bflow.worktree.*, this key is written in LOCAL scope.
     let git = git_with_branches(&["main", "develop"], &[]);
 
     assert_eq!(resolve_main_branch(&git).unwrap(), "main");
@@ -79,9 +72,7 @@ fn a_repo_with_neither_branch_defaults_to_main() {
 
 #[test]
 fn an_empty_configured_value_falls_back_to_detection() {
-    // decisions.md: "All reads are trimmed and empty-after-trim falls back to
-    // defaults" — a `git config --unset`-adjacent empty string must not become
-    // a branch name.
+    // decisions.md: reads are trimmed and empty-after-trim falls back to default.
     let mut git = git_with_branches(&["master"], &[]);
     git.config.insert(MAIN_BRANCH_KEY.to_string(), "  ".to_string());
 

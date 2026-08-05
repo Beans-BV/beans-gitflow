@@ -5,11 +5,8 @@ use bflow::flows::start::{start_work_branch, start_release, start_release_fix, s
 use bflow::version::SemVer;
 use bflow::worktree::{WorktreeConfig, WorktreeContext};
 
-// The start flows are where the mock's recording contract shows up most
-// plainly: every assertion below is an exact script, so the `call:arg:arg`
-// string format is itself part of the expectation (decisions.md, Testing
-// Strategy — expectations read as a runnable script and diff legibly). A
-// change to that format fails here, loudly, with a readable diff.
+// The exact-script assertions below are also what pins the mock's
+// `call:arg:arg` recording format (decisions.md, Testing Strategy).
 
 /// Build a worktree config whose base path is an existing temp dir, so the
 /// flow's `create_dir_all` is a harmless no-op during tests.
@@ -111,10 +108,7 @@ fn start_release_fix_creates_and_pushes() {
 
 #[test]
 fn a_versionless_parent_branch_is_rejected_instead_of_naming_a_broken_child() {
-    // Fix-branch names are generated from SemVer methods, never concatenated
-    // (decisions.md, Release Discipline). A parent carrying no parseable version
-    // would otherwise produce `release-fix/wip/x`, which BranchType::parse reads
-    // as Other — a branch bflow could create but never finish.
+    // Otherwise: `release-fix/wip/x`, which BranchType::parse reads as Other.
     let mut git = MockGit::new();
     git.current_branch = "release/wip".to_string();
 

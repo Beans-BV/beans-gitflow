@@ -133,11 +133,6 @@ impl BranchType {
     /// The fix family (`fix`, `release-fix`, `hotfix-fix`) shares the `fix` group; for
     /// every other type the group equals the specific key. Returns `None` for branches
     /// that never open a PR (main, develop, release, hotfix, other).
-    ///
-    /// Only the two cross-family keys are spelled out. A work kind's template key
-    /// *is* its kind name, so it derives from `work_kind` — a new entry in
-    /// `WORK_TYPES` gets its template automatically instead of silently
-    /// resolving none.
     pub fn pr_template_keys(&self) -> Option<(&'static str, &'static str)> {
         match self {
             Self::ReleaseFix { .. } => Some(("release-fix", "fix")),

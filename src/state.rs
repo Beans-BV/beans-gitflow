@@ -39,9 +39,7 @@ pub struct FinishState {
     pub minor: u32,
     pub patch: u32,
     pub started_at: String,
-    /// The stash *message* (`bflow-finish:<branch>:<ts>`), not a `stash@{n}`
-    /// ref — indices shift, so the stash is always looked up by message before
-    /// popping (decisions.md, Stash Policy).
+    /// Indices shift, so the stash is found by this message before popping.
     pub stash_message: Option<String>,
 }
 
@@ -131,10 +129,9 @@ impl FinishState {
         out.push_str(&format!("patch={}\n", self.patch));
         out.push_str(&format!("started_at={}\n", self.started_at));
         if let Some(message) = &self.stash_message {
-            // The serialized key stays `stash_ref=` on purpose: an older bflow
-            // reading a file written by a newer one ignores unknown keys, so
-            // renaming it would silently drop the stash it must restore. The
-            // field name is the thing that was wrong, not the format.
+            // Key stays `stash_ref=`: unknown keys are ignored for forward
+            // compatibility, so renaming it would make an older bflow silently
+            // drop a stash it must restore.
             out.push_str(&format!("stash_ref={message}\n"));
         }
         out
@@ -217,7 +214,6 @@ mod tests {
             kind: FinishKind::Hotfix,
             major, minor, patch,
             started_at: "5678".to_string(),
-            // The real shape a finish writes — a message, never a stash@{n} ref.
             stash_message: Some("bflow-finish:hotfix/2.5.2:5678".to_string()),
         }
     }

@@ -132,7 +132,6 @@ impl<'a> GitCli<'a> {
         }
     }
 
-    /// Run a command whose stdout is one item per line, dropping blanks.
     fn run_lines(&self, args: &[&str]) -> Result<Vec<String>> {
         let output = self.run(args)?;
         Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
@@ -168,10 +167,6 @@ impl<'a> GitCli<'a> {
     }
 }
 
-/// Error wording for an exit code the calling runner assigns no meaning to.
-/// Each runner maps the codes it understands (0/1 for checks and `--get`, 5 for
-/// an already-unset key) and hands the rest here, so "false" is never conflated
-/// with "failed" and the message reads the same wherever it came from.
 fn unexpected_exit(args: &[&str], output: &CliOutput) -> String {
     match output.code {
         Some(code) => format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim()),

@@ -17,12 +17,6 @@ fn effective_no_checkout(no_checkout: bool, worktree: &Option<WorktreeContext<'_
     no_checkout || worktree.is_some()
 }
 
-/// Bring `branch` into existence off `base`: create it (checked out or not),
-/// push it, narrate both, and materialize a worktree when one is active.
-///
-/// The three `start_*` flows differ only in how they derive `branch` and
-/// `base` — everything after that is one piece of knowledge, and the
-/// create/push/narrate/worktree ordering is what the start tests assert.
 fn materialize_branch(
     git: &dyn Git,
     branch: &str,
@@ -44,10 +38,8 @@ fn materialize_branch(
     Ok(())
 }
 
-/// The version a `release/`/`hotfix/` branch carries. Fix-branch names are
-/// generated from it via `SemVer` methods rather than string surgery
-/// (decisions.md, Release Discipline), so a parent branch with no parseable
-/// version is a hard error instead of a malformed child branch.
+/// A parent with no parseable version can only yield a fix branch that
+/// `BranchType::parse` reads back as `Other` — creatable, never finishable.
 fn version_of(branch: &str, prefix: &str) -> Result<SemVer, String> {
     branch.strip_prefix(prefix)
         .and_then(SemVer::parse)
@@ -57,8 +49,7 @@ fn version_of(branch: &str, prefix: &str) -> Result<SemVer, String> {
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    // Unlike the fix flows, `from` comes straight from the user (`--base`), so
-    // git's "not a commit" is rewritten into guidance naming the flag.
+    // `from` is user-supplied, so git's "not a commit" becomes guidance naming --base.
     materialize_branch(git, &branch, from, effective_no_checkout, worktree).map_err(|e| {
         if e.contains("not a commit") {
             format!("Branch '{from}' does not exist. Use --base to specify a different base branch.")

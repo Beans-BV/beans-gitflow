@@ -161,9 +161,6 @@ fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
 
 /// Resolve the parsed command into an Action.
 ///
-/// `main_branch` is the repo's resolved mainline (`bflow.branch.main`); the
-/// branch-type gates name it rather than assuming "main".
-///
 /// `worktree_enabled` is the `bflow.worktree.enabled` config value. Like
 /// `--no-checkout`, an active worktree flow auto-discovers the target branch for
 /// release-fix/hotfix-fix, so the "must be standing on it" branch-type gate only
@@ -201,10 +198,6 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
         },
         Commands::Finish { breaking, base, abort } => {
             if abort {
-                // Same shape as the Worktree arm below: `--abort` never reaches
-                // here because it must win over the branch-type gate AND over the
-                // resume shortcut, both of which live upstream. Encoding it twice
-                // is how the two copies drift.
                 unreachable!("--abort is intercepted in lifecycle::resolve_action_with_state before dispatch")
             }
             if base.is_some() && branch_type.has_fixed_finish_target() {

@@ -47,9 +47,6 @@ fn finish_hotfix_full_sequence() {
 
 #[test]
 fn finish_hotfix_targets_master_when_that_is_the_mainline() {
-    // Also the suite's second version: 2.3.4 rather than 1.0.1, so one script
-    // proves both that the version threads through every call and that the
-    // mainline does.
     let git = fresh_hotfix_mock(2, 3, 4);
 
     finish_hotfix(&git, 2, 3, 4, "master").unwrap();
@@ -157,10 +154,7 @@ fn finish_hotfix_propagates_to_multiple_release_branches_in_sorted_order() {
 
 #[test]
 fn finish_hotfix_excludes_release_fix_branches() {
-    // A hotfix propagates into open *release* branches, never into someone's
-    // in-flight release-fix work. That exclusion is the ref pattern's job:
-    // `release/*` cannot match `release-fix/…` (`release-` != `release/`), so
-    // the flow needs no filter of its own. The repo below has both kinds.
+    // The `release/*` pattern does the excluding; the flow has no filter of its own.
     let mut git = fresh_hotfix_mock(1, 0, 1);
     git.branches_matching = vec![
         "release/1.2.0".to_string(),

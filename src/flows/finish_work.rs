@@ -195,12 +195,6 @@ fn prompt_breaking_change(prompter: &dyn Prompter) -> Result<bool, String> {
     Ok(idx == 1)
 }
 
-/// Finishing a fix-family branch is one rule: if its PR already merged, clean
-/// up; otherwise open a `fix: <name>` PR against the branch it patches. The two
-/// public entry points below differ only in the variant they accept and the
-/// parent they derive from it — the rule itself lives here once
-/// (`has_fixed_finish_target` already treats them as one family, and they share
-/// the `bflow-fix.md` template group).
 fn finish_fix(git: &dyn Git, hosting: &dyn HostingPlatform, name: &str, parent: &str, template: Option<&Path>) -> Result<(), String> {
     let current = git.current_branch()?;
     if try_cleanup_merged(git, hosting, &current)? {

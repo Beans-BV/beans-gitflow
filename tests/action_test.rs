@@ -122,8 +122,6 @@ fn no_worktree_flag_is_honored_by_every_start_action() {
     assert!(Action::StartHotfixFix {
         name: "x".to_string(), no_checkout: false, no_worktree: true,
     }.no_worktree());
-    // ...and the default is genuinely off, so an enabled worktree flow is not
-    // silently opted out of.
     assert!(!Action::StartReleaseFix {
         name: "x".to_string(), no_checkout: false, no_worktree: false,
     }.no_worktree());

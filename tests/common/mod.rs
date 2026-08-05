@@ -13,8 +13,6 @@ use bflow::git::{CliOutput, CommandRunner, Git};
 use bflow::hosting::{CliRunner, HostingPlatform};
 use bflow::prompt::Prompter;
 
-/// Dumb constants for values no test has ever branched on — a knob nothing
-/// assigns is a knob that reads as configurable and is not.
 const MERGE_BASE: &str = "abc123";
 const REMOVED_WORKTREE_PATH: &str = "/repos/beans-gitflow-feature-x";
 
@@ -86,8 +84,6 @@ pub struct MockGit {
     pub head_sha: String,
     /// Whether the current checkout is a linked worktree.
     pub linked_worktree: bool,
-    /// Owns the temp directory `git_dir` points at, when there is one, so it
-    /// outlives the test exactly as long as the mock does.
     _git_dir_guard: Option<TempDir>,
 }
 
@@ -134,9 +130,7 @@ impl MockGit {
         }
     }
 
-    /// A mock whose `git_dir()` is a real, unique temp directory — needed by any
-    /// test that drives the finish-state lifecycle. The directory is removed
-    /// when the mock is dropped, including when the test panics.
+    /// A mock whose `git_dir()` is a real temp directory, removed on drop.
     pub fn with_tmp_git_dir(prefix: &str) -> Self {
         let dir = tmp_dir(prefix);
         Self { git_dir: dir.to_path_buf(), _git_dir_guard: Some(dir), ..Self::new() }
@@ -220,10 +214,7 @@ impl Git for MockGit {
 
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>, String> {
         self.calls.borrow_mut().push(format!("list_branches_matching:{pattern}"));
-        // Honor the glob the way git's ref patterns do: `release/*` matches
-        // `release/…` and can never match `release-fix/…` (`release-` ≠
-        // `release/`). Ignoring the pattern here made flows re-filter what git
-        // had already filtered — production code compensating for a mock.
+        // git's ref patterns: `release/*` can never match `release-fix/…`.
         let prefix = pattern.strip_suffix('*').unwrap_or(pattern);
         Ok(self.branches_matching.iter().filter(|b| b.starts_with(prefix)).cloned().collect())
     }
@@ -545,10 +536,8 @@ impl Prompter for MockPrompter {
 
     fn prompt_name(&self, prompt: &str) -> Result<String, String> {
         let name = self.next_line("prompt_name", prompt)?;
-        // The trait promises a name that passes validate_branch_name — it owns
-        // its re-prompt loop precisely so callers never receive invalid input.
-        // A mock with a weaker postcondition is an LSP violation that lets tests
-        // feed flows a branch name the real prompter could never produce.
+        // The trait promises a name that passes validate_branch_name; the real
+        // prompter re-prompts until it does, so a flow can never see an invalid one.
         assert!(
             validate_branch_name(&name).is_ok(),
             "MockPrompter scripted '{name}' for prompt_name, which the real prompter \
@@ -647,13 +636,7 @@ impl CommandRunner for MockCommandRunner {
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// A temp directory that deletes itself when it goes out of scope. Derefs to
-/// `Path`, so it is used exactly like the `PathBuf` it replaced.
-///
-/// DAMP says duplicate the *scenario*, DRY the *how* — and teardown is the how.
-/// A trailing `remove_dir_all` also has a second problem beyond repetition: it
-/// never runs when a test panics mid-assertion, so a failing test leaks its
-/// directory into the next run.
+/// Deletes itself on drop, so cleanup also runs when a test panics.
 pub struct TempDir(PathBuf);
 
 impl Drop for TempDir {

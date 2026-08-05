@@ -126,9 +126,8 @@ fn the_release_fix_entry_asks_for_a_name() {
 
 #[test]
 fn a_hotfix_branch_offers_finish_and_start_hotfix_fix() {
-    // The CLI is the spec: `start hotfix-fix` is legal on Main | Hotfix
-    // (cli.rs::resolve_action). Principle 8 — a feature exists in both
-    // interfaces or neither — so the menu offers it too.
+    // Principle 8: cli::resolve_action allows this on Main | Hotfix, so the
+    // menu must offer it too.
     let branch_type = BranchType::Hotfix { major: 2, minor: 5, patch: 1 };
 
     let prompter = MockPrompter::scripted(&[0]);

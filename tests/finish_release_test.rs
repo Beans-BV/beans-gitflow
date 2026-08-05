@@ -133,10 +133,6 @@ fn finish_release_creates_clean_tag_from_rc() {
 
 #[test]
 fn finish_release_targets_master_when_that_is_the_mainline() {
-    // The mainline is data, resolved once from bflow.branch.main. Every
-    // checkout/merge/push target the release finish aims at the mainline must
-    // follow it — a master repo previously got main-branch menus that then
-    // failed on the first checkout.
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.rev_list_count_result = 0;
 
@@ -181,9 +177,6 @@ fn the_rc_gate_error_names_the_configured_mainline() {
 
 #[test]
 fn finish_release_single_rc() {
-    // The full ordering is already pinned above; what is distinct here is that a
-    // lone RC is also the latest one, so the gate measures against it and the
-    // clean tag is stripped from it.
     let mut git = fresh_release_mock(2, 0, &["v2.0.0-rc.1"]);
     git.rev_list_count_result = 0;
 

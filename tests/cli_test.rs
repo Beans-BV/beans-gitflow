@@ -75,8 +75,6 @@ fn start_hotfix_fix_on_wrong_branch() {
 
 #[test]
 fn the_hotfix_fix_gate_names_the_configured_mainline() {
-    // The message is guidance: on a master repo, telling the user to switch to
-    // "main" points at a branch that does not exist.
     let cmd = Commands::Start { kind: StartKind::HotfixFix { name: "fix".to_string(), opts: StartOptions::default() } };
     let branch_type = BranchType::Develop;
     let result = resolve_action(cmd, &branch_type, false, "master");
@@ -413,20 +411,7 @@ fn start_feature_with_no_worktree_flag() {
     assert!(matches!(action, Action::StartWorkBranch { no_worktree: true, .. }));
 }
 
-// `--abort` is owned by lifecycle::resolve_action_with_state, which intercepts
-// it before any branch-type gate; see
-// `abort_is_accepted_from_any_branch_including_unrecognized_ones` in
-// lifecycle_test.rs.
-
 // --- The clap surface itself ---
-//
-// Everything above starts from an already-constructed `Commands`, so nothing
-// pinned the argument parsing that produces one: which flags exist, which
-// combinations clap must reject, and — the real gap — that the `WORK_TYPES`
-// table and the `StartKind` variants stay in step. Adding `perf/` to the table
-// makes the menu offer it while `bflow start perf` still fails, violating
-// principle 8 ("a feature exists in both interfaces or neither") with every
-// existing test green.
 
 #[derive(clap::Parser)]
 #[command(name = "bflow")]
@@ -462,7 +447,6 @@ fn every_work_kind_in_the_table_has_a_working_start_subcommand() {
 
 #[test]
 fn the_flag_surface_parses_what_it_promises() {
-    // --breaking is tri-state: absent = prompt, present = true, =false for CI.
     assert!(matches!(parse(&["finish"]).unwrap(),
         Commands::Finish { breaking: None, base: None, abort: false }));
     assert!(matches!(parse(&["finish", "--breaking"]).unwrap(),
@@ -472,7 +456,7 @@ fn the_flag_surface_parses_what_it_promises() {
     assert!(matches!(parse(&["finish", "--abort"]).unwrap(),
         Commands::Finish { abort: true, .. }));
 
-    // --local is global = true, so it is position-independent.
+    // `--local` is `global = true`, so it parses either side of the subcommand.
     assert!(matches!(parse(&["worktree", "--local", "enable"]).unwrap(),
         Commands::Worktree { local: true, .. }));
     assert!(matches!(parse(&["worktree", "enable", "--local"]).unwrap(),
@@ -481,8 +465,8 @@ fn the_flag_surface_parses_what_it_promises() {
 
 #[test]
 fn incompatible_flag_combinations_are_rejected_by_clap_not_by_the_flow() {
-    // decisions.md: "incompatibilities are declarative clap conflicts_with" —
-    // these must fail at parse time, before any branch is touched.
+    // Declarative `conflicts_with`: rejected at parse time, before any branch
+    // is touched.
     for args in [
         vec!["finish", "--breaking", "--abort"],
         vec!["finish", "--base", "develop", "--abort"],

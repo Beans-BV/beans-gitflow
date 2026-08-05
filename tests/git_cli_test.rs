@@ -353,9 +353,8 @@ fn every_primitive_issues_its_documented_git_command() {
         ("git push origin --delete feature/x", Box::new(|g| { g.delete_branch_remote("feature/x").ok(); })),
         ("git status --porcelain", Box::new(|g| { g.is_working_tree_clean().ok(); })),
         ("git for-each-ref --format=%(refname:short) refs/remotes/origin/", Box::new(|g| { g.list_remote_branches().ok(); })),
-        // Two ref patterns, remote first: a release branch that exists only on
-        // origin must still be discoverable, and dropping either pattern
-        // silently halves what `bflow start release-fix` can find.
+        // Both patterns: a release branch that exists only on origin must still
+        // be discoverable.
         ("git for-each-ref --format=%(refname:short) refs/remotes/origin/release/* refs/heads/release/*",
             Box::new(|g| { g.list_branches_matching("release/*").ok(); })),
         ("git merge-base a b", Box::new(|g| { g.merge_base("a", "b").ok(); })),
@@ -365,11 +364,8 @@ fn every_primitive_issues_its_documented_git_command() {
         ("git show-ref --verify --quiet refs/heads/feature/x", Box::new(|g| { g.local_branch_exists("feature/x").ok(); })),
         ("git show-ref --verify --quiet refs/remotes/origin/feature/x", Box::new(|g| { g.remote_branch_exists("feature/x").ok(); })),
         ("git ls-remote --tags origin v2.5.0", Box::new(|g| { g.remote_tag_exists("v2.5.0").ok(); })),
-        // %x00 is load-bearing, not cosmetic: commit_messages splits stdout on
-        // NUL because that is the one byte a commit message cannot contain. A
-        // drift to %B%n would make multi-paragraph messages parse as several
-        // commits, and breaking-change detection would silently change answers
-        // while every other test stayed green.
+        // %x00 is load-bearing: the parser splits on NUL, the one byte a commit
+        // message cannot contain. %B%n would split multi-paragraph messages.
         ("git log v2.5.0..develop --format=%B%x00", Box::new(|g| { g.commit_messages("v2.5.0", "develop").ok(); })),
         ("git rev-parse --git-dir", Box::new(|g| { g.git_dir().ok(); })),
         ("git remote get-url origin", Box::new(|g| { g.remote_url().ok(); })),
