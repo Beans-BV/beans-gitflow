@@ -272,13 +272,13 @@ fn run_flow(
             start::start_work_branch(git, prefix, name, from, *no_checkout, worktree)?;
         }
         Action::StartRelease(release_type) => {
-            start::start_release(git, prompter, *release_type)?;
+            start::start_release(git, prompter, None, *release_type)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {
             start::start_release_fix(git, name, *no_checkout, worktree)?;
         }
         Action::StartHotfixFix { name, no_checkout, .. } => {
-            start::start_hotfix_fix(git, name, *no_checkout, worktree, main_branch)?;
+            start::start_hotfix_fix(git, name, *no_checkout, worktree, main_branch, None)?;
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;

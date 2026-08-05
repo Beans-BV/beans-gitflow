@@ -1,6 +1,8 @@
+use crate::flows::{require_clean_tree, run_version_script};
 use crate::git::Git;
 use crate::prompt::Prompter;
 use crate::version::SemVer;
+use crate::version_script::VersionScript;
 use crate::worktree::{open_worktree, WorktreeContext};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,8 +61,8 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })
 }
 
-pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, prompter, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, script: Option<&dyn VersionScript>, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, script, release_type)?;
     Ok(())
 }
 
@@ -83,14 +85,14 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str) -> Result<(), String> {
+pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch)?;
+    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch, script)?;
     let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
-fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<String, String> {
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, script: Option<&dyn VersionScript>, release_type: Option<ReleaseType>) -> Result<String, String> {
     let release_branches = git.list_branches_matching("release/*")?;
 
     if let Some(branch) = release_branches.first() {
@@ -116,6 +118,10 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_typ
     println!("Creating release branch: {branch}");
     git.checkout("develop")?;
     git.create_branch(&branch, "develop")?;
+    if let Some(script) = script {
+        require_clean_tree(git)?;
+        run_version_script(git, script, &next)?;
+    }
     git.push(&branch)?;
 
     println!("Tagging: {tag}");
@@ -191,7 +197,7 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
     }
 }
 
-fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str) -> Result<String, String> {
+fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
     let hotfix_branches = git.list_branches_matching("hotfix/*")?;
 
     if let Some(branch) = hotfix_branches.first() {
@@ -209,9 +215,22 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str)
     println!("Creating hotfix branch: {branch}");
     if no_checkout {
         git.create_branch_no_checkout(&branch, main_branch)?;
+        if let Some(script) = script {
+            eprintln!(
+                "⚠ Version script not run: {branch} was created without checkout, so bflow cannot commit version files there."
+            );
+            eprintln!(
+                "  Recover manually: git switch {branch}, run {} {next}, commit, and push.",
+                script.display_name(),
+            );
+        }
     } else {
         git.checkout(main_branch)?;
         git.create_branch(&branch, main_branch)?;
+        if let Some(script) = script {
+            require_clean_tree(git)?;
+            run_version_script(git, script, &next)?;
+        }
     }
     git.push(&branch)?;
 

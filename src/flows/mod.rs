@@ -4,6 +4,8 @@ pub mod finish_release;
 pub mod finish_hotfix;
 
 use crate::git::Git;
+use crate::version::SemVer;
+use crate::version_script::VersionScript;
 
 // --- Idempotent finish steps -----------------------------------------------
 // Shared scaffolding of the release/hotfix finish flows: each step is guarded
@@ -73,6 +75,33 @@ pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &st
         println!("↷ skipped: delete remote {branch} (already gone)");
     }
     Ok(())
+}
+
+/// Fail with the catalog error unless the tree is clean. Callers run this
+/// before a version script ever runs (trap 2) — the script must never see
+/// pre-existing local changes it did not make.
+pub(crate) fn require_clean_tree(git: &dyn Git) -> Result<(), String> {
+    if git.is_working_tree_clean()? {
+        Ok(())
+    } else {
+        Err("Working tree is not clean. Commit or stash your changes, then re-run.".to_string())
+    }
+}
+
+/// Run the version script and commit whatever it changed. Returns `Ok(true)`
+/// when a commit was made, `Ok(false)` when the script left the tree clean
+/// (nothing to commit). Callers must call `require_clean_tree` first — kept
+/// as two functions because protected bump creates a branch between the
+/// check and the run.
+pub(crate) fn run_version_script(git: &dyn Git, script: &dyn VersionScript, version: &SemVer) -> Result<bool, String> {
+    let release = version.to_release();
+    script.run(&release.to_string())?;
+    if git.is_working_tree_clean()? {
+        return Ok(false);
+    }
+    git.stage_all()?;
+    git.commit(&format!("chore: set version {release}"))?;
+    Ok(true)
 }
 
 /// Guidance appended to a merge conflict during a release/hotfix finish.
