@@ -208,7 +208,12 @@ impl Git for MockGit {
 
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>, String> {
         self.calls.borrow_mut().push(format!("list_branches_matching:{pattern}"));
-        Ok(self.branches_matching.clone())
+        // Honor the glob the way git's ref patterns do: `release/*` matches
+        // `release/…` and can never match `release-fix/…` (`release-` ≠
+        // `release/`). Ignoring the pattern here made flows re-filter what git
+        // had already filtered — production code compensating for a mock.
+        let prefix = pattern.strip_suffix('*').unwrap_or(pattern);
+        Ok(self.branches_matching.iter().filter(|b| b.starts_with(prefix)).cloned().collect())
     }
 
     fn is_working_tree_clean(&self) -> Result<bool, String> {

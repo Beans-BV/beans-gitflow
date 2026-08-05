@@ -5,16 +5,6 @@ pub mod finish_hotfix;
 
 use crate::git::Git;
 
-/// Open `{prefix}/*` branches (e.g. `release/*`), in the order git returns them.
-/// The glob itself can never match `{prefix}-fix/*` (`release-` ≠ `release/`);
-/// the prefix filter keeps that guarantee for mocks, which return their
-/// configured list regardless of the pattern.
-pub(crate) fn branches_with_prefix(git: &dyn Git, prefix: &str) -> Result<Vec<String>, String> {
-    let matching = git.list_branches_matching(&format!("{prefix}/*"))?;
-    let with_slash = format!("{prefix}/");
-    Ok(matching.into_iter().filter(|b| b.starts_with(&with_slash)).collect())
-}
-
 // --- Idempotent finish steps -----------------------------------------------
 // Shared scaffolding of the release/hotfix finish flows: each step is guarded
 // by a real-state predicate and prints a visible "↷ skipped:" line on resume

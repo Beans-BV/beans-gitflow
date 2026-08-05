@@ -76,7 +76,7 @@ pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Optio
 pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let release_branch = if effective_no_checkout {
-        super::branches_with_prefix(git, "release")?
+        git.list_branches_matching("release/*")?
             .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
             .clone()
@@ -100,7 +100,7 @@ pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: 
 }
 
 fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let release_branches = super::branches_with_prefix(git, "release")?;
+    let release_branches = git.list_branches_matching("release/*")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -201,7 +201,7 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
 }
 
 fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str) -> Result<String, String> {
-    let hotfix_branches = super::branches_with_prefix(git, "hotfix")?;
+    let hotfix_branches = git.list_branches_matching("hotfix/*")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");

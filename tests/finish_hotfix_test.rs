@@ -186,9 +186,11 @@ fn finish_hotfix_propagates_to_multiple_release_branches_in_sorted_order() {
 
 #[test]
 fn finish_hotfix_excludes_release_fix_branches() {
+    // A hotfix propagates into open *release* branches, never into someone's
+    // in-flight release-fix work. That exclusion is the ref pattern's job:
+    // `release/*` cannot match `release-fix/…` (`release-` != `release/`), so
+    // the flow needs no filter of its own. The repo below has both kinds.
     let mut git = fresh_hotfix_mock(1, 0, 1);
-    // list_branches_matching("release/*") may return both release/* and release-fix/*
-    // because the latter starts with "release". The propagation must skip release-fix.
     git.branches_matching = vec![
         "release/1.2.0".to_string(),
         "release-fix/1.2.0/foo".to_string(),
@@ -197,6 +199,10 @@ fn finish_hotfix_excludes_release_fix_branches() {
     finish_hotfix(&git, 1, 0, 1, "main").unwrap();
 
     let calls = git.calls();
+    assert!(
+        calls.iter().any(|c| c == "list_branches_matching:release/*"),
+        "the pattern is what does the excluding; got: {calls:?}"
+    );
     assert!(
         calls.iter().any(|c| c == "checkout:release/1.2.0"),
         "expected propagation to release/1.2.0; got: {calls:?}"
