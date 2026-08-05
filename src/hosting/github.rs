@@ -1,20 +1,20 @@
-use super::{resolve_body_file, run_cli, HostingPlatform, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, HostingPlatform, MergedPr, Result};
 
-pub struct GitHub;
-
-impl Default for GitHub {
-    fn default() -> Self { Self::new() }
+pub struct GitHub<'a> {
+    runner: &'a dyn CliRunner,
 }
 
-impl GitHub {
-    pub fn new() -> Self { Self }
+impl<'a> GitHub<'a> {
+    pub fn new(runner: &'a dyn CliRunner) -> Self {
+        Self { runner }
+    }
 
     fn run_gh(&self, args: &[&str]) -> Result<String> {
-        run_cli("gh", args)
+        self.runner.run("gh", args)
     }
 }
 
-impl HostingPlatform for GitHub {
+impl HostingPlatform for GitHub<'_> {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
         match self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]) {
             Ok(url) if !url.is_empty() => return Ok(url),

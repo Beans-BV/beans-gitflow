@@ -284,6 +284,40 @@ mod tests {
     }
 
     #[test]
+    fn unknown_keys_and_comments_are_ignored_for_forward_compatibility() {
+        // decisions.md: the format has a `version=` field, and within a known
+        // version "unknown keys ignored (forward-compatible)". A newer bflow that
+        // adds a field must not brick an older one standing on the same repo.
+        let contents = "\
+# written by a newer bflow
+version=1
+
+kind=release
+major=2
+minor=5
+patch=0
+started_at=1700000000
+worktree_path=/somewhere/new
+";
+        let state = FinishState::parse(contents).unwrap();
+
+        assert_eq!(state.kind, FinishKind::Release);
+        assert_eq!((state.major, state.minor, state.patch), (2, 5, 0));
+        assert_eq!(state.stash_ref, None);
+    }
+
+    #[test]
+    fn an_unrecognized_kind_is_a_hard_error_not_a_default() {
+        // Guessing "release" for an unknown kind would run the wrong finish flow
+        // against the wrong branch. Absence is normal; malformation is not.
+        let contents = "version=1\nkind=rollback\nmajor=2\nminor=5\npatch=0\nstarted_at=1\n";
+
+        let err = FinishState::parse(contents).unwrap_err();
+
+        assert!(err.contains("kind"), "got: {err}");
+    }
+
+    #[test]
     fn rejects_unknown_schema_version() {
         let dir = tmp_dir();
         let path = FinishState::path(&dir, FinishKind::Release, 1, 0, 0);

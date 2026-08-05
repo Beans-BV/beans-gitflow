@@ -1,14 +1,15 @@
-use super::{resolve_body_file, run_cli, HostingPlatform, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, HostingPlatform, MergedPr, Result};
 
-pub struct AzureDevOps {
+pub struct AzureDevOps<'a> {
     org: String,
     project: String,
     repo: String,
+    runner: &'a dyn CliRunner,
 }
 
-impl AzureDevOps {
-    pub fn new(org: String, project: String, repo: String) -> Self {
-        Self { org, project, repo }
+impl<'a> AzureDevOps<'a> {
+    pub fn new(org: String, project: String, repo: String, runner: &'a dyn CliRunner) -> Self {
+        Self { org, project, repo, runner }
     }
 
     fn org_url(&self) -> String {
@@ -29,7 +30,8 @@ impl AzureDevOps {
     }
 
     fn run_az(&self, args: &[String]) -> Result<String> {
-        run_cli("az", args)
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.runner.run("az", &args)
     }
 
     fn repo_args(&self) -> Vec<String> {
@@ -92,7 +94,7 @@ fn description_args(body: &str) -> Vec<String> {
     args
 }
 
-impl HostingPlatform for AzureDevOps {
+impl HostingPlatform for AzureDevOps<'_> {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
         // Return the existing active PR for this head/base if there is one.
         let mut list_args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
@@ -173,17 +175,22 @@ impl HostingPlatform for AzureDevOps {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hosting::SystemCli;
+
+    // These exercise the pure helpers (URL synthesis, tsv parsing); the runner is
+    // never invoked. Provider policy that *does* run the CLI lives in
+    // tests/hosting_test.rs against a scripted runner.
 
     #[test]
     fn pr_url_is_canonical_dev_azure_form() {
         // Legacy visualstudio.com orgs get the canonical URL too — it redirects.
-        let ado = AzureDevOps::new("wilko".into(), "Shuttel".into(), "Shuttel".into());
+        let ado = AzureDevOps::new("wilko".into(), "Shuttel".into(), "Shuttel".into(), &SystemCli);
         assert_eq!(ado.pr_url("2662"), "https://dev.azure.com/wilko/Shuttel/_git/Shuttel/pullrequest/2662");
     }
 
     #[test]
     fn pr_url_encodes_spaces_in_project_and_repo() {
-        let ado = AzureDevOps::new("beans".into(), "My Shop".into(), "the repo".into());
+        let ado = AzureDevOps::new("beans".into(), "My Shop".into(), "the repo".into(), &SystemCli);
         assert_eq!(ado.pr_url("7"), "https://dev.azure.com/beans/My%20Shop/_git/the%20repo/pullrequest/7");
     }
 
@@ -209,8 +216,8 @@ mod tests {
         assert_eq!(description_args(""), vec!["--description", ""]);
     }
 
-    fn ado() -> AzureDevOps {
-        AzureDevOps::new("beans".into(), "Shop".into(), "shop".into())
+    fn ado() -> AzureDevOps<'static> {
+        AzureDevOps::new("beans".into(), "Shop".into(), "shop".into(), &SystemCli)
     }
 
     #[test]

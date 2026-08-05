@@ -16,6 +16,14 @@ impl Prompter for MenuPrompter {
     fn select(&self, prompt: &str, items: &[&str]) -> Result<usize, String> {
         show_select(prompt, items)
     }
+
+    fn prompt_name(&self, prompt: &str) -> Result<String, String> {
+        prompt_name(prompt)
+    }
+
+    fn prompt_line(&self, prompt: &str) -> Result<String, String> {
+        prompt_line(prompt)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -213,13 +221,18 @@ fn read_raw_line(prompt: &str, transform: impl Fn(&str, char) -> Option<char>) -
     Ok(result)
 }
 
+/// Shape one branch-name keystroke, given the buffer typed so far: spaces
+/// become hyphens and consecutive hyphens collapse (`None` = swallow the key).
+/// Input shaping over validation — an invalid name is untypeable rather than
+/// rejected after the fact (decisions.md, CLI/UX Conventions).
+fn shape_branch_name_char(typed: &str, c: char) -> Option<char> {
+    let ch = if c == ' ' { '-' } else { c };
+    if ch == '-' && typed.ends_with('-') { None } else { Some(ch) }
+}
+
 pub fn prompt_name(prompt: &str) -> Result<String, String> {
     loop {
-        // Spaces become hyphens as you type; consecutive hyphens collapse.
-        let result = read_raw_line(prompt, |input, c| {
-            let ch = if c == ' ' { '-' } else { c };
-            if ch == '-' && input.ends_with('-') { None } else { Some(ch) }
-        })?;
+        let result = read_raw_line(prompt, shape_branch_name_char)?;
 
         // Trim leading/trailing hyphens
         let trimmed = result.trim_matches('-').to_string();
@@ -245,12 +258,12 @@ pub fn prompt_line(prompt: &str) -> Result<String, String> {
     Ok(read_raw_line(prompt, |_, c| Some(c))?.trim().to_string())
 }
 
-pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Action, String> {
+pub fn show_menu(prompter: &dyn Prompter, branch_type: &BranchType, current_branch: &str) -> Result<Action, String> {
     match branch_type {
         BranchType::Main => {
             let labels = &["start hotfix fix"];
-            show_select("What would you like to do?", labels)?;
-            let name = prompt_name("Name for hotfix-fix branch")?;
+            prompter.select("What would you like to do?", labels)?;
+            let name = prompter.prompt_name("Name for hotfix-fix branch")?;
             Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
         BranchType::Develop => {
@@ -259,10 +272,10 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let mut labels: Vec<String> = kinds.iter().map(|k| format!("start {k}")).collect();
             labels.push("start release".to_string());
             let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-            let idx = show_select("What would you like to do?", &label_refs)?;
+            let idx = prompter.select("What would you like to do?", &label_refs)?;
             match kinds.get(idx) {
                 Some(kind) => {
-                    let name = prompt_name(&format!("Name for {kind} branch"))?;
+                    let name = prompter.prompt_name(&format!("Name for {kind} branch"))?;
                     Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
                 }
                 None => Ok(Action::StartRelease(None)),
@@ -277,28 +290,28 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             let mut labels: Vec<String> = vec![format!("finish {current_kind}")];
             labels.extend(kinds.iter().map(|k| format!("start {k}")));
             let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-            let idx = show_select("What would you like to do?", &label_refs)?;
+            let idx = prompter.select("What would you like to do?", &label_refs)?;
             if idx == 0 {
                 return Ok(Action::FinishWorkBranch { breaking: None, base: None });
             }
             let kind = kinds[idx - 1];
-            let name = prompt_name(&format!("Name for {kind} branch"))?;
+            let name = prompter.prompt_name(&format!("Name for {kind} branch"))?;
             let current_label = format!("{current_branch} (current)");
             let base_options: &[&str] = &[&current_label, "develop"];
-            let base_idx = show_select("Base branch", base_options)?;
+            let base_idx = prompter.select("Base branch", base_options)?;
             let from = if base_idx == 0 { current_branch.to_string() } else { "develop".to_string() };
             Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from, no_checkout: false, no_worktree: false })
         }
         BranchType::ReleaseFix { .. } => {
-            show_select("What would you like to do?", &["finish release fix"])?;
+            prompter.select("What would you like to do?", &["finish release fix"])?;
             Ok(Action::FinishReleaseFix)
         }
         BranchType::Release { .. } => {
             let labels: Vec<&str> = ReleaseOption::ALL.iter().map(|o| o.label()).collect();
-            let idx = show_select("What would you like to do?", &labels)?;
+            let idx = prompter.select("What would you like to do?", &labels)?;
             match ReleaseOption::ALL[idx] {
                 ReleaseOption::StartReleaseFix => {
-                    let name = prompt_name("Name for release-fix branch")?;
+                    let name = prompter.prompt_name("Name for release-fix branch")?;
                     Ok(Action::StartReleaseFix { name, no_checkout: false, no_worktree: false })
                 }
                 ReleaseOption::BumpVersion => Ok(Action::BumpVersion),
@@ -307,13 +320,52 @@ pub fn show_menu(branch_type: &BranchType, current_branch: &str) -> Result<Actio
             }
         }
         BranchType::HotfixFix { .. } => {
-            show_select("What would you like to do?", &["finish hotfix fix"])?;
+            prompter.select("What would you like to do?", &["finish hotfix fix"])?;
             Ok(Action::FinishHotfixFix)
         }
         BranchType::Hotfix { .. } => {
-            show_select("What would you like to do?", &["finish hotfix"])?;
+            prompter.select("What would you like to do?", &["finish hotfix"])?;
             Ok(Action::FinishHotfix)
         }
         BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shape_branch_name_char;
+
+    /// Type `keys` one at a time through the shaper, as the prompt does.
+    fn typed(keys: &str) -> String {
+        let mut buf = String::new();
+        for c in keys.chars() {
+            if let Some(ch) = shape_branch_name_char(&buf, c) {
+                buf.push(ch);
+            }
+        }
+        buf
+    }
+
+    #[test]
+    fn spaces_become_hyphens_as_you_type() {
+        assert_eq!(typed("passkey login"), "passkey-login");
+    }
+
+    #[test]
+    fn consecutive_hyphens_collapse_however_they_were_typed() {
+        assert_eq!(typed("passkey  login"), "passkey-login");
+        assert_eq!(typed("passkey--login"), "passkey-login");
+        assert_eq!(typed("passkey - login"), "passkey-login");
+    }
+
+    #[test]
+    fn ordinary_characters_pass_through_untouched() {
+        assert_eq!(typed("fix_bug.2"), "fix_bug.2");
+    }
+
+    #[test]
+    fn a_leading_hyphen_is_still_typeable_and_trimmed_later() {
+        // The shaper only collapses; prompt_name trims the ends afterwards.
+        assert_eq!(typed("-login"), "-login");
     }
 }

@@ -30,5 +30,5 @@ Broad, global rules only. Implementation-level decisions, extension recipes, and
 | `lifecycle.rs` | Cross-cutting lifecycle (stash/state/resume ordering), dispatches `Action` once |
 | `cli.rs` / `menu.rs` | The two interfaces; both resolve to `Action` (`action.rs`) |
 | `flows/` | Business logic per workflow |
-| `git/`, `hosting/`, `editor.rs`, `prompt.rs` | Ports (traits) + adapters (CLI impls); `hosting/detect.rs` picks the provider |
+| `git/`, `hosting/`, `editor.rs`, `prompt.rs` | Ports (traits) + adapters (CLI impls); `hosting/detect.rs` picks the provider. Adapters spawn processes only through `CommandRunner`/`CliRunner`, so their own logic is mockable |
 | `state.rs`, `worktree.rs`, `version.rs` | Finish state, worktree feature, SemVer |

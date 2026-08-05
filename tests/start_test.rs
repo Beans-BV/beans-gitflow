@@ -350,6 +350,132 @@ fn start_release_fix_worktree_active_discovers_and_opens() {
 // git interaction — which ref is queried, and the develop → origin/develop
 // fallback.
 
+// --- Base-branch errors are rewritten into bflow's own guidance ---
+
+#[test]
+fn unknown_base_branch_error_is_rewritten_to_name_the_base_flag() {
+    // decisions.md, Error Model: "Raw git errors are intercepted and rewritten
+    // when bflow knows better". git's "not a commit" is opaque; the user needs
+    // to be told the base does not exist and which flag fixes it.
+    let mut git = MockGit::new();
+    git.create_branch_error = Some("fatal: 'nope' is not a commit and a branch 'x' cannot be created from it".to_string());
+
+    let err = start_work_branch(&git, "feature", "login", "nope", false, None).unwrap_err();
+
+    assert!(err.contains("Branch 'nope' does not exist"), "must name the missing base; got: {err}");
+    assert!(err.contains("--base"), "must name the exact next flag to use; got: {err}");
+}
+
+#[test]
+fn other_create_branch_errors_are_passed_through_untouched() {
+    // Only "not a commit" is rewritten — guessing at any other git failure would
+    // send the user down the wrong path.
+    let mut git = MockGit::new();
+    git.create_branch_error = Some("fatal: a branch named 'feature/login' already exists".to_string());
+
+    let err = start_work_branch(&git, "feature", "login", "develop", false, None).unwrap_err();
+
+    assert_eq!(err, "fatal: a branch named 'feature/login' already exists");
+}
+
+#[test]
+fn start_release_fix_requires_standing_on_a_release_branch() {
+    // Without --no-checkout (or the worktree flow) the flow does not go hunting
+    // for a release branch — you must be on the one you are fixing.
+    let mut git = MockGit::new();
+    git.current_branch = "develop".to_string();
+
+    let err = start_release_fix(&git, "db-index", false, None).unwrap_err();
+
+    assert_eq!(err, "Not on a release branch");
+    assert!(!git.calls().iter().any(|c| c.starts_with("create_branch")),
+        "nothing may be created after the guard; calls: {:?}", git.calls());
+}
+
+#[test]
+fn start_hotfix_fix_worktree_active_discovers_and_opens() {
+    // Worktree context implies no-checkout, so the hotfix branch is discovered
+    // from the branch list rather than from where HEAD happens to be.
+    let mut git = MockGit::new();
+    git.current_branch = "develop".to_string();
+    git.branches_matching = vec!["hotfix/2.5.1".to_string()];
+    git.repo_root = std::env::temp_dir().join("beans-gitflow");
+    let editor = MockEditor::new();
+    let config = test_worktree_config("code");
+
+    start_hotfix_fix(&git, "npe", false, Some(WorktreeContext { config: &config, editor: &editor })).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"create_branch_no_checkout:hotfix-fix/2.5.1/npe:hotfix/2.5.1".to_string()),
+        "a worktree start must never switch the current checkout; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("checkout:")), "calls: {calls:?}");
+    assert_eq!(editor.calls().len(), 1, "the new worktree is opened in the editor");
+}
+
+// --- Release-type prompt: detection reorders the default, it never decides ---
+
+#[test]
+fn breaking_changes_put_major_first_in_the_prompt() {
+    // decisions.md, Release Discipline: "Breaking-change detection reorders the
+    // release-type menu default, it never decides for you."
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.2.0".to_string()];
+    git.commit_messages = vec!["feat!: drop the v1 API".to_string()];
+    let prompter = MockPrompter::scripted(&[0]); // take the default
+
+    start_release(&git, &prompter, None).unwrap();
+
+    assert_eq!(prompter.calls(), vec![
+        "select:Release type:[major (v1.2.0 → v2.0.0), minor (v1.2.0 → v1.3.0)]",
+    ]);
+    assert!(git.calls().contains(&"create_branch:release/2.0.0:develop".to_string()),
+        "the default selection must yield the major bump; calls: {:?}", git.calls());
+}
+
+#[test]
+fn without_breaking_changes_minor_comes_first() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.2.0".to_string()];
+    git.commit_messages = vec!["feat: add login page".to_string()];
+    let prompter = MockPrompter::scripted(&[0]);
+
+    start_release(&git, &prompter, None).unwrap();
+
+    assert_eq!(prompter.calls(), vec![
+        "select:Release type:[minor (v1.2.0 → v1.3.0), major (v1.2.0 → v2.0.0)]",
+    ]);
+    assert!(git.calls().contains(&"create_branch:release/1.3.0:develop".to_string()),
+        "calls: {:?}", git.calls());
+}
+
+#[test]
+fn the_prompt_still_decides_when_the_user_picks_the_non_default() {
+    // Ordering is a hint. Picking "major" from second place must still bump major.
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.2.0".to_string()];
+    git.commit_messages = vec!["fix: typo".to_string()];
+    let prompter = MockPrompter::scripted(&[1]); // second item = major
+
+    start_release(&git, &prompter, None).unwrap();
+
+    assert!(git.calls().contains(&"create_branch:release/2.0.0:develop".to_string()),
+        "calls: {:?}", git.calls());
+}
+
+#[test]
+fn detect_breaking_returns_false_when_commits_exist_but_none_are_breaking() {
+    let mut git = MockGit::new();
+    git.commit_messages = vec![
+        "feat: add login page".to_string(),
+        "chore: bump deps".to_string(),
+    ];
+
+    assert!(!detect_breaking_changes(&git, &SemVer::new(1, 0, 0)));
+}
+
 #[test]
 fn detect_breaking_queries_develop_not_head() {
     let mut git = MockGit::new();

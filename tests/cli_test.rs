@@ -402,3 +402,22 @@ fn start_feature_with_no_worktree_flag() {
     let action = resolve_action(cmd, &branch_type, false).unwrap();
     assert!(matches!(action, Action::StartWorkBranch { no_worktree: true, .. }));
 }
+
+#[test]
+fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
+    // decisions.md: "--abort short-circuits before every check" — abort is itself
+    // a recovery action, so the branch-type gate that rejects `finish` elsewhere
+    // must never fire for it.
+    for branch_type in [
+        BranchType::Other,
+        BranchType::Main,
+        BranchType::Develop,
+        BranchType::Release { major: 2, minor: 5, patch: 0 },
+    ] {
+        let cmd = Commands::Finish { breaking: None, base: None, abort: true };
+
+        let action = resolve_action(cmd, &branch_type, false).unwrap();
+
+        assert!(matches!(action, Action::AbortFinish), "branch type {branch_type:?} rejected --abort");
+    }
+}

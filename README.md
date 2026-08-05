@@ -580,10 +580,10 @@ src/
 ├── cli.rs               — CLI subcommands (clap); resolves to Action
 ├── lifecycle.rs         — Resume lookup, stash/state ordering contract, dispatch
 ├── git/
-│   ├── mod.rs           — Git trait + CLI implementation
+│   ├── mod.rs           — Git trait, GitCli adapter, CommandRunner port
 │   └── branch.rs        — Branch type detection and parsing
 ├── hosting/
-│   ├── mod.rs           — Hosting platform trait
+│   ├── mod.rs           — HostingPlatform trait + CliRunner port
 │   ├── detect.rs        — Provider detection from the origin remote URL
 │   ├── github.rs        — GitHub implementation via gh CLI
 │   └── devops.rs        — Azure DevOps implementation via az CLI
@@ -595,7 +595,7 @@ src/
 ├── state.rs             — Persisted finish state for conflict recovery
 ├── version.rs           — SemVer parsing and bumping
 ├── menu.rs              — Interactive menus via crossterm; implements Prompter
-├── prompt.rs            — Prompter trait: interactive selection as a port
+├── prompt.rs            — Prompter trait: selection and text input as a port
 ├── editor.rs            — Editor trait for opening worktrees
 ├── worktree.rs          — Worktree config, path resolution, and setup wizard
 └── test_support.rs      — Shared helpers for inline unit tests (test builds only)
@@ -603,13 +603,30 @@ src/
 
 The `Git`, `HostingPlatform`, `Editor`, and `Prompter` traits keep every flow fully mockable and make hosting providers swappable (GitHub and Azure DevOps today, GitLab/Bitbucket-ready).
 
+Two narrower ports sit one level down, under the adapters themselves:
+`CommandRunner` (`git/mod.rs`) and `CliRunner` (`hosting/mod.rs`) own nothing but
+the process spawn. That keeps every subprocess call in a single implementation
+each (`SystemRunner`, `SystemCli`) while leaving the adapters' own logic — git's
+exit-code semantics, output parsing, and the `gh`/`az` reuse-vs-create policy —
+testable without those CLIs installed.
+
 ## Development
 
 bflow is developed test-first (TDD) with a coverage ratchet:
 
 - `cargo test` — runs the full suite. All tests run against mocks; none touch real git, the network, or installed CLIs.
 - `cargo llvm-cov --summary-only` — line-coverage report (`brew install cargo-llvm-cov`).
-- Coverage may never decrease: `.claude/hooks/coverage-baseline.txt` records the high-water mark and `.claude/hooks/tdd-gate.sh` enforces it (wired as a Claude Code Stop hook). The long-term target is 100% of the mock-testable core; the subprocess/TTY shell (`main.rs`, `menu.rs`, the concrete adapters) is exempt by design.
+- Coverage may never decrease: `.claude/hooks/coverage-baseline.txt` records the high-water mark and `.claude/hooks/tdd-gate.sh` enforces it (wired as a Claude Code Stop hook).
+
+Line coverage sits near 89%. What remains uncovered is there by design — the
+process and terminal shell that tests must never touch:
+
+| Exempt | Why |
+|---|---|
+| `main.rs` | Composition root; building the real adapters needs `git`/`gh`/`az` installed |
+| `menu.rs` raw-mode rendering and key loop | Requires a TTY (the branch-type gating and input shaping around it *are* tested) |
+| `SystemRunner`, `SystemCli`, `CommandEditor` | The process spawns themselves |
+| A handful of `unreachable!` arms | Uncoverable by construction — they mark invariants the compiler cannot express |
 
 ## License
 

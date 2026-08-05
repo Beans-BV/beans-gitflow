@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use bflow::editor::Editor;
-use bflow::git::Git;
-use bflow::hosting::HostingPlatform;
+use bflow::git::{CliOutput, CommandRunner, Git};
+use bflow::hosting::{CliRunner, HostingPlatform};
 use bflow::prompt::Prompter;
 
 pub struct MockGit {
@@ -28,9 +28,26 @@ pub struct MockGit {
     pub commit_messages: Vec<String>,
     /// Refs (the `to` arg) that should fail with an error. Used to simulate missing branches.
     pub fail_commit_messages_for: Vec<String>,
+    /// Branches (the `b` arg) whose merge base cannot be computed — an unrelated
+    /// history. Parent detection must skip them rather than fail.
+    pub fail_merge_base_for: Vec<String>,
+    /// Refs (the `to` arg) whose commit count cannot be computed.
+    pub fail_rev_list_count_for: Vec<String>,
     /// 1-indexed merge call to fail (simulates a merge conflict). None = never fail.
     pub fail_nth_merge: Option<u32>,
     merge_call_count: RefCell<u32>,
+    /// When set, every `ff_merge` fails with this message. The text matters: flows
+    /// distinguish "no upstream yet" (`not something we can merge`, swallowed) from
+    /// a real failure (surfaced).
+    pub ff_merge_error: Option<String>,
+    /// When set, `create_branch` / `create_branch_no_checkout` fail with this
+    /// message. The text matters: flows rewrite git's "not a commit" into their
+    /// own guidance and pass everything else through.
+    pub create_branch_error: Option<String>,
+    /// `stash_pop_ref` fails (simulates a conflicting pop).
+    pub fail_stash_pop: bool,
+    /// `find_stash_by_message` fails (simulates an unreadable stash list).
+    pub fail_find_stash: bool,
 
     // Idempotency state — branches/tags considered "already done".
     /// Pairs of (ancestor, descendant) where ancestor is treated as merged into descendant.
@@ -56,6 +73,8 @@ pub struct MockGit {
     pub config: HashMap<String, String>,
     /// URL returned by `remote_url`.
     pub remote_url: String,
+    /// `remote_url` fails (a repo with no `origin` configured).
+    pub fail_remote_url: bool,
     /// Value returned by `repo_root`.
     pub repo_root: PathBuf,
     /// SHA returned by `head_sha`.
@@ -81,8 +100,14 @@ impl MockGit {
             rev_list_counts: HashMap::new(),
             commit_messages: Vec::new(),
             fail_commit_messages_for: Vec::new(),
+            fail_merge_base_for: Vec::new(),
+            fail_rev_list_count_for: Vec::new(),
             fail_nth_merge: None,
             merge_call_count: RefCell::new(0),
+            ff_merge_error: None,
+            create_branch_error: None,
+            fail_stash_pop: false,
+            fail_find_stash: false,
             ancestors: HashSet::new(),
             existing_tags: HashSet::new(),
             existing_remote_tags: HashSet::new(),
@@ -96,6 +121,7 @@ impl MockGit {
             stashes: RefCell::new(Vec::new()),
             config: HashMap::new(),
             remote_url: "https://github.com/acme/repo.git".to_string(),
+            fail_remote_url: false,
             repo_root: PathBuf::from("/repos/beans-gitflow"),
             head_sha: "headsha".to_string(),
             linked_worktree: false,
@@ -105,6 +131,13 @@ impl MockGit {
 
     pub fn calls(&self) -> Vec<String> {
         self.calls.borrow().clone()
+    }
+
+    fn create_branch_result(&self) -> Result<(), String> {
+        match &self.create_branch_error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -126,12 +159,12 @@ impl Git for MockGit {
 
     fn create_branch(&self, branch: &str, from: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("create_branch:{branch}:{from}"));
-        Ok(())
+        self.create_branch_result()
     }
 
     fn create_branch_no_checkout(&self, branch: &str, from: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("create_branch_no_checkout:{branch}:{from}"));
-        Ok(())
+        self.create_branch_result()
     }
 
     fn push(&self, branch: &str) -> Result<(), String> {
@@ -161,7 +194,10 @@ impl Git for MockGit {
 
     fn ff_merge(&self, branch: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("ff_merge:{branch}"));
-        Ok(())
+        match &self.ff_merge_error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
     }
 
     fn list_tags(&self) -> Result<Vec<String>, String> {
@@ -201,6 +237,9 @@ impl Git for MockGit {
 
     fn merge_base(&self, a: &str, b: &str) -> Result<String, String> {
         self.calls.borrow_mut().push(format!("merge_base:{a}:{b}"));
+        if self.fail_merge_base_for.iter().any(|r| r == b) {
+            return Err(format!("no merge base between {a} and {b}"));
+        }
         Ok(self.merge_bases
             .get(&(a.to_string(), b.to_string()))
             .cloned()
@@ -209,6 +248,9 @@ impl Git for MockGit {
 
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32, String> {
         self.calls.borrow_mut().push(format!("rev_list_count:{from}:{to}"));
+        if self.fail_rev_list_count_for.iter().any(|r| r == to) {
+            return Err(format!("bad revision: {to}"));
+        }
         Ok(*self.rev_list_counts
             .get(&(from.to_string(), to.to_string()))
             .unwrap_or(&self.rev_list_count_result))
@@ -269,6 +311,9 @@ impl Git for MockGit {
 
     fn remote_url(&self) -> Result<String, String> {
         self.calls.borrow_mut().push("remote_url".to_string());
+        if self.fail_remote_url {
+            return Err("No such remote 'origin'".to_string());
+        }
         Ok(self.remote_url.clone())
     }
 
@@ -307,6 +352,9 @@ impl Git for MockGit {
 
     fn find_stash_by_message(&self, msg: &str) -> Result<Option<String>, String> {
         self.calls.borrow_mut().push(format!("find_stash_by_message:{msg}"));
+        if self.fail_find_stash {
+            return Err("could not read the stash list".to_string());
+        }
         let stashes = self.stashes.borrow();
         for (i, m) in stashes.iter().enumerate() {
             if m == msg {
@@ -318,6 +366,9 @@ impl Git for MockGit {
 
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("stash_pop_ref:{stash_ref}"));
+        if self.fail_stash_pop {
+            return Err("conflict while popping".to_string());
+        }
         Ok(())
     }
 
@@ -413,17 +464,25 @@ impl Editor for MockEditor {
     }
 }
 
-/// Scripted `Prompter`: records every select as `select:{prompt}:[items]` and
-/// answers from a queue. An unscripted select is an error, so a test proves a
-/// flow never prompted simply by not scripting anything.
+/// Scripted `Prompter`: records every prompt and answers from a queue. An
+/// unscripted prompt is an error, so a test proves a flow never asked simply by
+/// not scripting anything.
 pub struct MockPrompter {
     pub calls: RefCell<Vec<String>>,
     pub selections: RefCell<VecDeque<usize>>,
+    pub lines: RefCell<VecDeque<String>>,
+    /// Every prompt returns `Err("Aborted")`, as Ctrl-C/Esc do.
+    pub abort: bool,
 }
 
 impl MockPrompter {
     pub fn new() -> Self {
-        Self { calls: RefCell::new(Vec::new()), selections: RefCell::new(VecDeque::new()) }
+        Self {
+            calls: RefCell::new(Vec::new()),
+            selections: RefCell::new(VecDeque::new()),
+            lines: RefCell::new(VecDeque::new()),
+            abort: false,
+        }
     }
 
     pub fn scripted(selections: &[usize]) -> Self {
@@ -432,16 +491,128 @@ impl MockPrompter {
         p
     }
 
+    /// Queue the answers to `prompt_name` / `prompt_line`, in order.
+    pub fn with_lines(self, lines: &[&str]) -> Self {
+        self.lines.borrow_mut().extend(lines.iter().map(|s| s.to_string()));
+        self
+    }
+
+    pub fn aborting() -> Self {
+        Self { abort: true, ..Self::new() }
+    }
+
     pub fn calls(&self) -> Vec<String> {
         self.calls.borrow().clone()
+    }
+
+    fn next_line(&self, kind: &str, prompt: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("{kind}:{prompt}"));
+        if self.abort {
+            return Err("Aborted".to_string());
+        }
+        self.lines.borrow_mut().pop_front()
+            .ok_or_else(|| format!("MockPrompter: unscripted {kind}('{prompt}')"))
     }
 }
 
 impl Prompter for MockPrompter {
     fn select(&self, prompt: &str, items: &[&str]) -> Result<usize, String> {
         self.calls.borrow_mut().push(format!("select:{prompt}:[{}]", items.join(", ")));
+        if self.abort {
+            return Err("Aborted".to_string());
+        }
         self.selections.borrow_mut().pop_front()
             .ok_or_else(|| format!("MockPrompter: unscripted select('{prompt}')"))
+    }
+
+    fn prompt_name(&self, prompt: &str) -> Result<String, String> {
+        self.next_line("prompt_name", prompt)
+    }
+
+    fn prompt_line(&self, prompt: &str) -> Result<String, String> {
+        self.next_line("prompt_line", prompt)
+    }
+}
+
+/// Scripted hosting CLI: records each invocation as `"<program> <args…>"` and
+/// answers from a queue of results, so provider policy (reuse vs. create, which
+/// failures are fatal) is testable without `gh` or `az` installed.
+pub struct MockCliRunner {
+    pub calls: RefCell<Vec<String>>,
+    responses: RefCell<VecDeque<Result<String, String>>>,
+}
+
+impl MockCliRunner {
+    pub fn scripted(responses: &[Result<&str, &str>]) -> Self {
+        Self {
+            calls: RefCell::new(Vec::new()),
+            responses: RefCell::new(
+                responses.iter()
+                    .map(|r| r.map(str::to_string).map_err(str::to_string))
+                    .collect(),
+            ),
+        }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl CliRunner for MockCliRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("{program} {}", args.join(" ")));
+        self.responses.borrow_mut().pop_front()
+            .unwrap_or_else(|| Err(format!("MockCliRunner: unscripted call to {program}")))
+    }
+}
+
+/// Scripted `git` process: records each invocation as `"git <args…>"` and
+/// answers from a queue of (exit code, stdout, stderr). Exit codes are explicit
+/// because `GitCli` reads them directly — 1 means "not set" for `config --get`,
+/// 5 means "already unset" for `config --unset`.
+pub struct MockCommandRunner {
+    pub calls: RefCell<Vec<String>>,
+    responses: RefCell<VecDeque<CliOutput>>,
+}
+
+impl MockCommandRunner {
+    /// One successful invocation returning `stdout`.
+    pub fn ok(stdout: &str) -> Self {
+        Self::scripted(&[(0, stdout, "")])
+    }
+
+    pub fn scripted(responses: &[(i32, &str, &str)]) -> Self {
+        Self::from_outputs(responses.iter().map(|(code, out, err)| CliOutput {
+            code: Some(*code),
+            stdout: out.to_string(),
+            stderr: err.to_string(),
+        }))
+    }
+
+    /// A process killed by a signal — no exit code at all.
+    pub fn terminated_by_signal() -> Self {
+        Self::from_outputs(std::iter::once(CliOutput {
+            code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+        }))
+    }
+
+    fn from_outputs(outputs: impl Iterator<Item = CliOutput>) -> Self {
+        Self { calls: RefCell::new(Vec::new()), responses: RefCell::new(outputs.collect()) }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl CommandRunner for MockCommandRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<CliOutput, String> {
+        self.calls.borrow_mut().push(format!("{program} {}", args.join(" ")));
+        self.responses.borrow_mut().pop_front()
+            .ok_or_else(|| format!("MockCommandRunner: unscripted call to {program} {}", args.join(" ")))
     }
 }
 

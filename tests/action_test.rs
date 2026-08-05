@@ -1,4 +1,4 @@
-use bflow::action::Action;
+use bflow::action::{validate_branch_name, Action};
 
 #[test]
 fn start_actions_return_true() {
@@ -118,4 +118,29 @@ fn no_worktree_reflects_the_flag() {
 
     // Non-start actions never opt out (there's nothing to opt out of).
     assert!(!Action::FinishRelease.no_worktree());
+}
+
+#[test]
+fn no_worktree_flag_is_honored_by_every_start_action() {
+    // --no-worktree opts a single command out of an enabled worktree flow. Missing
+    // it on one variant silently creates a worktree the user asked not to have.
+    assert!(Action::StartWorkBranch {
+        prefix: "feature".to_string(), name: "x".to_string(), from: "develop".to_string(),
+        no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    assert!(Action::StartReleaseFix {
+        name: "x".to_string(), no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    assert!(Action::StartHotfixFix {
+        name: "x".to_string(), no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    // Non-start actions never opt out of anything.
+    assert!(!Action::FinishRelease.no_worktree());
+}
+
+#[test]
+fn an_empty_branch_name_is_rejected_with_its_own_message() {
+    // Distinct from the special-character message: an empty name is what you get
+    // from an accidental `--name ""`, and the fix is different.
+    assert_eq!(validate_branch_name(""), Err("Name cannot be empty".to_string()));
 }

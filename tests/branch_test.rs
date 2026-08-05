@@ -60,3 +60,64 @@ fn parse_hotfix_fix() {
 fn parse_other() {
     assert_eq!(BranchType::parse("some-random-branch"), BranchType::Other);
 }
+
+// --- Malformed branches degrade to Other, never to a wrong type ---
+//
+// Everything downstream gates on BranchType: a `release/` branch whose version
+// does not parse must NOT become a Release (a finish would then invent a version
+// and tag main). `Other` is the safe answer — bflow refuses instead of guessing.
+
+#[test]
+fn work_branch_without_a_name_is_not_a_work_branch() {
+    assert_eq!(BranchType::parse("feature/"), BranchType::Other);
+    assert_eq!(BranchType::parse("fix/"), BranchType::Other);
+    assert_eq!(BranchType::parse("chore/"), BranchType::Other);
+    assert_eq!(BranchType::parse("docs/"), BranchType::Other);
+    assert_eq!(BranchType::parse("refactor/"), BranchType::Other);
+}
+
+#[test]
+fn work_branch_prefix_without_a_slash_is_not_a_work_branch() {
+    assert_eq!(BranchType::parse("feature-flags"), BranchType::Other);
+    assert_eq!(BranchType::parse("feature"), BranchType::Other);
+}
+
+#[test]
+fn release_branch_with_an_unparseable_version_is_not_a_release() {
+    assert_eq!(BranchType::parse("release/next"), BranchType::Other);
+    assert_eq!(BranchType::parse("release/2.6"), BranchType::Other);
+    assert_eq!(BranchType::parse("release/"), BranchType::Other);
+}
+
+#[test]
+fn hotfix_branch_with_an_unparseable_version_is_not_a_hotfix() {
+    assert_eq!(BranchType::parse("hotfix/urgent"), BranchType::Other);
+    assert_eq!(BranchType::parse("hotfix/2.6"), BranchType::Other);
+}
+
+#[test]
+fn release_fix_needs_both_a_valid_version_and_a_name() {
+    assert_eq!(BranchType::parse("release-fix/2.6.0"), BranchType::Other, "no name segment");
+    assert_eq!(BranchType::parse("release-fix/2.6.0/"), BranchType::Other, "empty name");
+    assert_eq!(BranchType::parse("release-fix/next/payment"), BranchType::Other, "bad version");
+}
+
+#[test]
+fn hotfix_fix_needs_both_a_valid_version_and_a_name() {
+    assert_eq!(BranchType::parse("hotfix-fix/2.6.1"), BranchType::Other, "no name segment");
+    assert_eq!(BranchType::parse("hotfix-fix/2.6.1/"), BranchType::Other, "empty name");
+    assert_eq!(BranchType::parse("hotfix-fix/urgent/dto"), BranchType::Other, "bad version");
+}
+
+#[test]
+fn only_branches_carrying_a_name_expose_one() {
+    // `name()` feeds PR titles; the versioned branches have no slug to expose.
+    assert_eq!(BranchType::parse("feature/passkey-login").name(), Some("passkey-login"));
+    assert_eq!(BranchType::parse("release-fix/2.6.0/payment").name(), Some("payment"));
+    assert_eq!(BranchType::parse("hotfix-fix/2.6.1/dto").name(), Some("dto"));
+    assert_eq!(BranchType::parse("release/2.6.0").name(), None);
+    assert_eq!(BranchType::parse("hotfix/2.6.1").name(), None);
+    assert_eq!(BranchType::parse("main").name(), None);
+    assert_eq!(BranchType::parse("develop").name(), None);
+    assert_eq!(BranchType::parse("whatever").name(), None);
+}

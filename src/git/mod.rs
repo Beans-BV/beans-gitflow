@@ -76,19 +76,59 @@ pub trait Git {
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()>;
 }
 
-pub struct GitCli;
+/// One finished `git` invocation, in a form tests can construct. `std::process::
+/// Output` cannot be built portably (`ExitStatus` has no cross-platform
+/// constructor), and exit codes are load-bearing here — `git config --get`
+/// exits 1 for "not set", `--unset` exits 5 for "already unset" — so the seam
+/// carries the raw code rather than a success/failure boolean.
+pub struct CliOutput {
+    /// `None` when the process was terminated by a signal.
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
 
-impl GitCli {
-    pub fn new() -> Self { Self }
+/// Port for spawning `git`. `GitCli` owns the exit-code semantics and output
+/// parsing; this trait owns only the process spawn, keeping "no subprocess calls
+/// outside adapter impls" (SKILL.md principle 1) true at a single point.
+pub trait CommandRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<CliOutput>;
+}
+
+/// The real runner: spawns `git` as a child process.
+pub struct SystemRunner;
+
+impl CommandRunner for SystemRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<CliOutput> {
+        let output = Command::new(program).args(args).output()
+            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+        Ok(CliOutput {
+            code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+}
+
+pub struct GitCli<'a> {
+    runner: &'a dyn CommandRunner,
+}
+
+impl<'a> GitCli<'a> {
+    pub fn new(runner: &'a dyn CommandRunner) -> Self {
+        Self { runner }
+    }
+
+    fn output(&self, args: &[&str]) -> Result<CliOutput> {
+        self.runner.run("git", args)
+    }
 
     fn run(&self, args: &[&str]) -> Result<String> {
-        let output = Command::new("git").args(args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let output = self.output(args)?;
+        if output.code == Some(0) {
+            Ok(output.stdout.trim().to_string())
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            Err(format!("git {} failed: {}", args.join(" "), stderr))
+            Err(format!("git {} failed: {}", args.join(" "), output.stderr.trim()))
         }
     }
 
@@ -96,15 +136,11 @@ impl GitCli {
     /// (e.g., `merge-base --is-ancestor`, `show-ref --verify`).
     /// Exit codes other than 0 or 1 are treated as errors.
     fn run_check(&self, args: &[&str]) -> Result<bool> {
-        let output = Command::new("git").args(args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        match output.status.code() {
+        let output = self.output(args)?;
+        match output.code {
             Some(0) => Ok(true),
             Some(1) => Ok(false),
-            Some(code) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
-            }
+            Some(code) => Err(format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim())),
             None => Err(format!("git {} terminated by signal", args.join(" "))),
         }
     }
@@ -118,25 +154,17 @@ impl GitCli {
     /// Run a `git config --get`-style command that uses exit 1 to mean "key not set".
     /// Returns `Ok(None)` on exit 1, `Ok(Some(value))` on exit 0, and an error otherwise.
     fn run_config(&self, args: &[&str]) -> Result<Option<String>> {
-        let output = Command::new("git").args(args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        match output.status.code() {
-            Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string())),
+        let output = self.output(args)?;
+        match output.code {
+            Some(0) => Ok(Some(output.stdout.trim().to_string())),
             Some(1) => Ok(None),
-            Some(code) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
-            }
+            Some(code) => Err(format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim())),
             None => Err(format!("git {} terminated by signal", args.join(" "))),
         }
     }
 }
 
-impl Default for GitCli {
-    fn default() -> Self { Self::new() }
-}
-
-impl Git for GitCli {
+impl Git for GitCli<'_> {
     fn current_branch(&self) -> Result<String> { self.run(&["rev-parse", "--abbrev-ref", "HEAD"]) }
     fn fetch(&self) -> Result<()> { self.run(&["fetch", "--all", "--prune"]).map(|_| ()) }
     fn checkout(&self, branch: &str) -> Result<()> { self.run(&["checkout", branch]).map(|_| ()) }
@@ -274,15 +302,11 @@ impl Git for GitCli {
         if global { args.push("--global"); }
         args.push("--unset");
         args.push(key);
-        let output = Command::new("git").args(&args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        match output.status.code() {
+        let output = self.output(&args)?;
+        match output.code {
             // 0 = removed; 5 = key was not set (already at default) — both fine.
             Some(0) | Some(5) => Ok(()),
-            Some(code) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
-            }
+            Some(code) => Err(format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim())),
             None => Err(format!("git {} terminated by signal", args.join(" "))),
         }
     }

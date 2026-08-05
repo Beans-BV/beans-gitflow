@@ -151,3 +151,17 @@ fn hotfix_branch_name() {
     assert_eq!(SemVer::new(2, 5, 4).hotfix_branch(), "hotfix/2.5.4");
     assert_eq!(SemVer::new(2, 5, 4).with_rc(1).hotfix_branch(), "hotfix/2.5.4");
 }
+
+#[test]
+fn a_clean_release_outranks_its_own_release_candidates() {
+    // decisions.md: SemVer::Ord is hand-implemented precisely so a pre-release
+    // sorts BELOW its own release — a derived Ord on Option would invert this and
+    // make `bflow finish` pick an RC tag as the latest release.
+    let release = SemVer::parse("v2.5.0").unwrap();
+    let rc = SemVer::parse("v2.5.0-rc.4").unwrap();
+
+    assert!(release > rc, "v2.5.0 must outrank v2.5.0-rc.4");
+    assert!(rc < release);
+    assert_eq!([rc.clone(), release.clone()].iter().max(), Some(&release));
+    assert_eq!([release.clone(), rc.clone()].iter().max(), Some(&release));
+}

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::editor::Editor;
 use crate::git::{Git, Result};
-use crate::menu;
+use crate::prompt::Prompter;
 
 /// Friendly editor names offered by the interactive wizard, mapped to the launcher
 /// command bflow stores and runs. Any editor with a `<cmd> <path>` CLI works — this
@@ -194,14 +194,14 @@ pub fn show_status(git: &dyn Git) -> Result<()> {
 }
 
 /// Interactive setup: prompts for enable, editor, and location, then saves them.
-pub fn wizard(git: &dyn Git, local: bool) -> Result<()> {
+pub fn wizard(git: &dyn Git, prompter: &dyn Prompter, local: bool) -> Result<()> {
     println!("Configure the worktree flow — writing to {} git config.\n", scope_label(local));
 
     let enable_items = [
         "Enable — open each new branch in its own worktree + editor",
         "Disable",
     ];
-    let enabled = menu::show_select("Worktree flow", &enable_items)? == 0;
+    let enabled = prompter.select("Worktree flow", &enable_items)? == 0;
     set_enabled(git, enabled, local)?;
     if !enabled {
         return Ok(());
@@ -215,22 +215,22 @@ pub fn wizard(git: &dyn Git, local: bool) -> Result<()> {
     editor_items.push("None — create the worktree but don't open an editor".to_string());
     editor_items.push("Custom command…".to_string());
     let editor_refs: Vec<&str> = editor_items.iter().map(String::as_str).collect();
-    let e_idx = menu::show_select("Editor", &editor_refs)?;
+    let e_idx = prompter.select("Editor", &editor_refs)?;
     let editor_value = if e_idx < EDITOR_PRESETS.len() {
         EDITOR_PRESETS[e_idx].1.to_string()
     } else if e_idx == EDITOR_PRESETS.len() {
         "none".to_string()
     } else {
-        menu::prompt_line("Editor command (e.g. code, cursor)")?
+        prompter.prompt_line("Editor command (e.g. code, cursor)")?
     };
     set_editor(git, &editor_value, local)?;
 
     // Location: default (repo's parent) or a custom directory.
     let path_items = ["Default — next to the repository", "Custom directory…"];
-    if menu::show_select("Worktree location", &path_items)? == 0 {
+    if prompter.select("Worktree location", &path_items)? == 0 {
         use_default_path(git, local)?;
     } else {
-        let path = menu::prompt_line("Worktree base directory (e.g. ~/worktrees)")?;
+        let path = prompter.prompt_line("Worktree base directory (e.g. ~/worktrees)")?;
         set_path(git, &path, local)?;
     }
 
