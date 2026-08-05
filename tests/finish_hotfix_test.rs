@@ -295,7 +295,7 @@ fn finish_hotfix_switches_off_source_before_deleting_when_currently_on_it() {
 
     let calls = git.calls();
     let checkout_main_idx = calls.iter().position(|c| c == "checkout:main")
-        .expect("expected a checkout:main before delete; calls: {calls:?}");
+        .unwrap_or_else(|| panic!("expected a checkout:main before delete; calls: {calls:?}"));
     let delete_idx = calls.iter().position(|c| c == "delete_branch_local:hotfix/1.0.1")
         .expect("expected delete_branch_local");
     assert!(checkout_main_idx < delete_idx,

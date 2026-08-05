@@ -5,6 +5,12 @@ use bflow::flows::start::{start_work_branch, start_release, start_release_fix, s
 use bflow::version::SemVer;
 use bflow::worktree::{WorktreeConfig, WorktreeContext};
 
+// The start flows are where the mock's recording contract shows up most
+// plainly: every assertion below is an exact script, so the `call:arg:arg`
+// string format is itself part of the expectation (decisions.md, Testing
+// Strategy — expectations read as a runnable script and diff legibly). A
+// change to that format fails here, loudly, with a readable diff.
+
 /// Build a worktree config whose base path is an existing temp dir, so the
 /// flow's `create_dir_all` is a harmless no-op during tests.
 fn test_worktree_config(editor: &str) -> WorktreeConfig {

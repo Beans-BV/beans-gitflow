@@ -13,6 +13,11 @@ use bflow::git::{CliOutput, CommandRunner, Git};
 use bflow::hosting::{CliRunner, HostingPlatform};
 use bflow::prompt::Prompter;
 
+/// Dumb constants for values no test has ever branched on — a knob nothing
+/// assigns is a knob that reads as configurable and is not.
+const MERGE_BASE: &str = "abc123";
+const REMOVED_WORKTREE_PATH: &str = "/repos/beans-gitflow-feature-x";
+
 pub struct MockGit {
     pub calls: RefCell<Vec<String>>,
     pub current_branch: String,
@@ -20,8 +25,7 @@ pub struct MockGit {
     pub tags_on_branch: Vec<String>,
     pub branches_matching: Vec<String>,
     pub remote_branches: Vec<String>,
-    pub merge_base_result: String,
-    /// Per-(a, b) merge bases; falls back to `merge_base_result` when absent.
+    /// Per-(a, b) merge bases; falls back to `MERGE_BASE` when absent.
     pub merge_bases: HashMap<(String, String), String>,
     pub rev_list_count_result: u32,
     /// Per-(from, to) counts; falls back to `rev_list_count_result` when absent.
@@ -82,8 +86,6 @@ pub struct MockGit {
     pub head_sha: String,
     /// Whether the current checkout is a linked worktree.
     pub linked_worktree: bool,
-    /// Path returned by `remove_current_worktree`.
-    pub worktree_path: PathBuf,
     /// Owns the temp directory `git_dir` points at, when there is one, so it
     /// outlives the test exactly as long as the mock does.
     _git_dir_guard: Option<TempDir>,
@@ -98,7 +100,6 @@ impl MockGit {
             tags_on_branch: Vec::new(),
             branches_matching: Vec::new(),
             remote_branches: Vec::new(),
-            merge_base_result: "abc123".to_string(),
             merge_bases: HashMap::new(),
             rev_list_count_result: 0,
             rev_list_counts: HashMap::new(),
@@ -129,7 +130,6 @@ impl MockGit {
             repo_root: PathBuf::from("/repos/beans-gitflow"),
             head_sha: "headsha".to_string(),
             linked_worktree: false,
-            worktree_path: PathBuf::from("/repos/beans-gitflow-feature-x"),
             _git_dir_guard: None,
         }
     }
@@ -261,7 +261,7 @@ impl Git for MockGit {
         Ok(self.merge_bases
             .get(&(a.to_string(), b.to_string()))
             .cloned()
-            .unwrap_or_else(|| self.merge_base_result.clone()))
+            .unwrap_or_else(|| MERGE_BASE.to_string()))
     }
 
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32, String> {
@@ -397,7 +397,7 @@ impl Git for MockGit {
 
     fn remove_current_worktree(&self) -> Result<PathBuf, String> {
         self.calls.borrow_mut().push("remove_current_worktree".to_string());
-        Ok(self.worktree_path.clone())
+        Ok(PathBuf::from(REMOVED_WORKTREE_PATH))
     }
 
     fn head_sha(&self) -> Result<String, String> {
