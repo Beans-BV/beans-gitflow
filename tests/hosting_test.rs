@@ -107,6 +107,29 @@ fn a_merged_pr_lookup_failure_names_the_auth_fix() {
 }
 
 #[test]
+fn merged_pr_to_filters_by_exact_head_and_base() {
+    let runner = MockCliRunner::scripted(&[Ok("https://github.com/o/r/pull/49\tabc123\tdeadbeef")]);
+
+    let pr = gh(&runner).merged_pr_to("feature/x", "develop").unwrap().unwrap();
+
+    assert_eq!(pr.head_sha, "abc123");
+    assert_eq!(pr.merge_commit_sha, "deadbeef");
+    assert_eq!(
+        runner.calls()[0],
+        r#"gh pr list --head feature/x --base develop --state all --limit 1 --json url,state,headRefOid,mergeCommit --jq .[0] | select(.state == "MERGED") | [.url, .headRefOid, .mergeCommit.oid] | @tsv"#
+    );
+}
+
+#[test]
+fn a_merged_pr_to_lookup_failure_names_the_auth_fix() {
+    let runner = MockCliRunner::scripted(&[Err("gh pr list failed: HTTP 401")]);
+
+    let err = gh(&runner).merged_pr_to("feature/x", "develop").unwrap_err();
+
+    assert!(err.contains("gh auth login"), "got: {err}");
+}
+
+#[test]
 fn github_auth_check_runs_gh_auth_status() {
     let runner = MockCliRunner::scripted(&[Ok("Logged in to github.com")]);
 
@@ -168,6 +191,23 @@ fn ado_merged_pr_queries_the_newest_pr_of_any_status() {
     assert!(call.contains("--status all"), "got: {call}");
     assert!(call.contains("[0].[status, lastMergeSourceCommit.commitId, targetRefName, pullRequestId]"),
         "the tsv row parser depends on this exact projection and order; got: {call}");
+}
+
+#[test]
+fn ado_merged_pr_to_filters_by_source_and_target_branch() {
+    let runner = MockCliRunner::scripted(&[Ok("completed\tabc123\tdeadbeef\t49")]);
+
+    let pr = ado(&runner).merged_pr_to("feature/x", "develop").unwrap().unwrap();
+
+    assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
+    assert_eq!(pr.head_sha, "abc123");
+    assert_eq!(pr.merge_commit_sha, "deadbeef");
+    assert_eq!(
+        runner.calls()[0],
+        "az repos pr list --organization https://dev.azure.com/beans --project Shop --repository shop \
+--source-branch feature/x --target-branch develop --status all \
+--query [0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, pullRequestId] -o tsv"
+    );
 }
 
 #[test]

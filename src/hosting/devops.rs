@@ -1,4 +1,4 @@
-use super::{resolve_body_file, CliRunner, HostingPlatform, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, HostingPlatform, LandedPr, MergedPr, Result};
 
 pub struct AzureDevOps<'a> {
     org: String,
@@ -66,6 +66,35 @@ impl<'a> AzureDevOps<'a> {
             url: self.pr_url(validate_pr_id(id)?),
             head_sha: sha.to_string(),
             base,
+        }))
+    }
+
+    /// Parse the `status<TAB>headSha<TAB>mergeCommitSha<TAB>id` tsv row of the
+    /// base-filtered merged-PR query. Same empty/status/id rules as
+    /// `parse_merged_pr_row`, plus the merge commit SHA gets the same
+    /// null-guard as the head SHA.
+    fn parse_landed_pr_row(&self, row: &str) -> Result<Option<LandedPr>> {
+        let row = row.trim();
+        if row.is_empty() {
+            return Ok(None);
+        }
+        let fields: Vec<&str> = row.split('\t').collect();
+        let [status, head_sha, merge_commit_sha, id] = fields.as_slice() else {
+            return Err(format!("Unexpected merged-PR data from az: '{row}'"));
+        };
+        if *status != "completed" {
+            return Ok(None);
+        }
+        if head_sha.is_empty() || *head_sha == "None" {
+            return Err(format!("Unexpected merge source commit from az: '{row}'"));
+        }
+        if merge_commit_sha.is_empty() || *merge_commit_sha == "None" {
+            return Err(format!("Unexpected merge commit from az: '{row}'"));
+        }
+        Ok(Some(LandedPr {
+            url: self.pr_url(validate_pr_id(id)?),
+            head_sha: head_sha.to_string(),
+            merge_commit_sha: merge_commit_sha.to_string(),
         }))
     }
 }
@@ -157,6 +186,22 @@ impl HostingPlatform for AzureDevOps<'_> {
         self.parse_merged_pr_row(&row)
     }
 
+    fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>> {
+        // --target-branch narrows to exactly this landing; az still lists
+        // newest first, so [0] is the newest such PR.
+        let mut args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
+        args.extend(self.repo_args());
+        args.extend([
+            "--source-branch".into(), head.into(),
+            "--target-branch".into(), base.into(),
+            "--status".into(), "all".into(),
+            "--query".into(), "[0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, pullRequestId]".into(),
+            "-o".into(), "tsv".into(),
+        ]);
+        let row = self.run_az(&args)?;
+        self.parse_landed_pr_row(&row)
+    }
+
     fn check_auth(&self) -> Result<()> {
         // Explicit extension check first: it also prevents az's interactive
         // dynamic-install prompt from firing inside a non-tty command later.
@@ -244,5 +289,33 @@ mod tests {
         assert!(ado().parse_merged_pr_row("completed\t\trefs/heads/develop\t49").is_err());
         assert!(ado().parse_merged_pr_row("completed\tNone\trefs/heads/develop\t49").is_err());
         assert!(ado().parse_merged_pr_row("completed\tabc\trefs/heads/develop\tNone").is_err());
+    }
+
+    #[test]
+    fn landed_pr_row_empty_means_no_pr() {
+        assert_eq!(ado().parse_landed_pr_row(""), Ok(None));
+    }
+
+    #[test]
+    fn landed_pr_row_completed_parses_with_synthesized_url_and_merge_commit() {
+        let pr = ado().parse_landed_pr_row("completed\tabc123\tdeadbeef\t49").unwrap().unwrap();
+        assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
+        assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.merge_commit_sha, "deadbeef");
+    }
+
+    #[test]
+    fn landed_pr_row_active_or_abandoned_is_none() {
+        assert_eq!(ado().parse_landed_pr_row("active\tabc\tdeadbeef\t49"), Ok(None));
+        assert_eq!(ado().parse_landed_pr_row("abandoned\tabc\tdeadbeef\t49"), Ok(None));
+    }
+
+    #[test]
+    fn landed_pr_row_missing_shas_or_bad_id_is_a_hard_error() {
+        assert!(ado().parse_landed_pr_row("completed\t\tdeadbeef\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tNone\tdeadbeef\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tabc\t\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tabc\tNone\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tabc\tdeadbeef\tNone").is_err());
     }
 }

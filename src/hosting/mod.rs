@@ -17,6 +17,18 @@ pub struct MergedPr {
     pub base: String,
 }
 
+/// A PR that landed `head` into a specific `base`: everything a protected-mode
+/// landing needs to confirm the merge and record its commit. Distinct from
+/// `MergedPr` (which answers "is my work branch done, whatever the base") —
+/// this answers "did head land into base", and carries the merge commit SHA
+/// rather than the base name, since the base is already known by the caller.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandedPr {
+    pub url: String,
+    pub head_sha: String,
+    pub merge_commit_sha: String,
+}
+
 pub trait HostingPlatform {
     /// Create a PR (or return the URL of an existing open one). When `template` is
     /// `Some`, its contents become the PR body; when `None`, the platform falls back to
@@ -25,6 +37,9 @@ pub trait HostingPlatform {
     /// The merged PR for `head`, if the branch's most recent PR is merged.
     /// An open or abandoned newer PR yields `None` — the branch is still in play.
     fn merged_pr(&self, head: &str) -> Result<Option<MergedPr>>;
+    /// The newest `head`→`base` PR, if it is merged. An open or abandoned newer
+    /// PR yields `None`.
+    fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>>;
     fn open_url(&self, url: &str) -> Result<()> {
         open_in_browser(url)
     }
