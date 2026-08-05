@@ -11,7 +11,7 @@ Broad, global rules only. Implementation-level decisions, extension recipes, and
 
 ## Principles
 
-1. **Ports & adapters.** Business logic lives in `flows/` and depends only on traits (`Git`, `HostingPlatform`, `Editor`, `Prompter`). Concrete adapters are wired in `main.rs` — the only composition root. No subprocess calls outside adapter impls.
+1. **Ports & adapters.** Business logic lives in `flows/` and depends only on traits (`Git`, `HostingPlatform`, `Editor`, `Prompter`). Concrete adapters are wired in `main.rs` — the only composition root. No subprocess calls outside adapter impls and the composition root.
 2. **Plug-and-play integrations.** Hosting providers are auto-detected from the remote and swappable; adding a provider or editor never touches flows.
 3. **Integrate through the user's own CLIs** (`git`, `gh`, `az`) — never link libraries or call APIs directly. bflow inherits the user's auth, config, hooks, and signing.
 4. **Minimal dependency budget.** Two crates today. A new dependency needs a very good reason; prefer hand-rolling small things.
@@ -30,5 +30,5 @@ Broad, global rules only. Implementation-level decisions, extension recipes, and
 | `lifecycle.rs` | Cross-cutting lifecycle (stash/state/resume ordering), dispatches `Action` once |
 | `cli.rs` / `menu.rs` | The two interfaces; both resolve to `Action` (`action.rs`) |
 | `flows/` | Business logic per workflow |
-| `git/`, `hosting/`, `editor.rs`, `prompt.rs` | Ports (traits) + adapters (CLI impls); `hosting/detect.rs` picks the provider. Adapters spawn processes only through `CommandRunner`/`CliRunner`, so their own logic is mockable |
+| `git/`, `hosting/`, `editor.rs`, `prompt.rs` | Ports (traits) + adapters (CLI impls); `hosting/detect.rs` picks the provider. The *policy-bearing* adapters (`GitCli`, `GitHub`, `AzureDevOps`) spawn only through `CommandRunner`/`CliRunner`, so their own logic is mockable. The zero-policy shells — `CommandEditor::open`, `open_in_browser` — spawn directly; there is no decision in them to test |
 | `state.rs`, `worktree.rs`, `version.rs` | Finish state, worktree feature, SemVer |
