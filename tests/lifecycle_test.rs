@@ -274,6 +274,75 @@ fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
     }
 }
 
+// --- The worktree-active predicate pair ---
+//
+// Two places encode "the worktree flow is active for this command":
+// cli::auto_discovers_target, which waives the must-be-standing-on-it gate for
+// release-fix/hotfix-fix, and lifecycle's `worktree_active`, which decides
+// whether a WorktreeContext is built at all. Nothing pinned their agreement —
+// and the failure is asymmetric and silent: the gate gets waived, the user is
+// allowed to run `start release-fix` from develop, and then no worktree
+// materializes. These two tests run the whole lifecycle so both encodings are
+// exercised by one invocation.
+
+fn worktree_lifecycle_git() -> MockGit {
+    let mut git = MockGit::new();
+    git.current_branch = "develop".to_string();
+    git.git_dir = tmp_dir("bflow-lifecycle-test");
+    git.repo_root = tmp_dir("bflow-wt-root").join("app");
+    git.branches_matching = vec!["release/2.5.0".to_string()];
+    git
+}
+
+fn start_release_fix_cmd(no_worktree: bool) -> Option<Commands> {
+    Some(Commands::Start { kind: StartKind::ReleaseFix {
+        name: "db-index".to_string(),
+        opts: StartOptions { no_checkout: false, no_worktree },
+    }})
+}
+
+fn enabled_wt_config() -> WorktreeConfig {
+    WorktreeConfig {
+        enabled: true,
+        editor: "none".to_string(),
+        base_path: Some(std::env::temp_dir().to_string_lossy().to_string()),
+    }
+}
+
+fn run_with_worktree(git: &MockGit, command: Option<Commands>) -> Result<(), String> {
+    run(git, &MockHosting::new(), &MockPrompter::new(), &MockEditor::new(), &enabled_wt_config(), command)
+}
+
+#[test]
+fn an_enabled_worktree_flow_waives_the_gate_and_actually_materializes_a_worktree() {
+    let git = worktree_lifecycle_git();
+
+    run_with_worktree(&git, start_release_fix_cmd(false)).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c == "create_branch_no_checkout:release-fix/2.5.0/db-index:release/2.5.0"),
+        "the gate was waived, so the branch must be created without switching; calls: {calls:?}");
+    assert!(calls.iter().any(|c| c.starts_with("add_worktree:")),
+        "waiving the gate without materializing a worktree is the divergence this pins; calls: {calls:?}");
+    std::fs::remove_dir_all(&git.git_dir).ok();
+}
+
+#[test]
+fn no_worktree_re_arms_the_gate_it_waived() {
+    // The inverse: opting out must restore the standing-branch requirement, so
+    // `start release-fix` from develop is rejected rather than silently taking
+    // the checkout path.
+    let git = worktree_lifecycle_git();
+
+    let err = run_with_worktree(&git, start_release_fix_cmd(true)).unwrap_err();
+
+    assert_eq!(err, "This command is only valid on a release branch.");
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("add_worktree:") || c.starts_with("create_branch")),
+        "nothing may be created; calls: {calls:?}");
+    std::fs::remove_dir_all(&git.git_dir).ok();
+}
+
 // --- run_flow dispatch: every Action arm reaches its own flow ---
 //
 // decisions.md: "One Action enum is the single currency" — lifecycle::run_flow is
