@@ -18,14 +18,16 @@ impl<'a> GitHub<'a> {
 
 impl HostingPlatform for GitHub<'_> {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
-        match self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]) {
-            Ok(url) if !url.is_empty() => return Ok(url),
-            // A closed/merged PR filters to empty output — create a new one.
-            Ok(_) => {}
-            // gh exits non-zero both when no PR exists (normal here) and on real
-            // failures (auth expiry, network). Only the former may be swallowed.
-            Err(e) if e.contains("no pull requests found") => {}
-            Err(e) => return Err(format!("Could not check for an existing PR: {e}\n{AUTH_REMEDY}")),
+        // The probe must filter by base: a fan-out source branch (a protected
+        // hotfix landing on both main and a release branch) can have open PRs
+        // to more than one base at once, and a head-only lookup would return
+        // an arbitrary one. ADO's create_or_get_pr already filters by both
+        // --source-branch and --target-branch.
+        let existing = self
+            .run_gh(&["pr", "list", "--head", head, "--base", base, "--state", "open", "--limit", "1", "--json", "url", "--jq", ".[0].url"])
+            .map_err(|e| format!("Could not check for an existing PR: {e}\n{AUTH_REMEDY}"))?;
+        if !existing.is_empty() {
+            return Ok(existing);
         }
 
         let git_default_paths = [
