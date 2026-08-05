@@ -12,6 +12,7 @@ use bflow::editor::Editor;
 use bflow::git::{CliOutput, CommandRunner, Git};
 use bflow::hosting::{CliRunner, HostingPlatform};
 use bflow::prompt::Prompter;
+use bflow::version_script::VersionScript;
 
 const MERGE_BASE: &str = "abc123";
 const REMOVED_WORKTREE_PATH: &str = "/repos/beans-gitflow-feature-x";
@@ -470,6 +471,36 @@ impl Editor for MockEditor {
         } else {
             Ok(())
         }
+    }
+}
+
+pub struct MockVersionScript {
+    pub calls: RefCell<Vec<String>>,
+    /// When set, `run` returns this error instead of succeeding.
+    pub fail: Option<String>,
+}
+
+impl MockVersionScript {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), fail: None }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl VersionScript for MockVersionScript {
+    fn run(&self, version: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("run:{version}"));
+        match &self.fail {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
+    }
+
+    fn display_name(&self) -> String {
+        "set-version.sh".to_string()
     }
 }
 
