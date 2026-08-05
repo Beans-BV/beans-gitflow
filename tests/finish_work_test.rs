@@ -370,6 +370,26 @@ fn develop_is_offered_even_when_it_already_contains_our_tip() {
     assert_eq!(prompter.calls(), vec!["select:PR target branch:[develop, feature/sibling]"]);
 }
 
+#[test]
+fn machine_owned_chore_set_version_branch_is_never_offered_as_pr_target() {
+    // chore/set-version-* branches are bflow-created and get merged/deleted by
+    // a protected-mode version bump; targeting one as a PR base would strand
+    // the PR when that branch disappears out from under it.
+    let mut git = MockGit::new();
+    git.current_branch = "feature/login".to_string();
+    git.remote_branches = vec!["chore/set-version-1.2.0".to_string(), "develop".to_string()];
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new(); // unscripted: any select would error
+    let branch_type = BranchType::Feature { name: "login".to_string() };
+
+    finish_work_branch(&git, &hosting, &prompter, &branch_type, Some(false), None, None).unwrap();
+
+    assert!(prompter.calls().is_empty(),
+        "chore/set-version-* must be filtered, leaving develop as the sole/auto candidate");
+    assert!(hosting.calls()[1].starts_with("create_or_get_pr:feature/login:develop:"),
+        "chore/set-version-1.2.0 must never be offered as a PR target, got: {}", hosting.calls()[1]);
+}
+
 // --- Already-merged PR: finish is complete, clean up instead of a new PR ---
 
 use bflow::hosting::MergedPr;

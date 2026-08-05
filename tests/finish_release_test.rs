@@ -138,6 +138,7 @@ fn bump_protected_fresh_with_changes_defers_the_tag_to_the_landing_pr() {
     assert_eq!(git.calls(), vec![
         "remote_branch_exists:release-chore/1.1.0/set-version",
         "is_working_tree_clean",
+        "local_branch_exists:release-chore/1.1.0/set-version",
         "create_branch:release-chore/1.1.0/set-version:release/1.1.0",
         "is_working_tree_clean",
         "stage_all",
@@ -166,6 +167,7 @@ fn bump_protected_fresh_noop_cuts_the_tag_immediately() {
     assert_eq!(git.calls(), vec![
         "remote_branch_exists:release-chore/1.1.0/set-version",
         "is_working_tree_clean",
+        "local_branch_exists:release-chore/1.1.0/set-version",
         "create_branch:release-chore/1.1.0/set-version:release/1.1.0",
         "is_working_tree_clean",
         "checkout:release/1.1.0",
@@ -237,6 +239,7 @@ fn bump_protected_already_consumed_falls_through_to_the_fresh_path() {
         "remote_branch_exists:release-chore/1.1.0/set-version",
         "remote_branch_exists:release-chore/1.1.0/set-version",
         "is_working_tree_clean",
+        "local_branch_exists:release-chore/1.1.0/set-version",
         "create_branch:release-chore/1.1.0/set-version:release/1.1.0",
         "is_working_tree_clean",
         "stage_all",
@@ -286,6 +289,67 @@ fn bump_protected_reuses_a_leftover_remote_chore_branch_without_recreating_it() 
     ]);
     assert!(script.calls().is_empty());
     assert!(!git.calls().iter().any(|c| c.starts_with("create_branch")));
+}
+
+#[test]
+fn bump_protected_deletes_leftover_local_chore_branch_before_recreating() {
+    // A prior run crashed after `create_branch` but before the chore branch was
+    // ever pushed: it exists locally only. Re-running must not die on git's raw
+    // "branch already exists" — the leftover is machine-owned, so bflow clears
+    // it itself before recreating.
+    let mut git = MockGit::new();
+    git.existing_local_branches.insert("release-chore/1.1.0/set-version".to_string());
+    git.working_tree_clean_seq.get_mut().extend([true, false]);
+    let hosting = MockHosting::new();
+    let script = MockVersionScript::new();
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+
+    bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "remote_branch_exists:release-chore/1.1.0/set-version",
+        "is_working_tree_clean",
+        "local_branch_exists:release-chore/1.1.0/set-version",
+        "delete_branch_local:release-chore/1.1.0/set-version",
+        "create_branch:release-chore/1.1.0/set-version:release/1.1.0",
+        "is_working_tree_clean",
+        "stage_all",
+        "commit:chore: set version 1.1.0",
+        "push:release-chore/1.1.0/set-version",
+        "checkout:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
+        "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.0",
+    ]);
+}
+
+#[test]
+fn bump_protected_script_failure_returns_to_the_release_branch() {
+    // A failed version script must not strand the operator on the chore
+    // branch: bflow best-effort restores the release branch before the error
+    // propagates, and never pushes or opens a PR for a run that never committed.
+    let mut git = MockGit::new();
+    git.working_tree_clean_seq.get_mut().extend([true]);
+    let hosting = MockHosting::new();
+    let mut script = MockVersionScript::new();
+    script.fail = Some("set-version.sh: command not found".to_string());
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+
+    let err = bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap_err();
+
+    assert_eq!(err, "set-version.sh: command not found");
+    let calls = git.calls();
+    assert_eq!(calls, vec![
+        "remote_branch_exists:release-chore/1.1.0/set-version",
+        "is_working_tree_clean",
+        "local_branch_exists:release-chore/1.1.0/set-version",
+        "create_branch:release-chore/1.1.0/set-version:release/1.1.0",
+        "checkout:release/1.1.0",
+    ]);
+    assert!(!calls.iter().any(|c| c.starts_with("push:")), "no push on script failure; calls: {calls:?}");
+    assert_eq!(hosting.calls(), vec!["merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0"],
+        "no PR call on script failure");
 }
 
 #[test]

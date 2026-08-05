@@ -527,11 +527,17 @@ pub struct MockVersionScript {
     pub calls: RefCell<Vec<String>>,
     /// When set, `run` returns this error instead of succeeding.
     pub fail: Option<String>,
+    /// When set, only the Nth `run` call (1-indexed) fails; others succeed.
+    /// Lets a test exercise a script that succeeds on an earlier call in the
+    /// same flow (e.g. M1) and fails on a later one (e.g. M2) — `fail` alone
+    /// cannot express that, since it applies to every call uniformly.
+    pub fail_nth_run: Option<u32>,
+    run_call_count: RefCell<u32>,
 }
 
 impl MockVersionScript {
     pub fn new() -> Self {
-        Self { calls: RefCell::new(Vec::new()), fail: None }
+        Self { calls: RefCell::new(Vec::new()), fail: None, fail_nth_run: None, run_call_count: RefCell::new(0) }
     }
 
     pub fn calls(&self) -> Vec<String> {
@@ -542,6 +548,11 @@ impl MockVersionScript {
 impl VersionScript for MockVersionScript {
     fn run(&self, version: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("run:{version}"));
+        let mut count = self.run_call_count.borrow_mut();
+        *count += 1;
+        if Some(*count) == self.fail_nth_run {
+            return Err(format!("version script failed on run #{count}"));
+        }
         match &self.fail {
             Some(e) => Err(e.clone()),
             None => Ok(()),

@@ -137,18 +137,33 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     }
 
     require_clean_tree(git)?;
-    git.create_branch(&chore_branch, branch)?;
-    if run_version_script(git, script, release)? {
-        git.push(&chore_branch)?;
-        let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
-        announce_deferred(&url);
-        git.checkout(branch)?;
-        Ok(())
-    } else {
-        git.checkout(branch)?;
+    // A prior run can leave this branch behind locally (created, then
+    // interrupted before the script committed or pushed). It is machine-owned,
+    // so bflow clears it itself rather than dying on git's raw "branch already
+    // exists" — remote-exists is already handled by the reuse path above.
+    if git.local_branch_exists(&chore_branch)? {
         git.delete_branch_local(&chore_branch)?;
-        let (latest, next, tag) = next_rc(git, branch, major, minor, release)?;
-        cut_tag_at_tip(git, latest.as_ref(), &next, &tag)
+    }
+    git.create_branch(&chore_branch, branch)?;
+    match run_version_script(git, script, release) {
+        Ok(true) => {
+            git.push(&chore_branch)?;
+            let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
+            announce_deferred(&url);
+            git.checkout(branch)?;
+            Ok(())
+        }
+        Ok(false) => {
+            git.checkout(branch)?;
+            git.delete_branch_local(&chore_branch)?;
+            let (latest, next, tag) = next_rc(git, branch, major, minor, release)?;
+            cut_tag_at_tip(git, latest.as_ref(), &next, &tag)
+        }
+        Err(e) => {
+            // Best-effort: don't strand the operator on the chore branch.
+            let _ = git.checkout(branch);
+            Err(e)
+        }
     }
 }
 

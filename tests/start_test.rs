@@ -485,9 +485,9 @@ fn start_release_runs_version_script_on_new_branch() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -519,9 +519,9 @@ fn start_release_script_noop_makes_no_commit() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "push:release/1.1.0",
         "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
@@ -550,10 +550,10 @@ fn start_release_dirty_tree_blocks_script() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
-        "checkout:develop",
-        "create_branch:release/1.1.0:develop",
         "is_working_tree_clean",
     ]);
+    assert!(!git.calls().iter().any(|c| c.starts_with("create_branch")),
+        "a dirty tree must be rejected before any branch is created; calls: {:?}", git.calls());
     assert!(script.calls().is_empty());
 }
 
@@ -590,9 +590,9 @@ fn m2_free_mode_bumps_develop_and_returns_to_the_release_branch() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -624,9 +624,9 @@ fn m2_free_mode_noop_skips_the_push() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -658,9 +658,9 @@ fn m2_protected_mode_opens_a_version_pr_on_a_fresh_branch() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -670,6 +670,7 @@ fn m2_protected_mode_opens_a_version_pr_on_a_fresh_branch() {
         "checkout:develop",
         "ff_merge:origin/develop",
         "remote_branch_exists:chore/set-version-1.2.0",
+        "local_branch_exists:chore/set-version-1.2.0",
         "create_branch:chore/set-version-1.2.0:develop",
         "is_working_tree_clean",
         "is_working_tree_clean",
@@ -701,9 +702,9 @@ fn m2_protected_mode_noop_deletes_the_fresh_chore_branch() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -713,6 +714,7 @@ fn m2_protected_mode_noop_deletes_the_fresh_chore_branch() {
         "checkout:develop",
         "ff_merge:origin/develop",
         "remote_branch_exists:chore/set-version-1.2.0",
+        "local_branch_exists:chore/set-version-1.2.0",
         "create_branch:chore/set-version-1.2.0:develop",
         "is_working_tree_clean",
         "is_working_tree_clean",
@@ -740,9 +742,9 @@ fn m2_protected_mode_reuses_a_leftover_chore_branch_without_recreating_it() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -763,6 +765,94 @@ fn m2_protected_mode_reuses_a_leftover_chore_branch_without_recreating_it() {
 }
 
 #[test]
+fn bump_develop_protected_deletes_leftover_local_chore_branch_before_recreating() {
+    // Mirrors bump_protected's own leftover-local fix (finish_release.rs): a
+    // prior M2 run can leave chore/set-version-{dev} behind locally only, and
+    // re-running must not die on git's raw "branch already exists".
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.0.0".to_string()];
+    git.working_tree_clean_seq.borrow_mut().extend([true, false, true, false]);
+    git.existing_local_branches.insert("chore/set-version-1.2.0".to_string());
+    let script = MockVersionScript::new();
+    let hosting = MockHosting::new();
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+
+    start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "is_working_tree_clean",
+        "checkout:develop",
+        "create_branch:release/1.1.0:develop",
+        "is_working_tree_clean",
+        "stage_all",
+        "commit:chore: set version 1.1.0",
+        "push:release/1.1.0",
+        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
+        "push_tag:v1.1.0-rc.1",
+        "checkout:develop",
+        "ff_merge:origin/develop",
+        "remote_branch_exists:chore/set-version-1.2.0",
+        "local_branch_exists:chore/set-version-1.2.0",
+        "delete_branch_local:chore/set-version-1.2.0",
+        "create_branch:chore/set-version-1.2.0:develop",
+        "is_working_tree_clean",
+        "is_working_tree_clean",
+        "stage_all",
+        "commit:chore: set version 1.2.0",
+        "push:chore/set-version-1.2.0",
+        "checkout:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+    ]);
+}
+
+#[test]
+fn bump_develop_protected_script_failure_restores_to_develop_then_release_branch() {
+    // A failed M2 script run must not strand the operator on the chore
+    // branch: bflow best-effort restores develop first, so the outer warn
+    // path's own final checkout (back to the release branch) still works.
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.0.0".to_string()];
+    git.working_tree_clean_seq.borrow_mut().extend([true, false, true]);
+    let mut script = MockVersionScript::new();
+    script.fail_nth_run = Some(2); // M1's run succeeds; M2's (the 2nd) fails
+    let hosting = MockHosting::new();
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+
+    let result = start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor));
+
+    assert!(result.is_ok(), "a failed M2 script run must not undo an already-created release: {result:?}");
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "is_working_tree_clean",
+        "checkout:develop",
+        "create_branch:release/1.1.0:develop",
+        "is_working_tree_clean",
+        "stage_all",
+        "commit:chore: set version 1.1.0",
+        "push:release/1.1.0",
+        "create_tag:v1.1.0-rc.1:chore: create release branch 1.1.0",
+        "push_tag:v1.1.0-rc.1",
+        "checkout:develop",
+        "ff_merge:origin/develop",
+        "remote_branch_exists:chore/set-version-1.2.0",
+        "local_branch_exists:chore/set-version-1.2.0",
+        "create_branch:chore/set-version-1.2.0:develop",
+        "is_working_tree_clean",
+        "checkout:develop",
+        "checkout:release/1.1.0",
+    ]);
+    assert!(hosting.calls().is_empty(), "no PR call on script failure; calls: {:?}", hosting.calls());
+    assert_eq!(script.calls(), vec!["run:1.1.0", "run:1.2.0"]);
+}
+
+#[test]
 fn m2_failure_is_warn_and_continue_the_release_already_succeeded() {
     let mut git = MockGit::new();
     git.branches_matching = vec![];
@@ -777,9 +867,9 @@ fn m2_failure_is_warn_and_continue_the_release_already_succeeded() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:develop",
         "create_branch:release/1.1.0:develop",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.1.0",
@@ -806,9 +896,9 @@ fn start_hotfix_fix_runs_version_script_on_new_branch() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:main",
         "create_branch:hotfix/1.0.1:main",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "stage_all",
         "commit:chore: set version 1.0.1",
@@ -832,9 +922,9 @@ fn start_hotfix_fix_script_noop_makes_no_commit() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
         "list_tags",
+        "is_working_tree_clean",
         "checkout:main",
         "create_branch:hotfix/1.0.1:main",
-        "is_working_tree_clean",
         "is_working_tree_clean",
         "push:hotfix/1.0.1",
         "create_branch:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
@@ -857,10 +947,10 @@ fn start_hotfix_fix_dirty_tree_blocks_script() {
     assert_eq!(git.calls(), vec![
         "list_branches_matching:hotfix/*",
         "list_tags",
-        "checkout:main",
-        "create_branch:hotfix/1.0.1:main",
         "is_working_tree_clean",
     ]);
+    assert!(!git.calls().iter().any(|c| c.starts_with("create_branch")),
+        "a dirty tree must be rejected before any branch is created; calls: {:?}", git.calls());
     assert!(script.calls().is_empty());
 }
 

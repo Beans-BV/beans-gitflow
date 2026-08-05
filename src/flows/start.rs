@@ -118,10 +118,12 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
     let tag = rc.tag_name();
 
     println!("Creating release branch: {branch}");
+    if script.is_some() {
+        require_clean_tree(git)?;
+    }
     git.checkout("develop")?;
     git.create_branch(&branch, "develop")?;
     if let Some(script) = script {
-        require_clean_tree(git)?;
         run_version_script(git, script, &next)?;
     }
     git.push(&branch)?;
@@ -134,15 +136,27 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
         let dev = next.bump_minor();
         if let Err(e) = bump_develop(git, hosting, script, cfg, &dev, &branch) {
             eprintln!("Warning: develop version bump failed: {e}");
-            eprintln!(
-                "The release was created successfully. Update develop's version manually: run {} {dev} on develop and commit.",
-                script.display_name()
-            );
+            eprintln!("{}", m2_failure_advice(cfg.mode, &script.display_name(), &dev));
             let _ = git.checkout(&branch);
         }
     }
 
     Ok(branch)
+}
+
+/// M2 warn-and-continue advice: how to finish the develop version bump by
+/// hand after a failure. Free mode can commit and push develop directly;
+/// protected mode never pushes develop (SKILL.md principle 1), so a direct
+/// push there would just be rejected — the fix must go out as its own PR.
+fn m2_failure_advice(mode: Mode, script_name: &str, version: &SemVer) -> String {
+    match mode {
+        Mode::Free => format!(
+            "The release was created successfully. Update develop's version manually: run {script_name} {version} on develop and commit."
+        ),
+        Mode::Protected => format!(
+            "The release was created successfully. Update develop's version manually: branch from develop, run {script_name} {version}, commit, and open a PR to develop."
+        ),
+    }
 }
 
 /// Moment 2: after the release is cut (and its rc.1 tag pushed), bump develop
@@ -181,18 +195,35 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
         return Ok(());
     }
 
+    // A prior run can leave this branch behind locally (created, then
+    // interrupted before the script committed or pushed) — machine-owned, so
+    // bflow clears it itself rather than dying on git's raw "branch already
+    // exists" (mirrors bump_protected in finish_release.rs).
+    if git.local_branch_exists(&chore_branch)? {
+        git.delete_branch_local(&chore_branch)?;
+    }
     git.create_branch(&chore_branch, "develop")?;
     require_clean_tree(git)?;
-    if run_version_script(git, script, dev)? {
-        git.push(&chore_branch)?;
-        let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
-        println!("Version PR: {url}");
-    } else {
-        git.checkout("develop")?;
-        git.delete_branch_local(&chore_branch)?;
-        println!("↷ skipped: develop version bump (no changes)");
+    match run_version_script(git, script, dev) {
+        Ok(true) => {
+            git.push(&chore_branch)?;
+            let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+            println!("Version PR: {url}");
+            Ok(())
+        }
+        Ok(false) => {
+            git.checkout("develop")?;
+            git.delete_branch_local(&chore_branch)?;
+            println!("↷ skipped: develop version bump (no changes)");
+            Ok(())
+        }
+        Err(e) => {
+            // Best-effort: restore develop so the caller's own final checkout
+            // (back to the release branch) still runs from a sane place.
+            let _ = git.checkout("develop");
+            Err(e)
+        }
     }
-    Ok(())
 }
 
 pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
@@ -289,10 +320,12 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str,
             );
         }
     } else {
+        if script.is_some() {
+            require_clean_tree(git)?;
+        }
         git.checkout(main_branch)?;
         git.create_branch(&branch, main_branch)?;
         if let Some(script) = script {
-            require_clean_tree(git)?;
             run_version_script(git, script, &next)?;
         }
     }
@@ -320,7 +353,21 @@ fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::message_is_breaking;
+    use super::{message_is_breaking, m2_failure_advice};
+    use crate::repo_config::Mode;
+    use crate::version::SemVer;
+
+    #[test]
+    fn m2_failure_advice_free_mode_names_the_direct_commit() {
+        let msg = m2_failure_advice(Mode::Free, "set-version.sh", &SemVer::new(1, 2, 0));
+        assert_eq!(msg, "The release was created successfully. Update develop's version manually: run set-version.sh 1.2.0 on develop and commit.");
+    }
+
+    #[test]
+    fn m2_failure_advice_protected_mode_names_a_pr() {
+        let msg = m2_failure_advice(Mode::Protected, "set-version.sh", &SemVer::new(1, 2, 0));
+        assert_eq!(msg, "The release was created successfully. Update develop's version manually: branch from develop, run set-version.sh 1.2.0, commit, and open a PR to develop.");
+    }
 
     #[test]
     fn bang_in_title() {
