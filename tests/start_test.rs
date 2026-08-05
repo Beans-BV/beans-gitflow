@@ -104,6 +104,22 @@ fn start_release_fix_creates_and_pushes() {
 }
 
 #[test]
+fn a_versionless_parent_branch_is_rejected_instead_of_naming_a_broken_child() {
+    // Fix-branch names are generated from SemVer methods, never concatenated
+    // (decisions.md, Release Discipline). A parent carrying no parseable version
+    // would otherwise produce `release-fix/wip/x`, which BranchType::parse reads
+    // as Other — a branch bflow could create but never finish.
+    let mut git = MockGit::new();
+    git.current_branch = "release/wip".to_string();
+
+    let err = start_release_fix(&git, "broken-login", false, None).unwrap_err();
+
+    assert!(err.contains("does not carry a version"), "got: {err}");
+    assert!(!git.calls().iter().any(|c| c.starts_with("create_branch")),
+        "nothing may be created; calls: {:?}", git.calls());
+}
+
+#[test]
 fn start_hotfix_fix_creates_and_pushes_existing_hotfix() {
     let mut git = MockGit::new();
     git.branches_matching = vec!["hotfix/1.0.1".to_string()];

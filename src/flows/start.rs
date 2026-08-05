@@ -44,6 +44,16 @@ fn materialize_branch(
     Ok(())
 }
 
+/// The version a `release/`/`hotfix/` branch carries. Fix-branch names are
+/// generated from it via `SemVer` methods rather than string surgery
+/// (decisions.md, Release Discipline), so a parent branch with no parseable
+/// version is a hard error instead of a malformed child branch.
+fn version_of(branch: &str, prefix: &str) -> Result<SemVer, String> {
+    branch.strip_prefix(prefix)
+        .and_then(SemVer::parse)
+        .ok_or_else(|| format!("Branch '{branch}' does not carry a version; cannot derive a fix branch from it."))
+}
+
 pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = format!("{prefix}/{name}");
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
@@ -78,16 +88,14 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
         current
     };
 
-    let version = release_branch.strip_prefix("release/").unwrap();
-    let branch = format!("release-fix/{version}/{name}");
+    let branch = version_of(&release_branch, "release/")?.release_fix_branch(name);
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
 pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout)?;
-    let version = hotfix_branch.strip_prefix("hotfix/").unwrap();
-    let branch = format!("hotfix-fix/{version}/{name}");
+    let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 

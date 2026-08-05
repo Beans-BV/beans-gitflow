@@ -71,8 +71,10 @@ impl SemVer {
     pub fn is_pre_release(&self) -> bool { self.pre.is_some() }
     pub fn is_rc(&self) -> bool { self.pre.as_ref().is_some_and(|p| p.label == "rc") }
     pub fn tag_name(&self) -> String { format!("v{self}") }
-    pub fn release_branch(&self) -> String { format!("release/{}.{}.{}", self.major, self.minor, self.patch) }
+    pub fn release_branch(&self) -> String { format!("release/{}", self.to_release()) }
     pub fn hotfix_branch(&self) -> String { format!("hotfix/{}", self.to_release()) }
+    pub fn release_fix_branch(&self, name: &str) -> String { format!("release-fix/{}/{name}", self.to_release()) }
+    pub fn hotfix_fix_branch(&self, name: &str) -> String { format!("hotfix-fix/{}/{name}", self.to_release()) }
 }
 
 impl Ord for SemVer {
