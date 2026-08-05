@@ -15,16 +15,20 @@ use crate::hosting::HostingPlatform;
 use crate::mainline::resolve_main_branch;
 use crate::menu;
 use crate::prompt::Prompter;
-use crate::repo_config::RepoConfig;
+use crate::repo_config::{Mode, RepoConfig};
 use crate::state::{current_timestamp, FinishKind, FinishState};
+use crate::version_script::VersionScript;
 use crate::worktree::{WorktreeConfig, WorktreeContext};
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     git: &dyn Git,
     hosting: &dyn HostingPlatform,
     prompter: &dyn Prompter,
     editor: &dyn Editor,
     wt_config: &WorktreeConfig,
+    repo_cfg: &RepoConfig,
+    script: Option<&dyn VersionScript>,
     command: Option<Commands>,
 ) -> Result<(), String> {
     let branch_name = git.current_branch()?;
@@ -72,7 +76,14 @@ pub fn run(
     let worktree_active = wt_config.enabled && !action.no_worktree() && action.worktree_eligible();
 
     let no_checkout = action.no_checkout() || worktree_active;
-    let is_finish_with_state = matches!(action, Action::FinishRelease | Action::FinishHotfix);
+    // Protected finishes never merge locally — there is nothing to resume — so
+    // only free-mode finishes get a FinishState. Stale-state edge: a state file
+    // left over from before a free→protected mode switch still resumes here
+    // (resolve_action_with_state is mode-unaware), so the protected flow runs,
+    // ignores the state's stash/progress, and a successful run (including a
+    // "Pending" landing) clears the now-meaningless file below.
+    let is_finish_with_state = matches!(action, Action::FinishRelease | Action::FinishHotfix)
+        && repo_cfg.mode == Mode::Free;
     let needs_stash = !no_checkout && branch_type != BranchType::Other && !git.is_working_tree_clean()?;
 
     // Reject dirty-tree finishes BEFORE any side effects (stash, state write).
@@ -107,7 +118,7 @@ pub fn run(
 
     let worktree = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
 
-    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch);
+    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch, repo_cfg, script);
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -255,6 +266,8 @@ fn run_flow(
     worktree: Option<WorktreeContext<'_>>,
     resume_state: Option<&FinishState>,
     main_branch: &str,
+    repo_cfg: &RepoConfig,
+    script: Option<&dyn VersionScript>,
 ) -> Result<(), String> {
     // Fast-forward the current branch to origin when the flow will operate on
     // this checkout and we're not resuming (on resume the user may be on
@@ -273,15 +286,13 @@ fn run_flow(
             start::start_work_branch(git, prefix, name, from, *no_checkout, worktree)?;
         }
         Action::StartRelease(release_type) => {
-            // Task 16 threads the real RepoConfig read from .bflow/config; until
-            // then every run behaves as free mode (today's behavior).
-            start::start_release(git, prompter, hosting, None, &RepoConfig::default(), *release_type)?;
+            start::start_release(git, prompter, hosting, script, repo_cfg, *release_type)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {
             start::start_release_fix(git, name, *no_checkout, worktree)?;
         }
         Action::StartHotfixFix { name, no_checkout, .. } => {
-            start::start_hotfix_fix(git, name, *no_checkout, worktree, main_branch, None)?;
+            start::start_hotfix_fix(git, name, *no_checkout, worktree, main_branch, script)?;
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;
@@ -303,16 +314,14 @@ fn run_flow(
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("BumpVersion action only from Release branch");
             };
-            // Task 16 wires the real hosting/script/config values through the
-            // lifecycle; for now bump only ever runs the free-mode, no-script path.
-            finish_release::bump_version(git, hosting, None, &RepoConfig::default(), *major, *minor)?;
+            finish_release::bump_version(git, hosting, script, repo_cfg, *major, *minor)?;
         }
         Action::SyncWithDevelop => {
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("SyncWithDevelop action only from Release branch");
             };
-            // Task 16 wires the real config/template values through the lifecycle.
-            finish_release::sync_with_develop(git, hosting, &RepoConfig::default(), *major, *minor, None)?;
+            let template = resolve_landing_template(git, repo_cfg, "release")?;
+            finish_release::sync_with_develop(git, hosting, repo_cfg, *major, *minor, template.as_deref())?;
         }
         Action::FinishRelease => {
             // On resume, prefer the state's version (we may not be on the release branch).
@@ -324,8 +333,8 @@ fn run_flow(
                 };
                 (*major, *minor)
             };
-            // Task 16 wires the real hosting/config/template values through the lifecycle.
-            finish_release::finish_release(git, hosting, &RepoConfig::default(), major, minor, main_branch, None)?;
+            let template = resolve_landing_template(git, repo_cfg, "release")?;
+            finish_release::finish_release(git, hosting, repo_cfg, major, minor, main_branch, template.as_deref())?;
         }
         Action::FinishHotfix => {
             let (major, minor, patch) = if let Some(s) = resume_state {
@@ -336,8 +345,8 @@ fn run_flow(
                 };
                 (*major, *minor, *patch)
             };
-            // Task 16 wires the real hosting/config/template values through the lifecycle.
-            finish_hotfix::finish_hotfix(git, hosting, &RepoConfig::default(), major, minor, patch, main_branch, None)?;
+            let template = resolve_landing_template(git, repo_cfg, "hotfix")?;
+            finish_hotfix::finish_hotfix(git, hosting, repo_cfg, major, minor, patch, main_branch, template.as_deref())?;
         }
         Action::AbortFinish => {
             unreachable!("AbortFinish is handled before run_flow");
@@ -352,4 +361,14 @@ fn run_flow(
 /// the filesystem themselves (they receive the resolved path as a parameter).
 fn resolve_pr_template(git: &dyn Git, branch_type: &BranchType) -> Result<Option<std::path::PathBuf>, String> {
     Ok(crate::hosting::template::resolve(&git.repo_root()?, branch_type))
+}
+
+/// Landing PR template for a release/hotfix finish or sync, resolved only in
+/// protected mode — free mode never opens a landing PR, so it must not call
+/// `git.repo_root()` (free-mode lifecycle sequences are pinned byte-for-byte).
+fn resolve_landing_template(git: &dyn Git, repo_cfg: &RepoConfig, key: &str) -> Result<Option<std::path::PathBuf>, String> {
+    if repo_cfg.mode != Mode::Protected {
+        return Ok(None);
+    }
+    Ok(crate::hosting::template::resolve_keys(&git.repo_root()?, key, key))
 }

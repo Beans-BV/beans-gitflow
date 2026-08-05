@@ -12,6 +12,8 @@ use bflow::hosting::{HostingPlatform, SystemCli};
 use bflow::lifecycle;
 use bflow::menu::MenuPrompter;
 use bflow::editor::CommandEditor;
+use bflow::repo_config;
+use bflow::version_script::{self, ScriptCli, VersionScript};
 use bflow::worktree::{self, WorktreeConfig};
 
 #[derive(Parser)]
@@ -49,12 +51,29 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     // Provider detection reads the origin remote, so the repo check comes first.
     git.current_branch().map_err(|_| "Not in a git repository.".to_string())?;
 
+    // Eager resolve: a platform-mismatched committed script errors on every
+    // command, not just release/hotfix ones. Accepted — it surfaces the
+    // misconfiguration immediately rather than on whichever command hits it first.
+    let root = git.repo_root()?;
+    let repo_cfg = repo_config::load(&root)?;
+    let script_path = version_script::resolve(&root)?;
+    let script = script_path.map(|path| ScriptCli::new(path, root.clone()));
+
     let hosting = create_hosting(&git)?;
     let wt_config = WorktreeConfig::load(&git)?;
     let editor = CommandEditor::new(wt_config.editor.clone());
     let prompter = MenuPrompter;
 
-    lifecycle::run(&git, &*hosting, &prompter, &editor, &wt_config, command)
+    lifecycle::run(
+        &git,
+        &*hosting,
+        &prompter,
+        &editor,
+        &wt_config,
+        &repo_cfg,
+        script.as_ref().map(|s| s as &dyn VersionScript),
+        command,
+    )
 }
 
 /// Detect the hosting provider for this repo and return a ready-to-use,

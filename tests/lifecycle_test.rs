@@ -7,6 +7,7 @@ use bflow::action::Action;
 use bflow::cli::{Commands, StartKind, StartOptions};
 use bflow::git::branch::BranchType;
 use bflow::lifecycle::{resolve_action_with_state, run};
+use bflow::repo_config::{Mode, RepoConfig};
 use bflow::state::{FinishKind, FinishState};
 use bflow::worktree::WorktreeConfig;
 
@@ -41,7 +42,7 @@ fn run_lifecycle(git: &MockGit, command: Option<Commands>) -> Result<(), String>
     let hosting = MockHosting::new();
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
-    run(git, &hosting, &prompter, &editor, &wt_config(), command)
+    run(git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, command)
 }
 
 // --- State-before-mutation ordering ---
@@ -87,6 +88,49 @@ fn dirty_tree_finish_rejected_before_any_side_effect() {
         "no state may be written before the reject");
     assert!(!calls.iter().any(|c| c.starts_with("merge:")),
         "no mutation may run; calls: {calls:?}");
+}
+
+fn protected_cfg() -> RepoConfig {
+    RepoConfig { mode: Mode::Protected, keep_release_branches: false }
+}
+
+#[test]
+fn protected_finish_writes_no_state_file() {
+    // Protected finishes never merge locally — they open a landing PR and stop
+    // for a human to merge — so there is nothing to resume and no FinishState
+    // is ever written, even though this run ends Pending (Ok) rather than
+    // fully complete.
+    let mut git = release_git();
+    git.pushed_branches.insert("release/2.5.0".to_string());
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new();
+    let editor = MockEditor::new();
+
+    let result = run(&git, &hosting, &prompter, &editor, &wt_config(), &protected_cfg(), None, finish_cmd());
+
+    assert!(result.is_ok(), "a pending landing is not a failure: {result:?}");
+    assert!(!state_path(&git.git_dir).exists(),
+        "protected finishes never write FinishState");
+    assert!(!FinishState::dir(&git.git_dir).exists(),
+        "no per-branch state directory may be created; nothing to resume");
+}
+
+#[test]
+fn protected_finish_rejects_dirty_tree() {
+    let mut git = release_git();
+    git.working_tree_clean = false;
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new();
+    let editor = MockEditor::new();
+
+    let err = run(&git, &hosting, &prompter, &editor, &wt_config(), &protected_cfg(), None, finish_cmd()).unwrap_err();
+
+    assert_eq!(err, "Working tree is not clean. Commit your changes before finishing.");
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("stash_push_with_message")),
+        "nothing may be stashed before the reject; calls: {calls:?}");
+    assert!(!state_path(&git.git_dir).exists(),
+        "no state may be written before the reject");
 }
 
 #[test]
@@ -288,7 +332,7 @@ fn enabled_wt_config() -> WorktreeConfig {
 }
 
 fn run_with_worktree(git: &MockGit, command: Option<Commands>) -> Result<(), String> {
-    run(git, &MockHosting::new(), &MockPrompter::new(), &MockEditor::new(), &enabled_wt_config(), command)
+    run(git, &MockHosting::new(), &MockPrompter::new(), &MockEditor::new(), &enabled_wt_config(), &RepoConfig::default(), None, command)
 }
 
 #[test]
@@ -384,7 +428,7 @@ fn finish_release_fix_dispatches_and_targets_its_release_branch() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:release-fix/2.5.0/db-index:release/2.5.0:")),
         "a release fix PRs back into its own release branch; calls: {:?}", hosting.calls());
@@ -398,7 +442,7 @@ fn finish_release_chore_dispatches_and_targets_its_release_branch() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:release-chore/2.5.0/set-version:release/2.5.0:")),
         "a release chore PRs back into its own release branch; calls: {:?}", hosting.calls());
@@ -412,7 +456,7 @@ fn finish_hotfix_fix_dispatches_and_targets_its_hotfix_branch() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:hotfix-fix/2.5.1/npe:hotfix/2.5.1:")),
         "a hotfix fix PRs back into its own hotfix branch; calls: {:?}", hosting.calls());
@@ -627,7 +671,7 @@ fn finish_work_branch_dispatches_with_its_resolved_pr_template() {
     let prompter = MockPrompter::scripted(&[0]); // "no" to breaking changes
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:feature/login:develop:feat: login")),
         "calls: {:?}", hosting.calls());
