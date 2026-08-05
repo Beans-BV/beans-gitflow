@@ -103,6 +103,13 @@ pub(crate) fn open_landing_pr(git: &dyn Git, hosting: &dyn HostingPlatform, sour
     hosting.create_or_get_pr(source, target, title, template.and_then(|p| p.to_str()))
 }
 
+/// Announce a landing step that opened (or reused) a PR and is stopping for a
+/// human to merge it.
+pub(crate) fn announce_pending_landing(url: &str) {
+    println!("PR: {url}");
+    println!("Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.");
+}
+
 /// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and
 /// when it does, verify it points at that same commit rather than trusting a
 /// stale or hand-created tag (a mismatch is fatal, not silently skipped).

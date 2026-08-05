@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use crate::flows::{
-    delete_branch_guarded, delete_source_branch, landed_pr, merge_into, open_landing_pr,
-    push_if_needed, push_tag_if_missing, require_clean_tree, resume_hint, run_version_script,
-    tag_at_if_missing, tag_if_missing,
+    announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, merge_into,
+    open_landing_pr, push_if_needed, push_tag_if_missing, require_clean_tree, resume_hint,
+    run_version_script, tag_at_if_missing, tag_if_missing,
 };
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
@@ -15,9 +15,9 @@ const NO_RC_TAG_ERROR: &str = "No RC tag found on this release branch. Run 'bflo
 
 /// The RC-deploy gate's catalog error: names the branch, the tag it must
 /// catch up to, and the remedy. Shared by free mode's ancestor-guarded check
-/// and protected mode's PR-guarded one (mutation trap 5: a squash-merged
-/// landing PR leaves no ancestor relationship, so protected mode cannot reuse
-/// `is_ancestor` here — only this message is common between them).
+/// and protected mode's PR-guarded one — a squash-merged landing PR leaves no
+/// ancestor relationship, so ancestor checks are invalid there; only this
+/// message is common between them.
 fn past_rc_error(release_branch: &str, main_branch: &str, latest_rc_tag: &str, commits_past_rc: u32) -> String {
     let noun = if commits_past_rc == 1 { "commit" } else { "commits" };
     format!(
@@ -37,7 +37,7 @@ fn latest_rc(git: &dyn Git, branch: &str, major: u32, minor: u32) -> Result<Opti
 }
 
 /// The RC to cut next: one past the branch's highest existing RC tag, or `.1`
-/// when it has none yet (trap 3: `bflow start release` leaves no tag behind).
+/// when it has none yet (`bflow start release` leaves no tag behind).
 /// Reads `branch`'s tags, so callers call it only where a tag is actually about
 /// to be cut or checked — protected mode's deferred/reuse paths never do.
 fn next_rc(git: &dyn Git, branch: &str, major: u32, minor: u32, release: &SemVer) -> Result<(Option<SemVer>, SemVer, String), String> {
@@ -200,7 +200,7 @@ pub fn finish_release(
 
     // Merge into the mainline — inline rather than merge_into(): the RC gate
     // must run inside the not-yet-merged branch, so a resume past that merge
-    // never re-evaluates it (negative-tested in finish_release_test.rs).
+    // never re-evaluates it.
     if !git.is_ancestor(&release_branch, main_branch)? {
         let latest_rc_tag = latest_rc.tag_name();
         let commits_past_rc = git.rev_list_count(&latest_rc_tag, &release_branch)?;
@@ -225,11 +225,15 @@ pub fn finish_release(
         &resume_hint(&release_branch))?;
     push_if_needed(git, "develop")?;
 
+    finish_release_cleanup(git, cfg, &release_branch, main_branch, &release_version)
+}
+
+fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str, main_branch: &str, release_version: &SemVer) -> Result<(), String> {
     println!("Cleaning up release branch...");
     if cfg.keep_release_branches {
         println!("Keeping {release_branch} (keep-release-branches=true).");
     } else {
-        delete_source_branch(git, &release_branch, main_branch)?;
+        delete_source_branch(git, release_branch, main_branch)?;
     }
 
     println!("Release {release_version} complete.");
@@ -237,9 +241,8 @@ pub fn finish_release(
 }
 
 /// Protected mode's RC-deploy gate: same rule and remedy as free mode's, but
-/// reached only when there is no landed PR yet (a landed main PR already
-/// proves every commit shipped through review, so this never re-runs after —
-/// negative-tested: no `rev_list_count`/`tags_on_branch` once landed).
+/// reached only when there is no landed PR yet — a landed main PR already
+/// proves every commit shipped through review, so this never re-runs after.
 fn rc_gate(git: &dyn Git, release_branch: &str, main_branch: &str, major: u32, minor: u32) -> Result<(), String> {
     let latest = latest_rc(git, release_branch, major, minor)?.ok_or_else(|| NO_RC_TAG_ERROR.to_string())?;
     let latest_rc_tag = latest.tag_name();
@@ -248,11 +251,6 @@ fn rc_gate(git: &dyn Git, release_branch: &str, main_branch: &str, major: u32, m
         return Err(past_rc_error(release_branch, main_branch, &latest_rc_tag, commits_past_rc));
     }
     Ok(())
-}
-
-fn announce_pending_landing(url: &str) {
-    println!("PR: {url}");
-    println!("Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.");
 }
 
 /// Protected mode: bflow never merges into `main`/`develop` itself (SKILL.md
@@ -284,13 +282,5 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
         return Ok(());
     }
 
-    println!("Cleaning up release branch...");
-    if cfg.keep_release_branches {
-        println!("Keeping {release_branch} (keep-release-branches=true).");
-    } else {
-        delete_source_branch(git, &release_branch, main_branch)?;
-    }
-
-    println!("Release {release} complete.");
-    Ok(())
+    finish_release_cleanup(git, cfg, &release_branch, main_branch, &release)
 }
