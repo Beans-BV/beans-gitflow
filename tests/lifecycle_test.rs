@@ -112,6 +112,27 @@ fn mid_merge_preflight_blocks_and_names_pending_resume() {
     std::fs::remove_dir_all(&git.git_dir).ok();
 }
 
+#[test]
+fn unmerged_paths_block_even_when_the_merge_was_committed() {
+    // The second half of the preflight: `git commit` ends the MERGE_HEAD state
+    // but conflict markers can still be staged unresolved. mid_merge=false +
+    // unmerged=true must block just as hard — otherwise the flow would merge a
+    // tree containing conflict markers.
+    let mut git = release_git();
+    git.mid_merge = false;
+    git.unmerged_paths = true;
+
+    let err = run_lifecycle(&git, finish_cmd()).unwrap_err();
+
+    assert!(err.contains("Unresolved merge in progress"), "got: {err}");
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c == "fetch"),
+        "preflight must block before fetch; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("merge:") || c.starts_with("stash_push_with_message")),
+        "no mutation may run; calls: {calls:?}");
+    std::fs::remove_dir_all(&git.git_dir).ok();
+}
+
 // --- Stash policy (dirty start: stash before mutation, pop on success) ---
 
 #[test]
