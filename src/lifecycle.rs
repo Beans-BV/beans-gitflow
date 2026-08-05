@@ -33,15 +33,16 @@ pub fn run(
 
     let branch_type = BranchType::parse(&branch_name);
 
+    // Derived once and reused by the resume load, the state write, and the
+    // clear, so those three can never encode the branch→identity rule
+    // differently.
+    let identity = finish_identity(&branch_type);
+
     // Resume context: an in-progress finish only resumes when you are standing on
     // the source branch that started it. From develop/main/feature branches there
     // is no resume — bflow behaves normally — so a stalled finish never hijacks
     // other work. To continue after a conflict you switch back to the source
     // branch and re-run 'bflow finish'.
-    // Derived once and reused for the load, the write, and the clear, so those
-    // three can never encode the branch→identity rule differently.
-    let identity = finish_identity(&branch_type);
-
     let resume_state = match identity {
         Some((kind, major, minor, patch)) => FinishState::load(&git_dir, kind, major, minor, patch)?,
         None => None,
@@ -103,7 +104,12 @@ pub fn run(
         }.save(&git_dir)?;
     }
 
-    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree_active, wt_config, editor, resume_state.as_ref());
+    // The three worktree-eligible start actions all need the same context, and
+    // an inactive worktree flow is simply its absence — so it is built once here
+    // rather than reassembled from three values inside each dispatch arm.
+    let worktree = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
+
+    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref());
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -247,9 +253,7 @@ fn run_flow(
     branch_name: &str,
     action: &Action,
     skip_current_branch_sync: bool,
-    worktree_active: bool,
-    wt_config: &WorktreeConfig,
-    editor: &dyn Editor,
+    worktree: Option<WorktreeContext<'_>>,
     resume_state: Option<&FinishState>,
 ) -> Result<(), String> {
     // Fast-forward the current branch to origin when the flow will operate on
@@ -266,19 +270,16 @@ fn run_flow(
 
     match action {
         Action::StartWorkBranch { prefix, name, from, no_checkout, .. } => {
-            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
-            start::start_work_branch(git, prefix, name, from, *no_checkout, wt)?;
+            start::start_work_branch(git, prefix, name, from, *no_checkout, worktree)?;
         }
         Action::StartRelease(release_type) => {
             start::start_release(git, prompter, *release_type)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {
-            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
-            start::start_release_fix(git, name, *no_checkout, wt)?;
+            start::start_release_fix(git, name, *no_checkout, worktree)?;
         }
         Action::StartHotfixFix { name, no_checkout, .. } => {
-            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
-            start::start_hotfix_fix(git, name, *no_checkout, wt)?;
+            start::start_hotfix_fix(git, name, *no_checkout, worktree)?;
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;
