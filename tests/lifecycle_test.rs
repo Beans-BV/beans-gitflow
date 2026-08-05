@@ -249,7 +249,7 @@ fn resume_state_resumes_finish_without_base() {
     let state = release_state();
     let cmd = Some(Commands::Finish { breaking: None, base: None, abort: false });
 
-    let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "release/2.5.0", Some(&state), false).unwrap();
+    let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "release/2.5.0", Some(&state), false, "main").unwrap();
 
     assert!(matches!(action, Action::FinishRelease));
 }
@@ -268,7 +268,7 @@ fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
     ] {
         let cmd = Some(Commands::Finish { breaking: None, base: None, abort: true });
 
-        let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "whatever", None, false).unwrap();
+        let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "whatever", None, false, "main").unwrap();
 
         assert!(matches!(action, Action::AbortFinish), "branch type {branch_type:?} rejected --abort");
     }
@@ -577,7 +577,7 @@ fn explicit_base_rejected_even_when_resume_state_exists() {
     let state = release_state();
     let cmd = Some(Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false });
 
-    let err = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "release/2.5.0", Some(&state), false).unwrap_err();
+    let err = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "release/2.5.0", Some(&state), false, "main").unwrap_err();
 
     assert!(err.contains("--base"), "Expected the fixed-target --base error, got: {err}");
 }
@@ -637,7 +637,7 @@ fn no_subcommand_falls_through_to_the_interactive_menu() {
     // decides, and whatever it returns is the Action that runs.
     let prompter = MockPrompter::scripted(&[5]); // "start release" on develop
 
-    let action = resolve_action_with_state(None, &prompter, &BranchType::Develop, "develop", None, false).unwrap();
+    let action = resolve_action_with_state(None, &prompter, &BranchType::Develop, "develop", None, false, "main").unwrap();
 
     assert!(matches!(action, Action::StartRelease(None)), "{action:?}");
     assert_eq!(prompter.calls().len(), 1);

@@ -16,7 +16,7 @@ use bflow::menu::show_menu;
 fn main_offers_only_a_hotfix_fix() {
     let prompter = MockPrompter::scripted(&[0]).with_lines(&["npe"]);
 
-    let action = show_menu(&prompter, &BranchType::Main, "main").unwrap();
+    let action = show_menu(&prompter, &BranchType::Main, "main", "main").unwrap();
 
     assert_eq!(prompter.calls(), vec![
         "select:What would you like to do?:[start hotfix fix]",
@@ -29,7 +29,7 @@ fn main_offers_only_a_hotfix_fix() {
 fn develop_offers_every_work_kind_then_start_release() {
     let prompter = MockPrompter::scripted(&[0]).with_lines(&["login"]);
 
-    let action = show_menu(&prompter, &BranchType::Develop, "develop").unwrap();
+    let action = show_menu(&prompter, &BranchType::Develop, "develop", "main").unwrap();
 
     assert_eq!(prompter.calls()[0],
         "select:What would you like to do?:[start feature, start fix, start chore, start docs, start refactor, start release]");
@@ -47,7 +47,7 @@ fn the_last_develop_entry_is_start_release_and_needs_no_name() {
     // rather than index the table out of bounds.
     let prompter = MockPrompter::scripted(&[5]);
 
-    let action = show_menu(&prompter, &BranchType::Develop, "develop").unwrap();
+    let action = show_menu(&prompter, &BranchType::Develop, "develop", "main").unwrap();
 
     assert!(matches!(action, Action::StartRelease(None)), "{action:?}");
     assert_eq!(prompter.calls().len(), 1, "start release asks for nothing else");
@@ -58,7 +58,7 @@ fn a_work_branch_offers_finish_first_using_its_own_kind() {
     let branch_type = BranchType::Refactor { name: "auth".to_string() };
     let prompter = MockPrompter::scripted(&[0]);
 
-    let action = show_menu(&prompter, &branch_type, "refactor/auth").unwrap();
+    let action = show_menu(&prompter, &branch_type, "refactor/auth", "main").unwrap();
 
     assert_eq!(prompter.calls()[0],
         "select:What would you like to do?:[finish refactor, start feature, start fix, start chore, start docs, start refactor]");
@@ -71,7 +71,7 @@ fn starting_a_branch_from_a_work_branch_asks_which_base_to_use() {
     let branch_type = BranchType::Feature { name: "login".to_string() };
     let prompter = MockPrompter::scripted(&[1, 0]).with_lines(&["captcha"]); // "start feature", then base = current
 
-    let action = show_menu(&prompter, &branch_type, "feature/login").unwrap();
+    let action = show_menu(&prompter, &branch_type, "feature/login", "main").unwrap();
 
     assert_eq!(prompter.calls()[2], "select:Base branch:[feature/login (current), develop]");
     match action {
@@ -87,7 +87,7 @@ fn choosing_develop_as_the_base_overrides_the_current_branch() {
     let branch_type = BranchType::Feature { name: "login".to_string() };
     let prompter = MockPrompter::scripted(&[1, 1]).with_lines(&["captcha"]);
 
-    let action = show_menu(&prompter, &branch_type, "feature/login").unwrap();
+    let action = show_menu(&prompter, &branch_type, "feature/login", "main").unwrap();
 
     match action {
         Action::StartWorkBranch { from, .. } => assert_eq!(from, "develop"),
@@ -106,7 +106,7 @@ fn a_release_branch_offers_its_four_actions() {
     ] {
         let prompter = MockPrompter::scripted(&[idx]);
 
-        let action = show_menu(&prompter, &branch_type, "release/2.5.0").unwrap();
+        let action = show_menu(&prompter, &branch_type, "release/2.5.0", "main").unwrap();
 
         assert_eq!(prompter.calls()[0],
             "select:What would you like to do?:[finish release, start release fix, bump version, sync with develop]");
@@ -119,7 +119,7 @@ fn the_release_fix_entry_asks_for_a_name() {
     let branch_type = BranchType::Release { major: 2, minor: 5, patch: 0 };
     let prompter = MockPrompter::scripted(&[1]).with_lines(&["db-index"]);
 
-    let action = show_menu(&prompter, &branch_type, "release/2.5.0").unwrap();
+    let action = show_menu(&prompter, &branch_type, "release/2.5.0", "main").unwrap();
 
     assert!(matches!(action, Action::StartReleaseFix { ref name, .. } if name == "db-index"), "{action:?}");
 }
@@ -132,14 +132,14 @@ fn a_hotfix_branch_offers_finish_and_start_hotfix_fix() {
     let branch_type = BranchType::Hotfix { major: 2, minor: 5, patch: 1 };
 
     let prompter = MockPrompter::scripted(&[0]);
-    let action = show_menu(&prompter, &branch_type, "hotfix/2.5.1").unwrap();
+    let action = show_menu(&prompter, &branch_type, "hotfix/2.5.1", "main").unwrap();
     assert_eq!(prompter.calls(), vec![
         "select:What would you like to do?:[finish hotfix, start hotfix fix]",
     ]);
     assert!(matches!(action, Action::FinishHotfix), "{action:?}");
 
     let prompter = MockPrompter::scripted(&[1]).with_lines(&["npe"]);
-    let action = show_menu(&prompter, &branch_type, "hotfix/2.5.1").unwrap();
+    let action = show_menu(&prompter, &branch_type, "hotfix/2.5.1", "main").unwrap();
     assert_eq!(prompter.calls()[1], "prompt_name:Name for hotfix-fix branch");
     assert!(matches!(action, Action::StartHotfixFix { ref name, .. } if name == "npe"), "{action:?}");
 }
@@ -155,7 +155,7 @@ fn single_item_menus_still_confirm_rather_than_auto_execute() {
     ] {
         let prompter = MockPrompter::scripted(&[0]);
 
-        let action = show_menu(&prompter, &branch_type, branch).unwrap();
+        let action = show_menu(&prompter, &branch_type, branch, "main").unwrap();
 
         assert_eq!(prompter.calls(), vec![format!("select:What would you like to do?:[{label}]")]);
         assert_eq!(format!("{action:?}"), format!("{expected:?}"));
@@ -168,10 +168,17 @@ fn an_unrecognized_branch_gets_the_interactive_error_with_a_next_step() {
     // "Switch to main or develop first", the CLI stays terse.
     let prompter = MockPrompter::new();
 
-    let err = show_menu(&prompter, &BranchType::Other, "wip").unwrap_err();
+    let err = show_menu(&prompter, &BranchType::Other, "wip", "main").unwrap_err();
 
     assert_eq!(err, "Not on a recognized gitflow branch. Switch to main or develop first.");
     assert!(prompter.calls().is_empty(), "nothing may be shown; calls: {:?}", prompter.calls());
+}
+
+#[test]
+fn the_unrecognized_branch_error_names_the_configured_mainline() {
+    let err = show_menu(&MockPrompter::new(), &BranchType::Other, "wip", "master").unwrap_err();
+
+    assert_eq!(err, "Not on a recognized gitflow branch. Switch to master or develop first.");
 }
 
 #[test]
@@ -180,7 +187,7 @@ fn aborting_the_menu_propagates_instead_of_picking_something() {
     // cleanup and stash restore still run.
     let prompter = MockPrompter::aborting();
 
-    let err = show_menu(&prompter, &BranchType::Develop, "develop").unwrap_err();
+    let err = show_menu(&prompter, &BranchType::Develop, "develop", "main").unwrap_err();
 
     assert_eq!(err, "Aborted");
 }

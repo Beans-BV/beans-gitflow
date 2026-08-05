@@ -9,7 +9,7 @@ use bflow::action::Action;
 fn start_feature_returns_start_work_branch_action() {
     let cmd = Commands::Start { kind: StartKind::Feature { name: "login".to_string(), base: "develop".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { prefix, name, from, .. } if prefix == "feature" && name == "login" && from == "develop"));
 }
 
@@ -17,7 +17,7 @@ fn start_feature_returns_start_work_branch_action() {
 fn start_feature_with_custom_base() {
     let cmd = Commands::Start { kind: StartKind::Feature { name: "login".to_string(), base: "feature/auth".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Feature { name: "auth".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { from, .. } if from == "feature/auth"));
 }
 
@@ -25,7 +25,7 @@ fn start_feature_with_custom_base() {
 fn start_feature_rejects_invalid_name() {
     let cmd = Commands::Start { kind: StartKind::Feature { name: "bad..name".to_string(), base: "develop".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert!(result.is_err());
 }
 
@@ -35,7 +35,7 @@ fn start_feature_rejects_invalid_name() {
 fn start_release_fix_on_release_branch() {
     let cmd = Commands::Start { kind: StartKind::ReleaseFix { name: "broken-login".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartReleaseFix { name, .. } if name == "broken-login"));
 }
 
@@ -43,7 +43,7 @@ fn start_release_fix_on_release_branch() {
 fn start_release_fix_on_wrong_branch() {
     let cmd = Commands::Start { kind: StartKind::ReleaseFix { name: "fix".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "This command is only valid on a release branch.");
 }
 
@@ -53,7 +53,7 @@ fn start_release_fix_on_wrong_branch() {
 fn start_hotfix_fix_on_main_branch() {
     let cmd = Commands::Start { kind: StartKind::HotfixFix { name: "urgent".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Main;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartHotfixFix { name, .. } if name == "urgent"));
 }
 
@@ -61,7 +61,7 @@ fn start_hotfix_fix_on_main_branch() {
 fn start_hotfix_fix_on_hotfix_branch() {
     let cmd = Commands::Start { kind: StartKind::HotfixFix { name: "urgent".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Hotfix { major: 1, minor: 0, patch: 1 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartHotfixFix { name, .. } if name == "urgent"));
 }
 
@@ -69,8 +69,18 @@ fn start_hotfix_fix_on_hotfix_branch() {
 fn start_hotfix_fix_on_wrong_branch() {
     let cmd = Commands::Start { kind: StartKind::HotfixFix { name: "fix".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "This command is only valid on a main or hotfix branch.");
+}
+
+#[test]
+fn the_hotfix_fix_gate_names_the_configured_mainline() {
+    // The message is guidance: on a master repo, telling the user to switch to
+    // "main" points at a branch that does not exist.
+    let cmd = Commands::Start { kind: StartKind::HotfixFix { name: "fix".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
+    let branch_type = BranchType::Develop;
+    let result = resolve_action(cmd, &branch_type, false, "master");
+    assert_eq!(result.unwrap_err(), "This command is only valid on a master or hotfix branch.");
 }
 
 // --- Finish tests ---
@@ -79,7 +89,7 @@ fn start_hotfix_fix_on_wrong_branch() {
 fn finish_on_feature_branch() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Feature { name: "login".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishWorkBranch { breaking: None, base: None }));
 }
 
@@ -87,7 +97,7 @@ fn finish_on_feature_branch() {
 fn finish_with_base_flag_on_work_branch() {
     let cmd = Commands::Finish { breaking: Some(false), base: Some("develop".to_string()), abort: false };
     let branch_type = BranchType::Feature { name: "login".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(false), base: Some(base) } if base == "develop"));
 }
 
@@ -95,7 +105,7 @@ fn finish_with_base_flag_on_work_branch() {
 fn finish_with_base_on_release_branch_errors() {
     let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.");
 }
 
@@ -103,7 +113,7 @@ fn finish_with_base_on_release_branch_errors() {
 fn finish_with_base_on_hotfix_branch_errors() {
     let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
     let branch_type = BranchType::Hotfix { major: 1, minor: 0, patch: 1 };
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert!(result.is_err());
 }
 
@@ -111,7 +121,7 @@ fn finish_with_base_on_hotfix_branch_errors() {
 fn finish_with_base_on_release_fix_branch_errors() {
     let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
     let branch_type = BranchType::ReleaseFix { major: 1, minor: 2, patch: 0, name: "broken-login".to_string() };
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert!(result.is_err());
 }
 
@@ -119,7 +129,7 @@ fn finish_with_base_on_release_fix_branch_errors() {
 fn finish_with_base_on_hotfix_fix_branch_errors() {
     let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
     let branch_type = BranchType::HotfixFix { major: 1, minor: 0, patch: 1, name: "urgent".to_string() };
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert!(result.is_err());
 }
 
@@ -127,7 +137,7 @@ fn finish_with_base_on_hotfix_fix_branch_errors() {
 fn finish_on_feature_branch_with_breaking_flag() {
     let cmd = Commands::Finish { breaking: Some(true), base: None, abort: false };
     let branch_type = BranchType::Feature { name: "remove-api".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(true), base: None }));
 }
 
@@ -135,7 +145,7 @@ fn finish_on_feature_branch_with_breaking_flag() {
 fn finish_on_feature_branch_with_explicit_non_breaking() {
     let cmd = Commands::Finish { breaking: Some(false), base: None, abort: false };
     let branch_type = BranchType::Feature { name: "login".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishWorkBranch { breaking: Some(false), base: None }));
 }
 
@@ -143,7 +153,7 @@ fn finish_on_feature_branch_with_explicit_non_breaking() {
 fn finish_on_release_branch() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishRelease));
 }
 
@@ -151,7 +161,7 @@ fn finish_on_release_branch() {
 fn finish_on_hotfix_branch() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Hotfix { major: 1, minor: 0, patch: 1 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishHotfix));
 }
 
@@ -159,7 +169,7 @@ fn finish_on_hotfix_branch() {
 fn finish_on_main_errors() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Main;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "Nothing to finish on this branch.");
 }
 
@@ -167,7 +177,7 @@ fn finish_on_main_errors() {
 fn finish_on_develop_errors() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "Nothing to finish on this branch.");
 }
 
@@ -175,7 +185,7 @@ fn finish_on_develop_errors() {
 fn finish_on_other_branch_errors() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::Other;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "Not on a recognized gitflow branch.");
 }
 
@@ -185,7 +195,7 @@ fn finish_on_other_branch_errors() {
 fn start_release_returns_start_release_action() {
     let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: false } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartRelease(None)));
 }
 
@@ -193,7 +203,7 @@ fn start_release_returns_start_release_action() {
 fn start_release_major_flag() {
     let cmd = Commands::Start { kind: StartKind::Release { major: true, minor: false } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartRelease(Some(ReleaseType::Major))));
 }
 
@@ -201,7 +211,7 @@ fn start_release_major_flag() {
 fn start_release_minor_flag() {
     let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: true } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartRelease(Some(ReleaseType::Minor))));
 }
 
@@ -209,7 +219,7 @@ fn start_release_minor_flag() {
 fn finish_on_release_fix_branch() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::ReleaseFix { major: 1, minor: 2, patch: 0, name: "broken-login".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishReleaseFix));
 }
 
@@ -217,7 +227,7 @@ fn finish_on_release_fix_branch() {
 fn finish_on_hotfix_fix_branch() {
     let cmd = Commands::Finish { breaking: None, base: None, abort: false };
     let branch_type = BranchType::HotfixFix { major: 1, minor: 0, patch: 1, name: "urgent".to_string() };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::FinishHotfixFix));
 }
 
@@ -225,7 +235,7 @@ fn finish_on_hotfix_fix_branch() {
 fn start_fix_returns_start_work_branch_action() {
     let cmd = Commands::Start { kind: StartKind::Fix { name: "bug".to_string(), base: "develop".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { prefix, name, .. } if prefix == "fix" && name == "bug"));
 }
 
@@ -233,7 +243,7 @@ fn start_fix_returns_start_work_branch_action() {
 fn start_chore_returns_start_work_branch_action() {
     let cmd = Commands::Start { kind: StartKind::Chore { name: "deps".to_string(), base: "develop".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { prefix, name, .. } if prefix == "chore" && name == "deps"));
 }
 
@@ -241,7 +251,7 @@ fn start_chore_returns_start_work_branch_action() {
 fn start_docs_returns_start_work_branch_action() {
     let cmd = Commands::Start { kind: StartKind::Docs { name: "readme".to_string(), base: "develop".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { prefix, name, .. } if prefix == "docs" && name == "readme"));
 }
 
@@ -249,7 +259,7 @@ fn start_docs_returns_start_work_branch_action() {
 fn start_refactor_returns_start_work_branch_action() {
     let cmd = Commands::Start { kind: StartKind::Refactor { name: "cleanup".to_string(), base: "develop".to_string(), opts: StartOptions { no_checkout: false, no_worktree: false } } };
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { prefix, name, .. } if prefix == "refactor" && name == "cleanup"));
 }
 
@@ -259,7 +269,7 @@ fn start_refactor_returns_start_work_branch_action() {
 fn bump_on_release_branch() {
     let cmd = Commands::Bump;
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::BumpVersion));
 }
 
@@ -267,7 +277,7 @@ fn bump_on_release_branch() {
 fn bump_on_wrong_branch() {
     let cmd = Commands::Bump;
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "This command is only valid on a release branch.");
 }
 
@@ -275,7 +285,7 @@ fn bump_on_wrong_branch() {
 fn sync_on_release_branch() {
     let cmd = Commands::Sync;
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::SyncWithDevelop));
 }
 
@@ -283,7 +293,7 @@ fn sync_on_release_branch() {
 fn sync_on_wrong_branch() {
     let cmd = Commands::Sync;
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, false);
+    let result = resolve_action(cmd, &branch_type, false, "main");
     assert_eq!(result.unwrap_err(), "This command is only valid on a release branch.");
 }
 
@@ -295,7 +305,7 @@ fn start_feature_with_no_checkout_flag() {
         opts: StartOptions { no_checkout: true, no_worktree: false },
     }};
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { no_checkout: true, .. }));
 }
 
@@ -306,7 +316,7 @@ fn start_release_fix_with_no_checkout_flag() {
         opts: StartOptions { no_checkout: true, no_worktree: false },
     }};
     let branch_type = BranchType::Release { major: 1, minor: 2, patch: 0 };
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartReleaseFix { no_checkout: true, .. }));
 }
 
@@ -317,7 +327,7 @@ fn start_hotfix_fix_with_no_checkout_flag() {
         opts: StartOptions { no_checkout: true, no_worktree: false },
     }};
     let branch_type = BranchType::Main;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartHotfixFix { no_checkout: true, .. }));
 }
 
@@ -328,7 +338,7 @@ fn start_release_fix_no_checkout_skips_branch_check() {
         opts: StartOptions { no_checkout: true, no_worktree: false },
     }};
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartReleaseFix { no_checkout: true, .. }));
 }
 
@@ -339,7 +349,7 @@ fn start_hotfix_fix_no_checkout_skips_branch_check() {
         opts: StartOptions { no_checkout: true, no_worktree: false },
     }};
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartHotfixFix { no_checkout: true, .. }));
 }
 
@@ -352,7 +362,7 @@ fn start_release_fix_with_worktree_enabled_skips_branch_check() {
         opts: StartOptions { no_checkout: false, no_worktree: false },
     }};
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, true).unwrap();
+    let action = resolve_action(cmd, &branch_type, true, "main").unwrap();
     assert!(matches!(action, Action::StartReleaseFix { .. }));
 }
 
@@ -363,7 +373,7 @@ fn start_hotfix_fix_with_worktree_enabled_skips_branch_check() {
         opts: StartOptions { no_checkout: false, no_worktree: false },
     }};
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, true).unwrap();
+    let action = resolve_action(cmd, &branch_type, true, "main").unwrap();
     assert!(matches!(action, Action::StartHotfixFix { .. }));
 }
 
@@ -376,7 +386,7 @@ fn start_release_fix_with_no_worktree_optout_still_requires_release_branch() {
         opts: StartOptions { no_checkout: false, no_worktree: true },
     }};
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, true);
+    let result = resolve_action(cmd, &branch_type, true, "main");
     assert_eq!(result.unwrap_err(), "This command is only valid on a release branch.");
 }
 
@@ -387,7 +397,7 @@ fn start_hotfix_fix_with_no_worktree_optout_still_requires_main_or_hotfix() {
         opts: StartOptions { no_checkout: false, no_worktree: true },
     }};
     let branch_type = BranchType::Develop;
-    let result = resolve_action(cmd, &branch_type, true);
+    let result = resolve_action(cmd, &branch_type, true, "main");
     assert_eq!(result.unwrap_err(), "This command is only valid on a main or hotfix branch.");
 }
 
@@ -399,7 +409,7 @@ fn start_feature_with_no_worktree_flag() {
         opts: StartOptions { no_checkout: false, no_worktree: true },
     }};
     let branch_type = BranchType::Develop;
-    let action = resolve_action(cmd, &branch_type, false).unwrap();
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
     assert!(matches!(action, Action::StartWorkBranch { no_worktree: true, .. }));
 }
 

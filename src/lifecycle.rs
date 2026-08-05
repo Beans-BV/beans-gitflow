@@ -56,7 +56,7 @@ pub fn run(
     };
 
     // Resolve the action up-front so we can decide whether to fetch / stash / etc.
-    let action = resolve_action_with_state(command, prompter, &branch_type, &branch_name, resume_state.as_ref(), wt_config.enabled)?;
+    let action = resolve_action_with_state(command, prompter, &branch_type, &branch_name, resume_state.as_ref(), wt_config.enabled, &main_branch)?;
 
     // --abort short-circuits before any state-changing operation, even if the repo
     // is mid-merge — abort is itself a recovery action.
@@ -165,6 +165,7 @@ pub fn resolve_action_with_state(
     branch_name: &str,
     resume_state: Option<&FinishState>,
     worktree_enabled: bool,
+    main_branch: &str,
 ) -> Result<Action, String> {
     // `--abort` wins unconditionally and never errors based on branch type.
     if let Some(Commands::Finish { abort: true, .. }) = &command {
@@ -199,8 +200,8 @@ pub fn resolve_action_with_state(
 
     // No resume state (or a non-finish command): fall through to normal dispatch.
     match command {
-        None => menu::show_menu(prompter, branch_type, branch_name),
-        Some(cmd) => resolve_action(cmd, branch_type, worktree_enabled),
+        None => menu::show_menu(prompter, branch_type, branch_name, main_branch),
+        Some(cmd) => resolve_action(cmd, branch_type, worktree_enabled, main_branch),
     }
 }
 

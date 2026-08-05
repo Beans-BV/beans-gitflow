@@ -131,7 +131,7 @@ pub enum StartKind {
         #[command(flatten)]
         opts: StartOptions,
     },
-    /// Start a hotfix fix branch (must be on main or hotfix branch)
+    /// Start a hotfix fix branch (must be on the mainline or a hotfix branch)
     HotfixFix {
         #[arg(long)]
         name: String,
@@ -161,11 +161,14 @@ fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
 
 /// Resolve the parsed command into an Action.
 ///
+/// `main_branch` is the repo's resolved mainline (`bflow.branch.main`); the
+/// branch-type gates name it rather than assuming "main".
+///
 /// `worktree_enabled` is the `bflow.worktree.enabled` config value. Like
 /// `--no-checkout`, an active worktree flow auto-discovers the target branch for
 /// release-fix/hotfix-fix, so the "must be standing on it" branch-type gate only
 /// applies to the plain checkout path.
-pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enabled: bool) -> Result<Action, String> {
+pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enabled: bool, main_branch: &str) -> Result<Action, String> {
     match command {
         Commands::Start { kind } => match kind {
             StartKind::Feature { name, base, opts } => start_work_branch("feature", name, base, opts.no_checkout, opts.no_worktree),
@@ -191,7 +194,7 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 if !auto_discovers_target(&opts, worktree_enabled)
                     && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. })
                 {
-                    return Err("This command is only valid on a main or hotfix branch.".to_string());
+                    return Err(format!("This command is only valid on a {main_branch} or hotfix branch."));
                 }
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }

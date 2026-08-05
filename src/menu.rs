@@ -258,7 +258,7 @@ pub fn prompt_line(prompt: &str) -> Result<String, String> {
     Ok(read_raw_line(prompt, |_, c| Some(c))?.trim().to_string())
 }
 
-pub fn show_menu(prompter: &dyn Prompter, branch_type: &BranchType, current_branch: &str) -> Result<Action, String> {
+pub fn show_menu(prompter: &dyn Prompter, branch_type: &BranchType, current_branch: &str, main_branch: &str) -> Result<Action, String> {
     match branch_type {
         BranchType::Main => {
             let labels = &["start hotfix fix"];
@@ -331,7 +331,7 @@ pub fn show_menu(prompter: &dyn Prompter, branch_type: &BranchType, current_bran
             let name = prompter.prompt_name("Name for hotfix-fix branch")?;
             Ok(Action::StartHotfixFix { name, no_checkout: false, no_worktree: false })
         }
-        BranchType::Other => Err("Not on a recognized gitflow branch. Switch to main or develop first.".to_string()),
+        BranchType::Other => Err(format!("Not on a recognized gitflow branch. Switch to {main_branch} or develop first.")),
     }
 }
 

@@ -43,6 +43,27 @@ To override detection (e.g. a GitHub Enterprise domain), set:
 git config bflow.hosting.provider github   # or: devops (requires an Azure DevOps origin URL)
 ```
 
+### Mainline branch (`main` or `master`)
+
+bflow works with either name. On its first run in a repository it detects which
+one you use — `main` if that branch exists locally or on the remote, otherwise
+`master` — saves the answer to your **repository's** config, and says so:
+
+```
+Detected mainline branch 'master' (saved to bflow.branch.main).
+```
+
+Every later run just reads the setting. To set or change it yourself:
+
+```bash
+git config bflow.branch.main master   # or: main
+```
+
+The key is repo-local on purpose: the mainline is a property of the repository,
+not of the developer (the opposite of `bflow.worktree.*`, which is a personal
+preference and therefore global by default). Only `main` and `master` are
+supported; any other value is rejected with a message naming the fix.
+
 ## Branch Model
 
 bflow manages two permanent branches and several short-lived branch types:
@@ -120,7 +141,7 @@ Finish commands (`bflow finish`, `bflow bump`, `bflow sync`) still require a cle
   start release
 ```
 
-### On `main`
+### On the mainline (`main` / `master`)
 
 ```
 ? What would you like to do?
@@ -163,6 +184,7 @@ Selecting finish creates a PR back to the base branch. You can also start a new 
 ```
 ? What would you like to do?
 > finish hotfix
+  start hotfix fix
 ```
 
 ### On `hotfix-fix/{v}/{name}`
@@ -186,7 +208,7 @@ bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start release [--major | --minor]
 bflow start release-fix --name <name> [--no-checkout] [--no-worktree]    # must be on a release branch
-bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on main or hotfix branch
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on the mainline or a hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
