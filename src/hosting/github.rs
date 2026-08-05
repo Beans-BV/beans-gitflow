@@ -1,5 +1,10 @@
 use super::{resolve_body_file, CliRunner, HostingPlatform, MergedPr, Result};
 
+/// Appended to every `gh` query failure: the command that fixes the overwhelmingly
+/// most common cause, plus the bflow command to re-run (Error Model — every error
+/// message names the exact next command).
+const AUTH_REMEDY: &str = "If authentication expired, run 'gh auth login', then re-run 'bflow finish'.";
+
 pub struct GitHub<'a> {
     runner: &'a dyn CliRunner,
 }
@@ -23,10 +28,7 @@ impl HostingPlatform for GitHub<'_> {
             // gh exits non-zero both when no PR exists (normal here) and on real
             // failures (auth expiry, network). Only the former may be swallowed.
             Err(e) if e.contains("no pull requests found") => {}
-            Err(e) => return Err(format!(
-                "Could not check for an existing PR: {e}\n\
-                 If authentication expired, run 'gh auth login', then re-run 'bflow finish'."
-            )),
+            Err(e) => return Err(format!("Could not check for an existing PR: {e}\n{AUTH_REMEDY}")),
         }
 
         let git_default_paths = [
@@ -55,10 +57,7 @@ impl HostingPlatform for GitHub<'_> {
                 "--json", "url,state,headRefOid,baseRefName",
                 "--jq", r#".[0] | select(.state == "MERGED") | [.url, .headRefOid, .baseRefName] | @tsv"#,
             ])
-            .map_err(|e| format!(
-                "Could not check for a merged PR: {e}\n\
-                 If authentication expired, run 'gh auth login', then re-run 'bflow finish'."
-            ))?;
+            .map_err(|e| format!("Could not check for a merged PR: {e}\n{AUTH_REMEDY}"))?;
         parse_merged_pr(&line)
     }
 

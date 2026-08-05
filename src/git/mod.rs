@@ -132,6 +132,12 @@ impl<'a> GitCli<'a> {
         }
     }
 
+    /// Run a command whose stdout is one item per line, dropping blanks.
+    fn run_lines(&self, args: &[&str]) -> Result<Vec<String>> {
+        let output = self.run(args)?;
+        Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+    }
+
     /// Run a check command that uses exit 0/1 as a true/false result
     /// (e.g., `merge-base --is-ancestor`, `show-ref --verify`).
     /// Exit codes other than 0 or 1 are treated as errors.
@@ -140,8 +146,7 @@ impl<'a> GitCli<'a> {
         match output.code {
             Some(0) => Ok(true),
             Some(1) => Ok(false),
-            Some(code) => Err(format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim())),
-            None => Err(format!("git {} terminated by signal", args.join(" "))),
+            _ => Err(unexpected_exit(args, &output)),
         }
     }
 
@@ -158,9 +163,19 @@ impl<'a> GitCli<'a> {
         match output.code {
             Some(0) => Ok(Some(output.stdout.trim().to_string())),
             Some(1) => Ok(None),
-            Some(code) => Err(format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim())),
-            None => Err(format!("git {} terminated by signal", args.join(" "))),
+            _ => Err(unexpected_exit(args, &output)),
         }
+    }
+}
+
+/// Error wording for an exit code the calling runner assigns no meaning to.
+/// Each runner maps the codes it understands (0/1 for checks and `--get`, 5 for
+/// an already-unset key) and hands the rest here, so "false" is never conflated
+/// with "failed" and the message reads the same wherever it came from.
+fn unexpected_exit(args: &[&str], output: &CliOutput) -> String {
+    match output.code {
+        Some(code) => format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim()),
+        None => format!("git {} terminated by signal", args.join(" ")),
     }
 }
 
@@ -176,21 +191,19 @@ impl Git for GitCli<'_> {
     fn merge(&self, branch: &str, message: &str) -> Result<()> { self.run(&["merge", branch, "--no-ff", "-m", message]).map(|_| ()) }
     fn ff_merge(&self, branch: &str) -> Result<()> { self.run(&["merge", branch, "--ff-only"]).map(|_| ()) }
     fn list_tags(&self) -> Result<Vec<String>> {
-        let output = self.run(&["tag", "--list"])?;
-        Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+        self.run_lines(&["tag", "--list"])
     }
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>> {
         let ref_pattern = format!("refs/remotes/origin/{pattern}");
         let local_pattern = format!("refs/heads/{pattern}");
-        let output = self.run(&[
+        let lines = self.run_lines(&[
             "for-each-ref", "--format=%(refname:short)",
             &ref_pattern, &local_pattern,
         ])?;
         // Sorted + deduped per the trait contract.
-        let mut branches: Vec<String> = output
-            .lines()
+        let mut branches: Vec<String> = lines
+            .iter()
             .map(|s| s.trim_start_matches("origin/").to_string())
-            .filter(|s| !s.is_empty())
             .collect();
         branches.sort();
         branches.dedup();
@@ -203,15 +216,14 @@ impl Git for GitCli<'_> {
     fn delete_branch_local(&self, branch: &str) -> Result<()> { self.run(&["branch", "-D", branch]).map(|_| ()) }
     fn delete_branch_remote(&self, branch: &str) -> Result<()> { self.run(&["push", "origin", "--delete", branch]).map(|_| ()) }
     fn tags_on_branch(&self, branch: &str) -> Result<Vec<String>> {
-        let output = self.run(&["tag", "--merged", branch])?;
-        Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+        self.run_lines(&["tag", "--merged", branch])
     }
     fn list_remote_branches(&self) -> Result<Vec<String>> {
-        let output = self.run(&["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/"])?;
-        Ok(output
-            .lines()
+        let lines = self.run_lines(&["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/"])?;
+        Ok(lines
+            .iter()
             .map(|s| s.trim_start_matches("origin/").to_string())
-            .filter(|s| !s.is_empty() && s != "HEAD")
+            .filter(|s| s != "HEAD")
             .collect())
     }
     fn merge_base(&self, a: &str, b: &str) -> Result<String> {
@@ -306,8 +318,7 @@ impl Git for GitCli<'_> {
         match output.code {
             // 0 = removed; 5 = key was not set (already at default) — both fine.
             Some(0) | Some(5) => Ok(()),
-            Some(code) => Err(format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim())),
-            None => Err(format!("git {} terminated by signal", args.join(" "))),
+            _ => Err(unexpected_exit(&args, &output)),
         }
     }
     fn repo_root(&self) -> Result<PathBuf> {
