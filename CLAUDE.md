@@ -40,13 +40,13 @@ design you already converged on.
 Applies to EVERY change to `.rs` files, `Cargo.toml`, or shell scripts — even one-liners.
 
 - Load `superpowers:test-driven-development` BEFORE writing any production code. Red → green → refactor; watch every test fail before making it pass. No production code without a failing test first.
-- Enforced by the harness, not just this file: the Stop hook `.claude/hooks/tdd-gate.sh` blocks ending a turn while tests are red or total line coverage is below `.claude/hooks/coverage-baseline.txt`. The baseline ratchets up automatically. NEVER edit it downward — only the user may approve lowering it.
-- Target: 100% of the mock-testable core (`flows/`, `lifecycle.rs`, `state.rs`, `git/branch.rs`, parsing/detection helpers). The subprocess/TTY shell (`main.rs`, `menu.rs`, `editor.rs`, `git/mod.rs`, CLI-calling adapter methods) is exempt per architecture principle 9 — tests never touch real CLIs. Keep business logic out of that shell so the exemption stays honest.
+- Enforced by the harness, not just this file: the Stop hook `.claude/hooks/tdd-gate.sh` blocks ending a turn while tests are red or total line coverage is below `.claude/hooks/coverage-baseline.txt`. The baseline ratchets up automatically. NEVER edit it downward — only the user may approve lowering it. Shell-script changes are covered by this policy but not by the hook (there is no shell test runner here) — the discipline there is yours to keep.
+- Target: 100% of the mock-testable core (`flows/`, `lifecycle.rs`, `state.rs`, `git/branch.rs`, parsing/detection helpers). The subprocess/TTY shell is exempt per architecture principle 9 — tests never touch real CLIs or a terminal. That is `main.rs`, `editor.rs`, `git/mod.rs`'s CLI-calling methods, and menu.rs's *terminal* functions (`show_select`, `read_raw_line`, `prompt_name`, `prompt_line`, `TerminalGuard`) — NOT `menu.rs` wholesale: `show_menu` and its branch-type gating are mock-tested core. Keep business logic out of that shell so the exemption stays honest.
 - **Backfilling tests for existing uncovered code: spec-first, not characterization.** First understand how the code SHOULD behave (README, `decisions.md`, the flow's intent) — never codify current behavior blindly. If intended behavior is unclear, ask the user before writing the test. A failing test on existing code is a finding (the code is wrong), not a reason to weaken the test.
 
-# WorkfLow Orchestration
+# Workflow Orchestration
 
-## 1. Plan Node Default
+## 1. Plan Mode Default
 - Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
 - If something goes sideways, STOP and re-plan immediately - don't keep pushing
 - Use plan mode for verification steps, not just building
@@ -59,8 +59,7 @@ Applies to EVERY change to `.rs` files, `Cargo.toml`, or shell scripts — even 
 - One tack per subagent for focused execution
 
 ## 3. Self-Improvement Loop
-After ANY correction from the user: update
-tasks/lessons.md" with the pattern
+- After ANY correction from the user: record the pattern in `tasks/lessons.md`
 - Write rules for yourself that prevent the same mistake
 - Ruthlessly iterate on these lessons until mistake rate drops
 - Review lessons at session start for relevant project
@@ -77,24 +76,24 @@ For non-trivial changes: pause and ask "is there a more elegant way?"
 - Skip this for simple, obvious fixes - don't over-engineer
 - Challenge your own work before presenting it
 
-## 6. Autonomous Bug Fizing
+## 6. Autonomous Bug Fixing
 - When given a bug report: just fix it. Don't ask for hand-holding
 - Point at logs, errors, failing tests - then resolve them
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
 
 ## Task Management
-1. **Plan First**: Write plan to "tasks/todo.md" with checkable items
+1. **Plan First**: Write the plan to `tasks/todo.md` with checkable items
 2. **Verify Plan**: Check in before starting implementation
 3. **Track Progress**: Mark items complete as you go
 4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to tasks/todo.md
-6. **Capture Lessons**: Update tasks/lessons-md" after corrections
+5. **Document Results**: Add a review section to `tasks/todo.md`
+6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
 
 ## Core Principles
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimat Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 
 # Architectural Decisions
 
@@ -155,20 +154,18 @@ This standard is owned by this section, not by any planning skill. Plugin skills
 
 # Reminder
 
-REMEMBER to ALWAYS keep things KISS, DRY and SOLID — by LOADING
-`kiss-principles`, `dry-principles` and `solid-principles` and running their
-checks, not by remembering that they exist. A principle you did not run is a
-principle you did not apply.
+Run the checks in the **Load these first** table — do not work from memory of
+them. A principle you did not run is a principle you did not apply.
 
 ## Documentation Sync
 
-With every change you make make sure to always update the README.md.
+When a change alters user-facing behavior — a command, flag, menu entry, config
+key, or error a user reads — update `README.md` and `.claude/skills/bflow/skill.md`
+in the same change. Internal refactors, test-only work and version bumps do not
+need a docs edit (same "does NOT apply" list as Architectural Decisions above).
 
-## Skill Sync
-
-With every change you make make sure to always update the `.claude/skills/bflow/skill.md` if needed.
-
-When updating skills, keep content concise — every token matters. Be clear but not verbose.
+When updating skills, keep content concise — every token matters. Be clear but
+not verbose.
 
 ## Release
 
