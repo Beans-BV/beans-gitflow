@@ -181,36 +181,19 @@ fn the_rc_gate_error_names_the_configured_mainline() {
 
 #[test]
 fn finish_release_single_rc() {
+    // The full ordering is already pinned above; what is distinct here is that a
+    // lone RC is also the latest one, so the gate measures against it and the
+    // clean tag is stripped from it.
     let mut git = fresh_release_mock(2, 0, &["v2.0.0-rc.1"]);
     git.rev_list_count_result = 0;
 
     finish_release(&git, 2, 0, "main").unwrap();
 
-    assert_eq!(git.calls(), vec![
-        "tags_on_branch:release/2.0.0",
-        "is_ancestor:release/2.0.0:main",
-        "rev_list_count:v2.0.0-rc.1:release/2.0.0",
-        "checkout:main",
-        "ff_merge:origin/main",
-        "merge:release/2.0.0:chore: merge release 2.0.0 into main",
-        "tag_exists:v2.0.0",
-        "create_tag:v2.0.0:chore: release 2.0.0",
-        "is_pushed:main",
-        "push:main",
-        "remote_tag_exists:v2.0.0",
-        "push_tag:v2.0.0",
-        "is_ancestor:release/2.0.0:develop",
-        "checkout:develop",
-        "ff_merge:origin/develop",
-        "merge:release/2.0.0:chore: merge release 2.0.0 into develop",
-        "is_pushed:develop",
-        "push:develop",
-        "current_branch",
-        "local_branch_exists:release/2.0.0",
-        "delete_branch_local:release/2.0.0",
-        "remote_branch_exists:release/2.0.0",
-        "delete_branch_remote:release/2.0.0",
-    ]);
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c == "rev_list_count:v2.0.0-rc.1:release/2.0.0"),
+        "the only RC is the one the gate measures against; calls: {calls:?}");
+    assert!(calls.iter().any(|c| c == "create_tag:v2.0.0:chore: release 2.0.0"),
+        "the clean tag is the RC stripped of its pre-release; calls: {calls:?}");
 }
 
 #[test]

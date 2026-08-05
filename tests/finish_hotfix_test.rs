@@ -47,51 +47,22 @@ fn finish_hotfix_full_sequence() {
 
 #[test]
 fn finish_hotfix_targets_master_when_that_is_the_mainline() {
-    let git = fresh_hotfix_mock(1, 0, 1);
-
-    finish_hotfix(&git, 1, 0, 1, "master").unwrap();
-
-    assert_eq!(git.calls(), vec![
-        "is_ancestor:hotfix/1.0.1:master",
-        "checkout:master",
-        "ff_merge:origin/master",
-        "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into master",
-        "tag_exists:v1.0.1",
-        "create_tag:v1.0.1:chore: hotfix 1.0.1",
-        "is_pushed:master",
-        "push:master",
-        "remote_tag_exists:v1.0.1",
-        "push_tag:v1.0.1",
-        "is_ancestor:hotfix/1.0.1:develop",
-        "checkout:develop",
-        "ff_merge:origin/develop",
-        "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into develop",
-        "is_pushed:develop",
-        "push:develop",
-        "list_branches_matching:release/*",
-        "current_branch",
-        "local_branch_exists:hotfix/1.0.1",
-        "delete_branch_local:hotfix/1.0.1",
-        "remote_branch_exists:hotfix/1.0.1",
-        "delete_branch_remote:hotfix/1.0.1",
-    ]);
-}
-
-#[test]
-fn finish_hotfix_different_version() {
+    // Also the suite's second version: 2.3.4 rather than 1.0.1, so one script
+    // proves both that the version threads through every call and that the
+    // mainline does.
     let git = fresh_hotfix_mock(2, 3, 4);
 
-    finish_hotfix(&git, 2, 3, 4, "main").unwrap();
+    finish_hotfix(&git, 2, 3, 4, "master").unwrap();
 
     assert_eq!(git.calls(), vec![
-        "is_ancestor:hotfix/2.3.4:main",
-        "checkout:main",
-        "ff_merge:origin/main",
-        "merge:hotfix/2.3.4:chore: merge hotfix 2.3.4 into main",
+        "is_ancestor:hotfix/2.3.4:master",
+        "checkout:master",
+        "ff_merge:origin/master",
+        "merge:hotfix/2.3.4:chore: merge hotfix 2.3.4 into master",
         "tag_exists:v2.3.4",
         "create_tag:v2.3.4:chore: hotfix 2.3.4",
-        "is_pushed:main",
-        "push:main",
+        "is_pushed:master",
+        "push:master",
         "remote_tag_exists:v2.3.4",
         "push_tag:v2.3.4",
         "is_ancestor:hotfix/2.3.4:develop",

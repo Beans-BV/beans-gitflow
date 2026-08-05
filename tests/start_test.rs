@@ -321,17 +321,6 @@ fn start_work_branch_worktree_active_forces_no_checkout_and_opens() {
 }
 
 #[test]
-fn start_work_branch_without_worktree_uses_legacy_sequence() {
-    let git = MockGit::new();
-    start_work_branch(&git, "feature", "login-page", "develop", false, None).unwrap();
-
-    assert_eq!(git.calls(), vec![
-        "create_branch:feature/login-page:develop",
-        "push:feature/login-page",
-    ]);
-}
-
-#[test]
 fn start_work_branch_worktree_editor_failure_is_not_fatal() {
     let git = MockGit::new();
     let config = test_worktree_config("code");

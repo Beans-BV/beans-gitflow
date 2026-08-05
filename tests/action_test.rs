@@ -109,18 +109,6 @@ fn worktree_eligible_false_for_start_release_and_finishes() {
 }
 
 #[test]
-fn no_worktree_reflects_the_flag() {
-    let opted_out = Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false, no_worktree: true };
-    assert!(opted_out.no_worktree());
-
-    let default = Action::StartReleaseFix { name: "x".into(), no_checkout: false, no_worktree: false };
-    assert!(!default.no_worktree());
-
-    // Non-start actions never opt out (there's nothing to opt out of).
-    assert!(!Action::FinishRelease.no_worktree());
-}
-
-#[test]
 fn no_worktree_flag_is_honored_by_every_start_action() {
     // --no-worktree opts a single command out of an enabled worktree flow. Missing
     // it on one variant silently creates a worktree the user asked not to have.
@@ -133,6 +121,11 @@ fn no_worktree_flag_is_honored_by_every_start_action() {
     }.no_worktree());
     assert!(Action::StartHotfixFix {
         name: "x".to_string(), no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    // ...and the default is genuinely off, so an enabled worktree flow is not
+    // silently opted out of.
+    assert!(!Action::StartReleaseFix {
+        name: "x".to_string(), no_checkout: false, no_worktree: false,
     }.no_worktree());
     // Non-start actions never opt out of anything.
     assert!(!Action::FinishRelease.no_worktree());
