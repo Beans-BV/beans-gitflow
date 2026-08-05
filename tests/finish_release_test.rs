@@ -292,8 +292,9 @@ fn bump_protected_reuses_a_leftover_remote_chore_branch_without_recreating_it() 
 fn sync_with_develop_merges_and_returns_to_current() {
     let mut git = MockGit::new();
     git.current_branch = "release/1.1.0".to_string();
+    let hosting = MockHosting::new();
 
-    sync_with_develop(&git, 1, 1).unwrap();
+    sync_with_develop(&git, &hosting, &RepoConfig::default(), 1, 1, None).unwrap();
 
     assert_eq!(git.calls(), vec![
         "current_branch",
@@ -302,6 +303,59 @@ fn sync_with_develop_merges_and_returns_to_current() {
         "merge:release/1.1.0:chore: sync release 1.1.0 with develop",
         "push:develop",
         "checkout:release/1.1.0",
+    ]);
+    assert!(hosting.calls().is_empty(), "free mode must make zero hosting calls; calls: {:?}", hosting.calls());
+}
+
+#[test]
+fn sync_protected_opens_develop_pr_and_stops() {
+    let mut git = MockGit::new();
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
+
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:develop",
+        "create_or_get_pr:release/1.1.0:develop:chore: sync release 1.1.0 with develop",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c == "checkout:develop"), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("merge:")), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "push:develop"), "must not push develop directly; calls: {calls:?}");
+}
+
+#[test]
+fn sync_protected_already_landed_is_a_noop() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("relsha", "mc1"));
+
+    sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
+
+    assert_eq!(git.calls(), vec!["branch_sha:release/1.1.0"],
+        "already-landed sync must make no mutating git calls beyond the landed-check read");
+    assert_eq!(hosting.calls(), vec!["merged_pr_to:release/1.1.0:develop"]);
+}
+
+#[test]
+fn sync_protected_stale_merged_pr_reopens_new_pr() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("stale", "mc1"));
+
+    sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
+
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:develop",
+        "create_or_get_pr:release/1.1.0:develop:chore: sync release 1.1.0 with develop",
     ]);
 }
 

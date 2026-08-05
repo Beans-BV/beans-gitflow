@@ -157,9 +157,14 @@ fn announce_deferred(pr_url: &str) {
     println!("The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.");
 }
 
-pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), String> {
+pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, template: Option<&Path>) -> Result<(), String> {
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
+
+    if cfg.mode == Mode::Protected {
+        return sync_with_develop_protected(git, hosting, &release, &release_branch, template);
+    }
+
     let current = git.current_branch()?;
 
     println!("Merging {release_branch} into develop...");
@@ -171,6 +176,24 @@ pub fn sync_with_develop(git: &dyn Git, major: u32, minor: u32) -> Result<(), St
     git.checkout(&current)?;
     println!("Develop synced with {release_branch}.");
 
+    Ok(())
+}
+
+/// Protected mode: bflow never merges into develop itself, so sync opens a
+/// landing PR and stops for a human to merge. `landed_pr`'s head-SHA compare
+/// (flows/mod.rs) is what keeps a stale merged PR from being trusted as
+/// "already synced" — a release with new commits since that merge re-enters
+/// this same PR-opening path instead.
+fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, release: &SemVer, release_branch: &str, template: Option<&Path>) -> Result<(), String> {
+    if landed_pr(git, hosting, release_branch, "develop")?.is_some() {
+        println!("Develop already contains {release_branch}.");
+        return Ok(());
+    }
+
+    let title = format!("chore: sync release {release} with develop");
+    let url = open_landing_pr(git, hosting, release_branch, "develop", &title, template)?;
+    println!("PR: {url}");
+    println!("Waiting for a human to merge this PR. Re-run 'bflow sync' after the merge.");
     Ok(())
 }
 

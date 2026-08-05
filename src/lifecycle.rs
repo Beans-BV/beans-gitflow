@@ -311,7 +311,8 @@ fn run_flow(
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("SyncWithDevelop action only from Release branch");
             };
-            finish_release::sync_with_develop(git, *major, *minor)?;
+            // Task 16 wires the real config/template values through the lifecycle.
+            finish_release::sync_with_develop(git, hosting, &RepoConfig::default(), *major, *minor, None)?;
         }
         Action::FinishRelease => {
             // On resume, prefer the state's version (we may not be on the release branch).
