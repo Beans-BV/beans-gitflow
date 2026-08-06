@@ -81,6 +81,8 @@ pub struct MockGit {
     pub fail_remote_url: bool,
     /// Value returned by `repo_root`.
     pub repo_root: PathBuf,
+    /// Value returned by `worktree_root`.
+    pub worktree_root: PathBuf,
     /// SHA returned by `head_sha`.
     pub head_sha: String,
     /// Whether the current checkout is a linked worktree.
@@ -135,6 +137,7 @@ impl MockGit {
             remote_url: "https://github.com/acme/repo.git".to_string(),
             fail_remote_url: false,
             repo_root: PathBuf::from("/repos/beans-gitflow"),
+            worktree_root: PathBuf::from("/repos/beans-gitflow"),
             head_sha: "headsha".to_string(),
             linked_worktree: false,
             tag_commits: HashMap::new(),
@@ -363,6 +366,11 @@ impl Git for MockGit {
     fn repo_root(&self) -> Result<PathBuf, String> {
         self.calls.borrow_mut().push("repo_root".to_string());
         Ok(self.repo_root.clone())
+    }
+
+    fn worktree_root(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("worktree_root".to_string());
+        Ok(self.worktree_root.clone())
     }
 
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<(), String> {

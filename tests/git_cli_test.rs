@@ -390,6 +390,10 @@ fn every_primitive_issues_its_documented_git_command() {
         // plain rev-parse would return the tag object's own SHA.
         ("git rev-parse v2.5.0^{commit}", Box::new(|g| { g.tag_commit_sha("v2.5.0").ok(); })),
         ("git rev-parse refs/heads/release/2.5.0", Box::new(|g| { g.branch_sha("release/2.5.0").ok(); })),
+        // Resolves the CURRENT worktree's root (unlike repo_root, which always
+        // resolves the main tree) — this is what lets repo-content resolution
+        // (config, version script, PR templates) see the branch you're on.
+        ("git rev-parse --show-toplevel", Box::new(|g| { g.worktree_root().ok(); })),
     ];
 
     for (expected, call) in cases {

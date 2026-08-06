@@ -55,6 +55,14 @@ pub trait Git {
     /// inside a linked worktree (`rev-parse --show-toplevel` would return the
     /// worktree's own directory there, compounding worktree folder names).
     fn repo_root(&self) -> Result<PathBuf>;
+    /// Absolute path to the root of the working tree the command is running in —
+    /// the linked worktree when standing in one, the main tree otherwise. Repo
+    /// *content* (`.bflow/config`, the version script, PR templates) must be read
+    /// from here: a linked worktree can have a different branch checked out than
+    /// the main tree, and reading the main tree's copy would apply another
+    /// branch's policy. Contrast `repo_root`, which is deliberately the MAIN
+    /// tree's root and stays correct for worktree bookkeeping.
+    fn worktree_root(&self) -> Result<PathBuf>;
     /// Add a worktree at `path` checked out to the (already existing) `branch`.
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
     /// Whether the current checkout is a linked worktree rather than the main
@@ -340,6 +348,9 @@ impl Git for GitCli<'_> {
             .find_map(|l| l.strip_prefix("worktree "))
             .map(PathBuf::from)
             .ok_or_else(|| "Could not determine the main working tree from 'git worktree list'.".to_string())
+    }
+    fn worktree_root(&self) -> Result<PathBuf> {
+        self.run(&["rev-parse", "--show-toplevel"]).map(PathBuf::from)
     }
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;

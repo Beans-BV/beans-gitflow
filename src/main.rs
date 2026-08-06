@@ -54,7 +54,7 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     // Eager resolve: a platform-mismatched committed script errors on every
     // command, not just release/hotfix ones. Accepted — it surfaces the
     // misconfiguration immediately rather than on whichever command hits it first.
-    let root = git.repo_root()?;
+    let root = git.worktree_root()?;
     let repo_cfg = repo_config::load(&root)?;
     let script_path = version_script::resolve(&root)?;
     let script = script_path.map(|path| ScriptCli::new(path, root.clone()));

@@ -71,7 +71,7 @@ fn successful_finish_clears_state() {
         "state must be cleared after a successful finish");
     assert!(git.calls().iter().any(|c| c.starts_with("merge:release/2.5.0:")),
         "the finish flow must actually have run");
-    assert!(!git.calls().contains(&"repo_root".to_string()),
+    assert!(!git.calls().contains(&"worktree_root".to_string()),
         "free mode never opens a landing PR, so it must never resolve a landing template; calls: {:?}", git.calls());
 }
 
@@ -115,8 +115,11 @@ fn protected_finish_writes_no_state_file() {
         "protected finishes never write FinishState");
     assert!(!FinishState::dir(&git.git_dir).exists(),
         "no per-branch state directory may be created; nothing to resume");
-    assert!(git.calls().contains(&"repo_root".to_string()),
-        "protected finishes resolve a landing PR template; calls: {:?}", git.calls());
+    assert!(git.calls().contains(&"worktree_root".to_string()),
+        "protected finishes resolve a landing PR template from the current worktree; calls: {:?}", git.calls());
+    assert!(!git.calls().contains(&"repo_root".to_string()),
+        "a landing template belongs to the branch being finished, not the main tree — \
+         must resolve via worktree_root, never repo_root; calls: {:?}", git.calls());
 }
 
 #[test]
@@ -681,8 +684,11 @@ fn finish_work_branch_dispatches_with_its_resolved_pr_template() {
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:feature/login:develop:feat: login")),
         "calls: {:?}", hosting.calls());
-    assert!(git.calls().contains(&"repo_root".to_string()),
-        "template resolution is anchored to the repo root; calls: {:?}", git.calls());
+    assert!(git.calls().contains(&"worktree_root".to_string()),
+        "template resolution is anchored to the current worktree's root; calls: {:?}", git.calls());
+    assert!(!git.calls().contains(&"repo_root".to_string()),
+        "a PR template belongs to the branch being finished, not the main tree — \
+         must resolve via worktree_root, never repo_root; calls: {:?}", git.calls());
 }
 
 #[test]

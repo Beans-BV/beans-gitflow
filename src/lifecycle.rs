@@ -356,19 +356,23 @@ fn run_flow(
     Ok(())
 }
 
-/// Resolve the PR template at the composition boundary, anchored to the repo
-/// root — resolution keeps working from subdirectories, and flows never probe
-/// the filesystem themselves (they receive the resolved path as a parameter).
+/// Resolve the PR template at the composition boundary, anchored to the
+/// current worktree's root — resolution keeps working from subdirectories,
+/// and flows never probe the filesystem themselves (they receive the
+/// resolved path as a parameter). Anchored to `worktree_root`, not
+/// `repo_root`: a linked worktree can have a different branch (and therefore
+/// different templates) checked out than the main tree.
 fn resolve_pr_template(git: &dyn Git, branch_type: &BranchType) -> Result<Option<std::path::PathBuf>, String> {
-    Ok(crate::hosting::template::resolve(&git.repo_root()?, branch_type))
+    Ok(crate::hosting::template::resolve(&git.worktree_root()?, branch_type))
 }
 
 /// Landing PR template for a release/hotfix finish or sync, resolved only in
 /// protected mode — free mode never opens a landing PR, so it must not call
-/// `git.repo_root()` (free-mode lifecycle sequences are pinned byte-for-byte).
+/// `git.worktree_root()` (free-mode lifecycle sequences are pinned
+/// byte-for-byte).
 fn resolve_landing_template(git: &dyn Git, repo_cfg: &RepoConfig, key: &str) -> Result<Option<std::path::PathBuf>, String> {
     if repo_cfg.mode == Mode::Protected {
-        return Ok(crate::hosting::template::resolve_keys(&git.repo_root()?, key, key));
+        return Ok(crate::hosting::template::resolve_keys(&git.worktree_root()?, key, key));
     }
     Ok(None)
 }
