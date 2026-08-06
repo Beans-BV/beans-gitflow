@@ -134,9 +134,12 @@ fn merged_pr_to_filters_by_exact_head_and_base() {
 
     assert_eq!(pr.head_sha, "abc123");
     assert_eq!(pr.merge_commit_sha, "deadbeef");
+    // `--state merged`, not `all`: this answers "has this leg landed", which a
+    // newer open or abandoned PR must not erase. `merged_pr` above deliberately
+    // keeps `all` — for a work branch, a newer PR means the branch is in play.
     assert_eq!(
         runner.calls()[0],
-        r#"gh pr list --head feature/x --base develop --state all --limit 1 --json url,state,headRefOid,mergeCommit --jq .[0] | select(.state == "MERGED") | [.url, .headRefOid, .mergeCommit.oid] | @tsv"#
+        r#"gh pr list --head feature/x --base develop --state merged --limit 1 --json url,state,headRefOid,mergeCommit --jq .[0] | select(.state == "MERGED") | [.url, .headRefOid, .mergeCommit.oid] | @tsv"#
     );
 }
 
@@ -222,10 +225,12 @@ fn ado_merged_pr_to_filters_by_source_and_target_branch() {
     assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
     assert_eq!(pr.head_sha, "abc123");
     assert_eq!(pr.merge_commit_sha, "deadbeef");
+    // `--status completed`, not `all`: a newer active or abandoned PR must not
+    // erase the fact that this leg already landed.
     assert_eq!(
         runner.calls()[0],
         "az repos pr list --organization https://dev.azure.com/beans --project Shop --repository shop \
---source-branch feature/x --target-branch develop --status all \
+--source-branch feature/x --target-branch develop --status completed \
 --query [0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, pullRequestId] -o tsv"
     );
 }

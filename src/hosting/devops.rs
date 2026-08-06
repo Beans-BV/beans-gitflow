@@ -188,13 +188,16 @@ impl HostingPlatform for AzureDevOps<'_> {
 
     fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>> {
         // --target-branch narrows to exactly this landing; az still lists
-        // newest first, so [0] is the newest such PR.
+        // newest first, so [0] is the newest such PR. `completed`, not `all`:
+        // this answers "has this leg landed", which a newer active or abandoned
+        // PR must not erase — unlike `merged_pr`, where a newer PR does mean
+        // the work branch is still in play.
         let mut args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
         args.extend(self.repo_args());
         args.extend([
             "--source-branch".into(), head.into(),
             "--target-branch".into(), base.into(),
-            "--status".into(), "all".into(),
+            "--status".into(), "completed".into(),
             "--query".into(), "[0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, pullRequestId]".into(),
             "-o".into(), "tsv".into(),
         ]);

@@ -62,10 +62,13 @@ impl HostingPlatform for GitHub<'_> {
 
     fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>> {
         // Filtering by --base narrows to exactly this landing; --limit 1 still
-        // gives the newest such PR.
+        // gives the newest such PR. `merged`, not `all`: this answers "has this
+        // leg landed", which a newer open or abandoned PR must not erase —
+        // unlike `merged_pr`, where a newer PR does mean the work branch is
+        // still in play.
         let line = self
             .run_gh(&[
-                "pr", "list", "--head", head, "--base", base, "--state", "all", "--limit", "1",
+                "pr", "list", "--head", head, "--base", base, "--state", "merged", "--limit", "1",
                 "--json", "url,state,headRefOid,mergeCommit",
                 "--jq", r#".[0] | select(.state == "MERGED") | [.url, .headRefOid, .mergeCommit.oid] | @tsv"#,
             ])
