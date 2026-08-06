@@ -750,6 +750,8 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
         "create_tag_at:v1.1.0:chore: release 1.1.0:mc1",
         "remote_tag_exists:v1.1.0",
         "push_tag:v1.1.0",
+        "branch_sha:release/1.1.0",
+        "rev_list_count:old-head:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "is_pushed:release/1.1.0",
     ]);
@@ -759,8 +761,11 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
         "create_or_get_pr:release/1.1.0:develop:chore: merge release 1.1.0 into develop",
     ]);
     let calls = git.calls();
-    assert!(!calls.iter().any(|c| c.starts_with("rev_list_count")), "gate must be skipped once landed; calls: {calls:?}");
+    // `tags_on_branch` is the gate's own first call and nothing else makes it,
+    // so it discriminates where `rev_list_count` no longer can — the past-landing
+    // report counts commits with the same primitive.
     assert!(!calls.iter().any(|c| c.starts_with("tags_on_branch")), "gate must be skipped once landed; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("rev_list_count:v")), "the gate's count is from an RC tag; calls: {calls:?}");
 }
 
 #[test]
@@ -788,6 +793,7 @@ fn protected_finish_completes_after_develop_merge() {
         "tag_commit_sha:v1.1.0",
         "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.0",
+        "branch_sha:release/1.1.0",
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "current_branch",
@@ -860,6 +866,56 @@ fn protected_finish_keeps_branch_when_configured() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
+}
+
+#[test]
+fn protected_finish_reports_commits_that_will_miss_the_release() {
+    // The main leg landed, so the tag is cut at its merge commit and the leg is
+    // never re-opened — but commits pushed after that merge are in neither the
+    // tag nor the mainline. bflow cannot put them there (the tag is published),
+    // so it counts them and says so instead of shipping in silence.
+    let mut git = MockGit::new();
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.branch_shas.insert("release/1.1.0".to_string(), "moved-tip".to_string());
+    git.rev_list_counts.insert(("old-head".to_string(), "release/1.1.0".to_string()), 1);
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("old-head", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("moved-tip", "mc2"));
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(
+        calls.contains(&"rev_list_count:old-head:release/1.1.0".to_string()),
+        "commits past the main landing must be counted so they can be reported; calls: {calls:?}"
+    );
+    // Reporting only — the release still completes and the branch is cleaned up.
+    assert!(calls.contains(&"delete_branch_remote:release/1.1.0".to_string()), "calls: {calls:?}");
+}
+
+#[test]
+fn protected_finish_stays_silent_when_the_branch_never_moved() {
+    // The common case: nothing was pushed after the main landing, so there is
+    // nothing to report and no count is taken.
+    let mut git = MockGit::new();
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.branch_shas.insert("release/1.1.0".to_string(), "same-tip".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("same-tip", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("same-tip", "mc2"));
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("rev_list_count")), "nothing moved: no count, no report; calls: {calls:?}");
 }
 
 #[test]

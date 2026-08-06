@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::flows::{
     announce_pending_landing, delete_source_branch, leg_landed, merge_into, open_landing_pr,
-    open_versioned_branches, push_if_needed, push_tag_if_missing, resume_hint, tag_at_if_missing,
+    open_versioned_branches, push_if_needed, push_tag_if_missing, report_commits_past_landing, resume_hint, tag_at_if_missing,
     tag_if_missing, tip_landed_somewhere,
 };
 use crate::git::Git;
@@ -128,6 +128,10 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
                 return Ok(());
             }
         }
+    }
+
+    if let Some(pr) = &main_pr {
+        report_commits_past_landing(git, &hotfix_branch, pr, main_branch, &tag)?;
     }
 
     match leg_landed(git, hosting, &hotfix_branch, "develop")? {

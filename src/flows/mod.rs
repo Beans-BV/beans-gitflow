@@ -129,6 +129,28 @@ pub(crate) fn tip_landed_somewhere(git: &dyn Git, source: &str, landed: &[Landed
     Ok(landed.iter().any(|pr| pr.head_sha == tip))
 }
 
+/// Report commits pushed to `source` after its `target` landing merged. They
+/// are in neither `tag` nor `target`: the tag was cut at that PR's merge commit
+/// and the leg is never re-opened, so they reach only the legs still to come.
+///
+/// Told, not refused — the tag is already published, so there is nothing to
+/// redo, only something the operator must know. Free mode catches the same case
+/// through its RC gate, which is why protected mode would otherwise be the
+/// quieter of the two about a commit that misses the release.
+pub(crate) fn report_commits_past_landing(git: &dyn Git, source: &str, pr: &LandedPr, target: &str, tag: &str) -> Result<(), String> {
+    if git.branch_sha(source)? == pr.head_sha {
+        return Ok(());
+    }
+    let count = git.rev_list_count(&pr.head_sha, source)?;
+    if count == 0 {
+        return Ok(());
+    }
+    let noun = if count == 1 { "commit" } else { "commits" };
+    eprintln!("⚠ {source} has {count} {noun} after the {target} landing: not in {tag}, and not reaching {target}.");
+    eprintln!("  Release them as a hotfix if they must ship to production.");
+    Ok(())
+}
+
 /// Announce a landing step that opened (or reused) a PR and is stopping for a
 /// human to merge it.
 pub(crate) fn announce_pending_landing(url: &str) {

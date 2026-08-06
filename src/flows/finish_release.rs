@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::flows::{
     announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, leg_landed,
-    merge_into, open_landing_pr, push_if_needed, push_tag_if_missing, require_clean_tree,
+    merge_into, open_landing_pr, push_if_needed, push_tag_if_missing, report_commits_past_landing, require_clean_tree,
     resume_hint, run_version_script, tag_at_if_missing, tag_if_missing, tip_landed_somewhere,
 };
 use crate::git::Git;
@@ -339,6 +339,10 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                 return Ok(());
             }
         }
+    }
+
+    if let Some(pr) = &main_pr {
+        report_commits_past_landing(git, &release_branch, pr, main_branch, &tag)?;
     }
 
     match leg_landed(git, hosting, &release_branch, "develop")? {
