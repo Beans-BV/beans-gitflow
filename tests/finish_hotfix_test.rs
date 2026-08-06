@@ -408,6 +408,8 @@ fn finish_hotfix_main_merge_conflict_names_source_branch_to_switch_back() {
 
     let hosting = MockHosting::new();
     let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
+    assert!(err.contains("git add . && git commit --no-edit"),
+        "the commit step must come before git switch, which fails mid-merge; got: {err}");
     assert!(err.contains("git switch hotfix/1.0.1"),
         "main conflict should tell user to switch back to the hotfix branch; got: {err}");
     assert!(err.contains("bflow finish"), "should mention re-running bflow finish; got: {err}");

@@ -117,10 +117,10 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
     let rc = next.with_rc(1);
     let tag = rc.tag_name();
 
-    println!("Creating release branch: {branch}");
     if script.is_some() {
         require_clean_tree(git)?;
     }
+    println!("Creating release branch: {branch}");
     git.checkout("develop")?;
     git.create_branch(&branch, "develop")?;
     if let Some(script) = script {
@@ -307,6 +307,9 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str,
     let next = latest.bump_patch();
     let branch = next.hotfix_branch();
 
+    if !no_checkout && script.is_some() {
+        require_clean_tree(git)?;
+    }
     println!("Creating hotfix branch: {branch}");
     if no_checkout {
         git.create_branch_no_checkout(&branch, main_branch)?;
@@ -320,9 +323,6 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str,
             );
         }
     } else {
-        if script.is_some() {
-            require_clean_tree(git)?;
-        }
         git.checkout(main_branch)?;
         git.create_branch(&branch, main_branch)?;
         if let Some(script) = script {

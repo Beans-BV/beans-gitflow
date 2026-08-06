@@ -240,6 +240,26 @@ pub(crate) fn resume_hint(source_branch: &str) -> String {
     format!(
         "Resolve the conflict and commit the merge, then switch back to the source \
          branch and re-run 'bflow finish' to continue:\n    \
+         git add . && git commit --no-edit\n    \
          git switch {source_branch}\n    bflow finish"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resume_hint_commits_before_switching_back() {
+        // The copy-pasteable block must not start with `git switch` — mid-merge,
+        // that fails with "fatal: cannot switch branch while merging".
+        let hint = resume_hint("release/1.1.0");
+        assert_eq!(
+            hint,
+            "Resolve the conflict and commit the merge, then switch back to the source \
+             branch and re-run 'bflow finish' to continue:\n    \
+             git add . && git commit --no-edit\n    \
+             git switch release/1.1.0\n    bflow finish"
+        );
+    }
 }

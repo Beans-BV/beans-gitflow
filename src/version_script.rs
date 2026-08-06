@@ -78,7 +78,10 @@ impl VersionScript for ScriptCli {
             .arg(version)
             .current_dir(&self.repo_root)
             .output()
-            .map_err(|e| format!("failed to run version script '{}': {e}", self.path.display()))?;
+            .map_err(|e| format!(
+                "Version script {} could not be run: {e}\nMake it executable: chmod +x {} && git update-index --chmod=+x {}, then re-run the command.",
+                self.path.display(), self.path.display(), self.path.display(),
+            ))?;
         let stderr = String::from_utf8_lossy(&output.stderr);
         interpret(&self.path, output.status.code(), stderr.trim())
     }
@@ -164,5 +167,23 @@ mod tests {
     fn script_cli_display_name_is_the_file_name() {
         let script = ScriptCli::new(PathBuf::from("/repo/.bflow/set-version.sh"), PathBuf::from("/repo"));
         assert_eq!(script.display_name(), "set-version.sh");
+    }
+
+    #[test]
+    fn run_names_the_chmod_remedy_when_the_script_cannot_be_spawned() {
+        // A path that cannot be spawned (here: does not exist) drives the same
+        // Command::output() Err branch a non-executable file would — the OS
+        // refuses at exec time, so no process ever actually runs.
+        let path = PathBuf::from("/definitely/does/not/exist/set-version.sh");
+        let script = ScriptCli::new(path.clone(), std::env::temp_dir());
+
+        let err = script.run("1.0.0").unwrap_err();
+
+        let path_str = path.display().to_string();
+        assert!(err.starts_with(&format!("Version script {path_str} could not be run: ")), "got: {err}");
+        assert!(
+            err.contains(&format!("Make it executable: chmod +x {path_str} && git update-index --chmod=+x {path_str}, then re-run the command.")),
+            "got: {err}"
+        );
     }
 }
