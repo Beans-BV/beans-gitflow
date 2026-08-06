@@ -244,8 +244,9 @@ Cleanup only happens when the local branch tip is exactly the commit the PR merg
 `bflow finish` on **release** and **hotfix** branches is **idempotent**: if a merge into `main`, `develop`, or an open `release/*` branch conflicts, resolve the conflict in your editor and `git commit` the merge. A conflict usually leaves HEAD on the target branch (e.g. `develop`), so to continue you **switch back to the source branch and re-run `bflow finish`**:
 
 ```bash
-git switch hotfix/2.5.2   # back to the branch that started the finish
-bflow finish              # resumes; already-done steps are skipped
+git add . && git commit --no-edit   # complete the merge you just resolved
+git switch hotfix/2.5.2             # back to the branch that started the finish
+bflow finish                        # resumes; already-done steps are skipped
 ```
 
 Steps that already completed (merges, tags, pushes, branch deletion) are detected from git state and skipped — the flow continues from the first incomplete step. The conflict message names the exact branch to switch back to.
@@ -347,6 +348,10 @@ Projects/beans/
 ├── beans-gitflow-fix-auth-bug/                 # worktree for fix/auth-bug
 └── beans-gitflow-release-fix-1.2.0-null-crash/ # worktree for release-fix/1.2.0/null-crash
 ```
+
+### Repo content in a worktree
+
+Wherever bflow runs — the main checkout or a linked worktree — it reads `.bflow/config`, the version script, and PR templates from **that** working tree, not the main one. A linked worktree can have a different branch checked out than the main tree, so this is what lets each worktree apply its own branch's mode, script, and templates instead of silently picking up whatever the main checkout happens to have.
 
 ## Workflows
 
@@ -477,9 +482,10 @@ Use `mode=protected` when `main`/`develop` require pull requests (branch protect
 
 - **bflow never merges a PR.** Every landing that would otherwise be a direct push instead opens (or reuses) a PR and prints its URL.
 - `finish`, `bump`, and `sync` **exit 0** with the PR pending — nothing is left half-done, there's just a human step in between. Re-run the same command after the PR is merged; it continues from there.
-- Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch (unless `keep-release-branches=true`).
+- Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch — unless `keep-release-branches=true`, or its tip isn't part of any landed PR, in which case bflow keeps the branch and tells you how to remove it yourself.
 - Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
-- Once a release's PR into `main` has merged, don't add new commits to the release branch — the clean tag is already placed there. Ship further fixes as a hotfix instead.
+- **A landing PR can conflict on the version file** — e.g. release→develop, or hotfix→a release branch — because both sides changed their version since diverging. That's expected: resolve it like any PR conflict (the web editor or a local checkout) and merge. The resolution commit lands on the source branch itself, which is fine — `bflow finish` continues from whichever leg hasn't landed yet, and a leg that already landed stays landed. See [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut).
+- That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead.
 
 A `bflow finish` loop on a release branch looks like this:
 
@@ -502,6 +508,15 @@ Cleaning up release branch...
 Release 2.6.0 complete.
 ```
 
+If cleanup finds commits on the branch that never reached any of the landed PRs — e.g. something was pushed to it directly after everything else landed — it keeps the branch instead of deleting it:
+
+```
+⚠ Keeping release/2.6.0: its tip is not part of any landed pull request, so deleting it could lose commits.
+  Review it, then delete it yourself: git push origin --delete release/2.6.0
+```
+
+Hotfix branches print the same warning, naming the hotfix branch instead.
+
 `bflow sync` behaves the same way on a release branch ("Re-run 'bflow sync' after the merge."). `bflow bump` may also defer its RC tag — see below.
 
 ### Version script
@@ -514,6 +529,15 @@ An opt-in repo file that lets bflow write the tag-derived version into your own 
 - **No-op is a no-op**: if the script leaves the tree unchanged, bflow makes no commit. If it changes files, bflow stages everything (`git add -A`) and commits `chore: set version {X.Y.Z}`.
 - **The four moments it runs**: cutting a new release branch (version `X.Y.0`); bumping `develop` to the next dev version right after (warn-and-continue — a failure here doesn't undo the release; bflow tells you to update develop by hand); `bflow bump` on a release branch (`X.Y.0`); creating a new hotfix branch (`X.Y.Z`). Reusing an *existing* release/hotfix branch never re-runs the script.
 
+A script bflow finds but can't run — most often because it's missing its executable bit — names the fix instead of a bare OS error:
+
+```
+Version script .bflow/set-version.sh could not be run: Permission denied (os error 13)
+Make it executable: chmod +x .bflow/set-version.sh && git update-index --chmod=+x .bflow/set-version.sh, then re-run the command.
+```
+
+`git update-index --chmod=+x` is there because git tracks the executable bit itself — a local `chmod +x` alone doesn't survive a fresh clone. This differs from the platform-mismatch error above in *when* it can fire: platform mismatch is resolved eagerly, once, at the start of every command, so it fires no matter what you run; a not-executable script is only ever spawned by the commands that actually run it (cutting a release/hotfix branch, `bflow bump`) — that asymmetry can be surprising the first time you hit it.
+
 #### `chore/set-version-*` and `release-chore/*/set-version` branches
 
 In protected mode, a version commit that can't land directly goes out as its own PR from a branch bflow creates:
@@ -522,6 +546,8 @@ In protected mode, a version commit that can't land directly goes out as its own
 - `release-chore/X.Y.0/set-version` — a version bump needed on an already-pushed release branch (during `bflow bump`).
 
 **bflow creates and manages these — merge the PR, don't commit to them yourself.** If a human needs to intervene on a `release-chore/*` branch, it finishes exactly like a `release-fix` branch (`bflow finish` from it opens/updates a PR into its release branch); it has no `--base` flag, same as `release-fix`/`hotfix-fix`.
+
+`bflow bump` deletes the `release-chore/*/set-version` branch itself the next time it revisits it, but nothing ever revisits `chore/set-version-*` after its PR merges, so it stays on the remote. Enable your hosting platform's automatic head-branch deletion (GitHub: "Automatically delete head branches"; Azure DevOps: the branch policy's auto-complete deletion option) to avoid the buildup, or delete it by hand.
 
 #### Deferred RC tags
 
