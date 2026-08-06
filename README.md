@@ -485,7 +485,14 @@ Use `mode=protected` when `main`/`develop` require pull requests (branch protect
 - Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch — unless `keep-release-branches=true`, or its tip isn't part of any landed PR, in which case bflow keeps the branch and tells you how to remove it yourself.
 - Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
 - **A landing PR can conflict on the version file** — e.g. release→develop, or hotfix→a release branch — because both sides changed their version since diverging. That's expected: resolve it like any PR conflict (the web editor or a local checkout) and merge. The resolution commit lands on the source branch itself, which is fine — `bflow finish` continues from whichever leg hasn't landed yet, and a leg that already landed stays landed. See [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut).
-- That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead.
+- That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead. If you do, bflow says so rather than letting it pass unnoticed:
+
+```
+⚠ release/2.6.0 has 1 commit after the main landing: not in v2.6.0, and not reaching main.
+  Release them as a hotfix if they must ship to production.
+```
+
+  Those commits still reach `develop` through the remaining landing, so nothing is lost — they just are not in this release.
 
 A `bflow finish` loop on a release branch looks like this:
 

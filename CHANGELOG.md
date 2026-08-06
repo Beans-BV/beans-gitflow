@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A protected hotfix could silently re-open a pull request for a branch it had already landed instead of propagating to the remaining open release branches.
 - `.bflow/config`, the version script and PR templates are now read from the working tree the command runs in, instead of the main working tree.
 - A version script that is not executable now names the fix instead of reporting a bare OS error.
+- A landing's "has this branch already merged here" lookup asked for the newest pull request and accepted it only if merged, so a newer open or abandoned one for the same branch and target hid an earlier merge and stalled the finish. It now asks only for merged pull requests.
+- A commit pushed to a release or hotfix branch after its pull request into the mainline merged reaches neither the tag nor the mainline. bflow now counts those commits and says so; before, protected mode passed over them in silence while free mode refused.
 
 ## [3.1.0] - 2026-08-03
 
