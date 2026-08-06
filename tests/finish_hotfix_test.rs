@@ -682,3 +682,30 @@ fn protected_hotfix_advances_to_the_release_leg_when_the_branch_moved() {
     assert!(!hosting_calls.iter().any(|c| c.starts_with("create_or_get_pr") && c.contains(":main:")),
         "must not reopen a main PR once main has landed; calls: {hosting_calls:?}");
 }
+
+#[test]
+fn protected_hotfix_keeps_the_branch_when_its_tip_landed_nowhere() {
+    // Every leg has landed, but the branch tip matches no landed PR head —
+    // commits sitting on the hotfix branch that never reached any target.
+    // Squash merges leave no ancestry to fall back on, so deleting here would
+    // lose them: warn and keep, exactly as the release path does.
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.3.1".to_string());
+    git.tag_commits.insert("v1.3.1".to_string(), "old-tip-sha".to_string());
+    git.ancestors.insert(("old-tip-sha".to_string(), "origin/main".to_string()));
+    git.branch_shas.insert("hotfix/1.3.1".to_string(), "unrelated-tip-sha".to_string());
+    git.existing_local_branches.insert("hotfix/1.3.1".to_string());
+    git.existing_remote_branches.insert("hotfix/1.3.1".to_string());
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("hotfix/1.3.1".to_string(), "develop".to_string()), landed("old-develop-head", "mc2"));
+
+    let result = finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None);
+    assert!(result.is_ok(), "the guard must not fail the run; got: {result:?}");
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "tip landed nowhere must not delete; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "tip landed nowhere must not delete; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "tip landed nowhere must not touch the branch at all; calls: {calls:?}");
+}
