@@ -694,6 +694,7 @@ fn protected_finish_opens_main_pr_and_stops() {
     finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "tag_exists:v1.1.0",
         "tags_on_branch:release/1.1.0",
         "rev_list_count:v1.1.0-rc.2:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
@@ -729,6 +730,7 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
     git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
     git.existing_remote_branches.insert("release/1.1.0".to_string());
     git.pushed_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(
         ("release/1.1.0".to_string(), "main".to_string()),
@@ -738,7 +740,8 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
     finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "branch_sha:release/1.1.0",
+        "is_ancestor:mc1:origin/main",
+        "tag_exists:v1.1.0",
         "tag_exists:v1.1.0",
         "create_tag_at:v1.1.0:chore: release 1.1.0:mc1",
         "remote_tag_exists:v1.1.0",
@@ -766,6 +769,8 @@ fn protected_finish_completes_after_develop_merge() {
     git.existing_remote_tags.insert("v1.1.0".to_string());
     git.existing_local_branches.insert("release/1.1.0".to_string());
     git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
@@ -774,10 +779,12 @@ fn protected_finish_completes_after_develop_merge() {
     finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "branch_sha:release/1.1.0",
+        "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.0",
         "tag_commit_sha:v1.1.0",
+        "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.0",
+        "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "current_branch",
         "checkout:main",
@@ -794,6 +801,9 @@ fn protected_finish_tag_identity_mismatch_is_fatal() {
     git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
     git.existing_tags.insert("v1.1.0".to_string());
     git.tag_commits.insert("v1.1.0".to_string(), "other".to_string());
+    // The main leg really did land (its merge commit reached origin/main) —
+    // it is the *tag* that is wrong, sitting on some other commit.
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
@@ -831,6 +841,8 @@ fn protected_finish_keeps_branch_when_configured() {
     git.existing_tags.insert("v1.1.0".to_string());
     git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
     git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
@@ -841,6 +853,77 @@ fn protected_finish_keeps_branch_when_configured() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
+}
+
+#[test]
+fn protected_finish_cleans_up_when_the_branch_moved_after_the_tag_landed() {
+    // The main leg's PR record is stale (no fresh merged_pr_to hit), but the
+    // clean tag's own commit is already contained in origin/main — proof the
+    // leg landed at some point in the past, regardless of what the branch's
+    // tip looks like now. Cleanup must proceed on that basis, without the RC
+    // gate ever re-running.
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "old-tip-sha".to_string());
+    git.ancestors.insert(("old-tip-sha".to_string(), "origin/main".to_string()));
+    git.branch_shas.insert("release/1.1.0".to_string(), "new-tip-sha".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("new-tip-sha", "mc2"));
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tag_exists:v1.1.0",
+        "tag_commit_sha:v1.1.0",
+        "is_ancestor:old-tip-sha:origin/main",
+        "remote_tag_exists:v1.1.0",
+        "push_tag:v1.1.0",
+        "is_ancestor:mc2:origin/develop",
+        "branch_sha:release/1.1.0",
+        "current_branch",
+        "local_branch_exists:release/1.1.0",
+        "delete_branch_local:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "delete_branch_remote:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:main",
+        "merged_pr_to:release/1.1.0:develop",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("rev_list_count")), "RC gate must not run once the tag has landed; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("tags_on_branch")), "RC gate must not run once the tag has landed; calls: {calls:?}");
+}
+
+#[test]
+fn protected_finish_keeps_the_branch_when_its_tip_landed_nowhere() {
+    // Same landed world as the test above, except the branch's current tip
+    // matches neither the tag's commit nor any landed PR's head — commits
+    // sitting on the branch that never went anywhere. Cleanup must warn and
+    // leave the branch alone rather than risk losing them.
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "old-tip-sha".to_string());
+    git.ancestors.insert(("old-tip-sha".to_string(), "origin/main".to_string()));
+    git.branch_shas.insert("release/1.1.0".to_string(), "unrelated-tip-sha".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("new-tip-sha", "mc2"));
+
+    let result = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None);
+    assert!(result.is_ok(), "the guard must not fail the run; got: {result:?}");
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "tip landed nowhere must not delete; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "tip landed nowhere must not delete; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "tip landed nowhere must not touch the branch at all; calls: {calls:?}");
 }
 
 // --- Reconcile edges (exercised through run 1's main-PR step) ---
@@ -854,6 +937,7 @@ fn protected_finish_pushes_when_remote_branch_missing_before_opening_pr() {
     finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "tag_exists:v1.1.0",
         "tags_on_branch:release/1.1.0",
         "rev_list_count:v1.1.0-rc.1:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
@@ -876,6 +960,7 @@ fn protected_finish_pushes_when_local_ahead_of_origin() {
     finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "tag_exists:v1.1.0",
         "tags_on_branch:release/1.1.0",
         "rev_list_count:v1.1.0-rc.1:release/1.1.0",
         "remote_branch_exists:release/1.1.0",

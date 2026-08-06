@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, delete_source_branch, landed_pr, merge_into, open_landing_pr,
+    announce_pending_landing, delete_source_branch, leg_landed, merge_into, open_landing_pr,
     open_versioned_branches, push_if_needed, push_tag_if_missing, resume_hint, tag_at_if_missing,
-    tag_if_missing,
+    tag_if_missing, tip_landed_somewhere,
 };
 use crate::git::Git;
-use crate::hosting::HostingPlatform;
+use crate::hosting::{HostingPlatform, LandedPr};
 use crate::repo_config::{Mode, RepoConfig};
 use crate::version::SemVer;
 
@@ -64,12 +64,18 @@ pub fn finish_hotfix(
         push_if_needed(git, release)?;
     }
 
-    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches)
+    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, true)
 }
 
-fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, main_branch: &str, version: &SemVer, release_branches: &[String]) -> Result<(), String> {
+/// `tip_landed` gates deletion: free mode always passes `true` (its own
+/// ancestor-based merge guard already proves the branch merged, so there is
+/// no separate "did the tip go anywhere" question to ask).
+fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, main_branch: &str, version: &SemVer, release_branches: &[String], tip_landed: bool) -> Result<(), String> {
     println!("Cleaning up hotfix branch...");
-    if cfg.keep_release_branches {
+    if !tip_landed {
+        eprintln!("⚠ Keeping {hotfix_branch}: its tip is not part of any landed pull request, so deleting it could lose commits.");
+        eprintln!("  Review it, then delete it yourself: git push origin --delete {hotfix_branch}");
+    } else if cfg.keep_release_branches {
         println!("Keeping {hotfix_branch} (keep-release-branches=true).");
     } else {
         delete_source_branch(git, hotfix_branch, main_branch)?;
@@ -88,44 +94,67 @@ fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, m
 /// Protected mode: hotfixes carry no RC gate (unlike releases, `finish_release.rs`),
 /// so a landing step opens straight into the same sequential PR-per-run shape —
 /// main, then develop, then each open release branch in sorted order, one PR per
-/// run, stopping at the first still-pending target.
+/// run, stopping at the first still-pending target. The tag is checked for
+/// mainline containment *before* consulting the main leg's current PR lookup —
+/// see `finish_release_protected` for why.
 #[allow(clippy::too_many_arguments)]
 fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, patch: u32, main_branch: &str, template: Option<&Path>) -> Result<(), String> {
     let version = SemVer::new(major, minor, patch);
     let hotfix_branch = version.hotfix_branch();
     let tag = version.tag_name();
 
-    match landed_pr(git, hosting, &hotfix_branch, main_branch)? {
-        None => {
-            let title = format!("chore: merge hotfix {version} into {main_branch}");
-            let url = open_landing_pr(git, hosting, &hotfix_branch, main_branch, &title, template)?;
-            announce_pending_landing(&url);
-            return Ok(());
-        }
-        Some(pr) => {
-            tag_at_if_missing(git, &tag, &format!("chore: hotfix {version}"), &pr.merge_commit_sha)?;
-            push_tag_if_missing(git, &tag)?;
+    let mut landed: Vec<LandedPr> = Vec::new();
+
+    let main_pr = leg_landed(git, hosting, &hotfix_branch, main_branch)?;
+    if let Some(pr) = &main_pr {
+        landed.push(pr.clone());
+    }
+
+    let tag_landed = git.tag_exists(&tag)?
+        && git.is_ancestor(&git.tag_commit_sha(&tag)?, &format!("origin/{main_branch}"))?;
+
+    if tag_landed {
+        push_tag_if_missing(git, &tag)?;
+    } else {
+        match &main_pr {
+            Some(pr) => {
+                tag_at_if_missing(git, &tag, &format!("chore: hotfix {version}"), &pr.merge_commit_sha)?;
+                push_tag_if_missing(git, &tag)?;
+            }
+            None => {
+                let title = format!("chore: merge hotfix {version} into {main_branch}");
+                let url = open_landing_pr(git, hosting, &hotfix_branch, main_branch, &title, template)?;
+                announce_pending_landing(&url);
+                return Ok(());
+            }
         }
     }
 
-    if landed_pr(git, hosting, &hotfix_branch, "develop")?.is_none() {
-        let title = format!("chore: merge hotfix {version} into develop");
-        let url = open_landing_pr(git, hosting, &hotfix_branch, "develop", &title, template)?;
-        announce_pending_landing(&url);
-        return Ok(());
+    match leg_landed(git, hosting, &hotfix_branch, "develop")? {
+        Some(pr) => landed.push(pr),
+        None => {
+            let title = format!("chore: merge hotfix {version} into develop");
+            let url = open_landing_pr(git, hosting, &hotfix_branch, "develop", &title, template)?;
+            announce_pending_landing(&url);
+            return Ok(());
+        }
     }
 
     let mut release_branches = open_versioned_branches(git, "release")?;
     release_branches.sort();
 
     for release in &release_branches {
-        if landed_pr(git, hosting, &hotfix_branch, release)?.is_none() {
-            let title = format!("chore: merge hotfix {version} into {release}");
-            let url = open_landing_pr(git, hosting, &hotfix_branch, release, &title, template)?;
-            announce_pending_landing(&url);
-            return Ok(());
+        match leg_landed(git, hosting, &hotfix_branch, release)? {
+            Some(pr) => landed.push(pr),
+            None => {
+                let title = format!("chore: merge hotfix {version} into {release}");
+                let url = open_landing_pr(git, hosting, &hotfix_branch, release, &title, template)?;
+                announce_pending_landing(&url);
+                return Ok(());
+            }
         }
     }
 
-    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches)
+    let tip_landed = tip_landed_somewhere(git, &hotfix_branch, &landed)?;
+    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)
 }

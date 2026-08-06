@@ -103,6 +103,32 @@ pub(crate) fn open_landing_pr(git: &dyn Git, hosting: &dyn HostingPlatform, sour
     hosting.create_or_get_pr(source, target, title, template.and_then(|p| p.to_str()))
 }
 
+/// Whether `source` has landed into `target` at least once: its most recent
+/// merged PR's merge commit is contained in `target`. Unlike `landed_pr`, this
+/// stays true when `source` gains commits afterwards — which is what lets a
+/// finish resume past a leg it already completed. Compares against
+/// `origin/{target}`: protected mode never checks out main or develop, so the
+/// local ref may be stale or absent.
+pub(crate) fn leg_landed(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
+    let Some(pr) = hosting.merged_pr_to(source, target)? else {
+        return Ok(None);
+    };
+    if git.is_ancestor(&pr.merge_commit_sha, &format!("origin/{target}"))? {
+        Ok(Some(pr))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Whether `source`'s tip is the head of one of the PRs that landed. Squash
+/// merges leave no ancestry between source and target, so this is the only
+/// reliable "the tip went somewhere" test, and it is what keeps cleanup from
+/// deleting commits that never landed anywhere.
+pub(crate) fn tip_landed_somewhere(git: &dyn Git, source: &str, landed: &[LandedPr]) -> Result<bool, String> {
+    let tip = git.branch_sha(source)?;
+    Ok(landed.iter().any(|pr| pr.head_sha == tip))
+}
+
 /// Announce a landing step that opened (or reused) a PR and is stopping for a
 /// human to merge it.
 pub(crate) fn announce_pending_landing(url: &str) {

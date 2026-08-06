@@ -448,6 +448,7 @@ fn protected_hotfix_opens_main_pr_and_stops() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "tag_exists:v1.1.1",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
     ]);
@@ -467,6 +468,7 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
     git.branch_shas.insert("hotfix/1.1.1".to_string(), "hfsha".to_string());
     git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
     git.pushed_branches.insert("hotfix/1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(
         ("hotfix/1.1.1".to_string(), "main".to_string()),
@@ -476,7 +478,8 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc1:origin/main",
+        "tag_exists:v1.1.1",
         "tag_exists:v1.1.1",
         "create_tag_at:v1.1.1:chore: hotfix 1.1.1:mc1",
         "remote_tag_exists:v1.1.1",
@@ -504,6 +507,8 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
     git.existing_tags.insert("v1.1.1".to_string());
     git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
     git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
@@ -511,11 +516,12 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
+        "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.1",
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc2:origin/develop",
         "list_branches_matching:release/*",
         "tag_exists:v1.3.0",
         "tag_exists:v1.2.0",
@@ -540,6 +546,9 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
     git.existing_tags.insert("v1.1.1".to_string());
     git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
     git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.ancestors.insert(("mc3".to_string(), "origin/release/1.2.0".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
@@ -548,15 +557,16 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
+        "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.1",
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc2:origin/develop",
         "list_branches_matching:release/*",
         "tag_exists:v1.3.0",
         "tag_exists:v1.2.0",
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc3:origin/release/1.2.0",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
     ]);
@@ -580,6 +590,9 @@ fn protected_hotfix_completes_after_all_landed() {
     git.existing_local_branches.insert("hotfix/1.1.1".to_string());
     git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
     git.branches_matching = vec!["release/1.2.0".to_string()];
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.ancestors.insert(("mc3".to_string(), "origin/release/1.2.0".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
@@ -589,13 +602,15 @@ fn protected_hotfix_completes_after_all_landed() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
+        "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.1",
-        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:mc2:origin/develop",
         "list_branches_matching:release/*",
         "tag_exists:v1.2.0",
+        "is_ancestor:mc3:origin/release/1.2.0",
         "branch_sha:hotfix/1.1.1",
         "current_branch",
         "checkout:main",
@@ -619,6 +634,8 @@ fn protected_hotfix_keeps_branch_when_configured() {
     git.existing_tags.insert("v1.1.1".to_string());
     git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
     git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
@@ -629,4 +646,39 @@ fn protected_hotfix_keeps_branch_when_configured() {
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
+}
+
+#[test]
+fn protected_hotfix_advances_to_the_release_leg_when_the_branch_moved() {
+    // Main and develop both landed (proven by tag/PR containment, not by a
+    // fresh merged_pr_to hit or a head-sha match — the branch tip has since
+    // moved). Hotfixes carry no RC gate, so landing must advance straight to
+    // the one still-open release branch instead of getting stuck re-opening
+    // a main PR.
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.3.1".to_string());
+    git.tag_commits.insert("v1.3.1".to_string(), "old-tip-sha".to_string());
+    git.ancestors.insert(("old-tip-sha".to_string(), "origin/main".to_string()));
+    git.branch_shas.insert("hotfix/1.3.1".to_string(), "moved-tip-sha".to_string());
+    git.branches_matching = vec!["release/1.4.0".to_string()];
+    git.existing_remote_branches.insert("hotfix/1.3.1".to_string());
+    git.pushed_branches.insert("hotfix/1.3.1".to_string());
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("hotfix/1.3.1".to_string(), "develop".to_string()), landed("old-develop-head", "mc2"));
+
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None).unwrap();
+
+    let hosting_calls = hosting.calls();
+    assert_eq!(hosting_calls, vec![
+        "merged_pr_to:hotfix/1.3.1:main",
+        "merged_pr_to:hotfix/1.3.1:develop",
+        "merged_pr_to:hotfix/1.3.1:release/1.4.0",
+        "create_or_get_pr:hotfix/1.3.1:release/1.4.0:chore: merge hotfix 1.3.1 into release/1.4.0",
+    ]);
+    assert_eq!(hosting_calls.iter().filter(|c| c.starts_with("create_or_get_pr")).count(), 1,
+        "expected exactly one create_or_get_pr call; calls: {hosting_calls:?}");
+    assert!(!hosting_calls.iter().any(|c| c.starts_with("create_or_get_pr") && c.contains(":main:")),
+        "must not reopen a main PR once main has landed; calls: {hosting_calls:?}");
 }

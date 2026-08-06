@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, merge_into,
-    open_landing_pr, push_if_needed, push_tag_if_missing, require_clean_tree, resume_hint,
-    run_version_script, tag_at_if_missing, tag_if_missing,
+    announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, leg_landed,
+    merge_into, open_landing_pr, push_if_needed, push_tag_if_missing, require_clean_tree,
+    resume_hint, run_version_script, tag_at_if_missing, tag_if_missing, tip_landed_somewhere,
 };
 use crate::git::Git;
-use crate::hosting::HostingPlatform;
+use crate::hosting::{HostingPlatform, LandedPr};
 use crate::repo_config::{Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
@@ -263,12 +263,18 @@ pub fn finish_release(
         &resume_hint(&release_branch))?;
     push_if_needed(git, "develop")?;
 
-    finish_release_cleanup(git, cfg, &release_branch, main_branch, &release_version)
+    finish_release_cleanup(git, cfg, &release_branch, main_branch, &release_version, true)
 }
 
-fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str, main_branch: &str, release_version: &SemVer) -> Result<(), String> {
+/// `tip_landed` gates deletion: free mode always passes `true` (its own
+/// ancestor-based merge guard already proves the branch merged, so there is
+/// no separate "did the tip go anywhere" question to ask).
+fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str, main_branch: &str, release_version: &SemVer, tip_landed: bool) -> Result<(), String> {
     println!("Cleaning up release branch...");
-    if cfg.keep_release_branches {
+    if !tip_landed {
+        eprintln!("⚠ Keeping {release_branch}: its tip is not part of any landed pull request, so deleting it could lose commits.");
+        eprintln!("  Review it, then delete it yourself: git push origin --delete {release_branch}");
+    } else if cfg.keep_release_branches {
         println!("Keeping {release_branch} (keep-release-branches=true).");
     } else {
         delete_source_branch(git, release_branch, main_branch)?;
@@ -293,32 +299,58 @@ fn rc_gate(git: &dyn Git, release_branch: &str, main_branch: &str, major: u32, m
 
 /// Protected mode: bflow never merges into `main`/`develop` itself (SKILL.md
 /// principle 1), so each landing step opens a PR and stops for a human to
-/// merge; the next run picks up from wherever `landed_pr` finds it landed.
+/// merge; the next run picks up from wherever `leg_landed` finds it landed.
+/// The tag is checked for mainline containment *before* consulting the main
+/// leg's current PR lookup — once a re-opened main PR has merged, that lookup
+/// returns the new PR, whose merge commit is not what an already-cut tag
+/// points at, and comparing against it would wrongly call a landed release
+/// unlanded.
 fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, main_branch: &str, template: Option<&Path>) -> Result<(), String> {
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
     let tag = release.tag_name();
 
-    match landed_pr(git, hosting, &release_branch, main_branch)? {
+    let mut landed: Vec<LandedPr> = Vec::new();
+
+    let main_pr = leg_landed(git, hosting, &release_branch, main_branch)?;
+    if let Some(pr) = &main_pr {
+        landed.push(pr.clone());
+    }
+
+    let tag_landed = git.tag_exists(&tag)?
+        && git.is_ancestor(&git.tag_commit_sha(&tag)?, &format!("origin/{main_branch}"))?;
+
+    if tag_landed {
+        // Landed and tagged on an earlier run. Still push: the tag can exist
+        // locally and never have reached origin if a previous run stopped in
+        // between.
+        push_tag_if_missing(git, &tag)?;
+    } else {
+        match &main_pr {
+            Some(pr) => {
+                tag_at_if_missing(git, &tag, &format!("chore: release {release}"), &pr.merge_commit_sha)?;
+                push_tag_if_missing(git, &tag)?;
+            }
+            None => {
+                rc_gate(git, &release_branch, main_branch, major, minor)?;
+                let title = format!("chore: merge release {release} into {main_branch}");
+                let url = open_landing_pr(git, hosting, &release_branch, main_branch, &title, template)?;
+                announce_pending_landing(&url);
+                return Ok(());
+            }
+        }
+    }
+
+    match leg_landed(git, hosting, &release_branch, "develop")? {
+        Some(pr) => landed.push(pr),
         None => {
-            rc_gate(git, &release_branch, main_branch, major, minor)?;
-            let title = format!("chore: merge release {release} into {main_branch}");
-            let url = open_landing_pr(git, hosting, &release_branch, main_branch, &title, template)?;
+            let title = format!("chore: merge release {release} into develop");
+            let url = open_landing_pr(git, hosting, &release_branch, "develop", &title, template)?;
             announce_pending_landing(&url);
             return Ok(());
         }
-        Some(pr) => {
-            tag_at_if_missing(git, &tag, &format!("chore: release {release}"), &pr.merge_commit_sha)?;
-            push_tag_if_missing(git, &tag)?;
-        }
     }
 
-    if landed_pr(git, hosting, &release_branch, "develop")?.is_none() {
-        let title = format!("chore: merge release {release} into develop");
-        let url = open_landing_pr(git, hosting, &release_branch, "develop", &title, template)?;
-        announce_pending_landing(&url);
-        return Ok(());
-    }
-
-    finish_release_cleanup(git, cfg, &release_branch, main_branch, &release)
+    let tip_landed = tip_landed_somewhere(git, &release_branch, &landed)?;
+    finish_release_cleanup(git, cfg, &release_branch, main_branch, &release, tip_landed)
 }
