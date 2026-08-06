@@ -734,9 +734,11 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
     git.pushed_branches.insert("release/1.1.0".to_string());
     git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
     let mut hosting = MockHosting::new();
+    // Head deliberately unequal to the branch tip: the main leg is proven
+    // landed by its merge commit reaching the mainline, never by head equality.
     hosting.merged_prs_to.insert(
         ("release/1.1.0".to_string(), "main".to_string()),
-        landed("relsha", "mc1"),
+        landed("old-head", "mc1"),
     );
 
     finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
@@ -820,18 +822,21 @@ fn protected_finish_tag_identity_mismatch_is_fatal() {
 }
 
 #[test]
-fn protected_finish_branch_moved_on_reopens_pr() {
+fn protected_finish_unlanded_main_pr_re_enters_the_rc_gate() {
+    // A merged PR whose merge commit never reached the mainline is not a
+    // landing: no `ancestors` entry puts `mc1` in `origin/main`. The gate must
+    // still guard the branch rather than treating the PR as proof.
     let mut git = MockGit::new();
     git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
     git.rev_list_count_result = 1;
     git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
 
     let mut hosting = MockHosting::new();
-    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("stale", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
 
     let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
 
-    assert!(err.contains("1 commit past"), "moved-on commits must re-enter the RC gate; got: {err}");
+    assert!(err.contains("1 commit past"), "an unlanded main PR must re-enter the RC gate; got: {err}");
     assert!(err.contains("bflow bump"), "got: {err}");
 }
 

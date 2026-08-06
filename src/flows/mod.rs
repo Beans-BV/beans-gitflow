@@ -139,6 +139,12 @@ pub(crate) fn announce_pending_landing(url: &str) {
 /// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and
 /// when it does, verify it points at that same commit rather than trusting a
 /// stale or hand-created tag (a mismatch is fatal, not silently skipped).
+///
+/// Callers establish that the tag is not already on the mainline before
+/// reaching here, so the equal-commit arm is unreachable through them: a tag
+/// matching `sha` would be a tag on the merge commit, which is on the mainline
+/// by definition. It stays as a guard for any future caller without that
+/// precondition.
 pub(crate) fn tag_at_if_missing(git: &dyn Git, tag: &str, message: &str, sha: &str) -> Result<(), String> {
     if !git.tag_exists(tag)? {
         println!("Tagging: {tag}");
