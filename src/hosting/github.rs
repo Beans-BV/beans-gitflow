@@ -1,4 +1,4 @@
-use super::{resolve_body_file, CliRunner, HostingPlatform, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, HostingPlatform, LandedPr, MergedPr, Result};
 
 const AUTH_REMEDY: &str = "If authentication expired, run 'gh auth login', then re-run 'bflow finish'.";
 
@@ -18,14 +18,16 @@ impl<'a> GitHub<'a> {
 
 impl HostingPlatform for GitHub<'_> {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
-        match self.run_gh(&["pr", "view", head, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"]) {
-            Ok(url) if !url.is_empty() => return Ok(url),
-            // A closed/merged PR filters to empty output — create a new one.
-            Ok(_) => {}
-            // gh exits non-zero both when no PR exists (normal here) and on real
-            // failures (auth expiry, network). Only the former may be swallowed.
-            Err(e) if e.contains("no pull requests found") => {}
-            Err(e) => return Err(format!("Could not check for an existing PR: {e}\n{AUTH_REMEDY}")),
+        // The probe must filter by base: a fan-out source branch (a protected
+        // hotfix landing on both main and a release branch) can have open PRs
+        // to more than one base at once, and a head-only lookup would return
+        // an arbitrary one. ADO's create_or_get_pr already filters by both
+        // --source-branch and --target-branch.
+        let existing = self
+            .run_gh(&["pr", "list", "--head", head, "--base", base, "--state", "open", "--limit", "1", "--json", "url", "--jq", ".[0].url // empty"])
+            .map_err(|e| format!("Could not check for an existing PR: {e}\n{AUTH_REMEDY}"))?;
+        if !existing.is_empty() {
+            return Ok(existing);
         }
 
         let git_default_paths = [
@@ -58,6 +60,22 @@ impl HostingPlatform for GitHub<'_> {
         parse_merged_pr(&line)
     }
 
+    fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>> {
+        // Filtering by --base narrows to exactly this landing; --limit 1 still
+        // gives the newest such PR. `merged`, not `all`: this answers "has this
+        // leg landed", which a newer open or abandoned PR must not erase —
+        // unlike `merged_pr`, where a newer PR does mean the work branch is
+        // still in play.
+        let line = self
+            .run_gh(&[
+                "pr", "list", "--head", head, "--base", base, "--state", "merged", "--limit", "1",
+                "--json", "url,state,headRefOid,mergeCommit",
+                "--jq", r#".[0] | select(.state == "MERGED") | [.url, .headRefOid, .mergeCommit.oid] | @tsv"#,
+            ])
+            .map_err(|e| format!("Could not check for a merged PR: {e}\n{AUTH_REMEDY}"))?;
+        parse_landed_pr(&line)
+    }
+
     fn check_auth(&self) -> Result<()> {
         self.run_gh(&["auth", "status"]).map(|_| ())
     }
@@ -77,6 +95,25 @@ fn parse_merged_pr(line: &str) -> Result<Option<MergedPr>> {
                 url: url.to_string(),
                 head_sha: sha.to_string(),
                 base: base.to_string(),
+            }))
+        }
+        _ => Err(format!("Unexpected merged-PR data from gh: '{line}'")),
+    }
+}
+
+/// Parse the `url<TAB>headRefOid<TAB>mergeCommit.oid` line the `merged_pr_to`
+/// jq filter emits. Same empty/malformed rules as `parse_merged_pr`.
+fn parse_landed_pr(line: &str) -> Result<Option<LandedPr>> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(None);
+    }
+    match line.split('\t').collect::<Vec<_>>().as_slice() {
+        [url, head_sha, merge_commit_sha] if !url.is_empty() && !head_sha.is_empty() && !merge_commit_sha.is_empty() => {
+            Ok(Some(LandedPr {
+                url: url.to_string(),
+                head_sha: head_sha.to_string(),
+                merge_commit_sha: merge_commit_sha.to_string(),
             }))
         }
         _ => Err(format!("Unexpected merged-PR data from gh: '{line}'")),
@@ -105,5 +142,25 @@ mod tests {
     fn malformed_output_is_a_hard_error() {
         assert!(parse_merged_pr("only-a-url").is_err());
         assert!(parse_merged_pr("url\t\tdevelop").is_err());
+    }
+
+    #[test]
+    fn empty_output_means_no_landed_pr() {
+        assert_eq!(parse_landed_pr(""), Ok(None));
+        assert_eq!(parse_landed_pr("  \n"), Ok(None));
+    }
+
+    #[test]
+    fn three_fields_parse_into_landed_pr() {
+        let pr = parse_landed_pr("https://github.com/o/r/pull/49\tabc123\tdeadbeef").unwrap().unwrap();
+        assert_eq!(pr.url, "https://github.com/o/r/pull/49");
+        assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.merge_commit_sha, "deadbeef");
+    }
+
+    #[test]
+    fn malformed_landed_pr_output_is_a_hard_error() {
+        assert!(parse_landed_pr("only-a-url").is_err());
+        assert!(parse_landed_pr("url\t\tdeadbeef").is_err());
     }
 }

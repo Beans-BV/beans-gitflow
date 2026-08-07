@@ -33,3 +33,18 @@ input production cannot generate. Two bugs in this repo traced to exactly that.
 **Rule:** whenever a trait method's doc states a guarantee, the mock must model
 it or assert it. If production code exists to correct a mock's output, the
 relationship is inverted — fix the mock and delete the production code.
+
+## Vector tests are still red-first tests
+
+**Correction (2026-08-05):** when a task's expected call vectors are fully
+specified up front (an exact-strings catalog, a task brief's literal
+sequence), it is tempting to write the test and the implementation together
+"since the answer is already known" — co-designing tests alongside the
+implementation happened once in this run. That forfeits the red signal: a
+test that never failed never proved it can catch the bug it exists to catch.
+
+**Rule:** even with the exact vector in hand, write the test first and run it
+before touching production code. A having-the-answer test still has to fail
+for the right reason once. Mutation checks (revert the fix, confirm the test
+fails) compensate for a missed red step but don't replace it — they catch
+a test that can't fail, not a test that was never proven to fail correctly.

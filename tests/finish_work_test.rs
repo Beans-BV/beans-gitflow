@@ -1,7 +1,7 @@
 mod common;
 
 use common::{MockGit, MockHosting, MockPrompter};
-use bflow::flows::finish_work::{finish_release_fix, finish_hotfix_fix, finish_work_branch};
+use bflow::flows::finish_work::{finish_release_fix, finish_hotfix_fix, finish_release_chore, finish_work_branch};
 use bflow::git::branch::BranchType;
 
 #[test]
@@ -60,6 +60,27 @@ fn finish_release_fix_with_custom_pr_url() {
         "merged_pr:release-fix/2.0.0/typo",
         "create_or_get_pr:release-fix/2.0.0/typo:release/2.0.0:fix: typo",
         "open_url:https://github.com/org/repo/pull/42",
+    ]);
+}
+
+#[test]
+fn finish_release_chore_pushes_and_creates_pr() {
+    let mut git = MockGit::new();
+    git.current_branch = "release-chore/1.1.0/set-version".to_string();
+    let hosting = MockHosting::new();
+    let branch_type = BranchType::ReleaseChore { major: 1, minor: 1, patch: 0, name: "set-version".to_string() };
+
+    finish_release_chore(&git, &hosting, &branch_type, None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "current_branch",
+        "push:release-chore/1.1.0/set-version",
+    ]);
+
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr:release-chore/1.1.0/set-version",
+        "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
 
@@ -349,6 +370,26 @@ fn develop_is_offered_even_when_it_already_contains_our_tip() {
     assert_eq!(prompter.calls(), vec!["select:PR target branch:[develop, feature/sibling]"]);
 }
 
+#[test]
+fn machine_owned_chore_set_version_branch_is_never_offered_as_pr_target() {
+    // chore/set-version-* branches are bflow-created and get merged/deleted by
+    // a protected-mode version bump; targeting one as a PR base would strand
+    // the PR when that branch disappears out from under it.
+    let mut git = MockGit::new();
+    git.current_branch = "feature/login".to_string();
+    git.remote_branches = vec!["chore/set-version-1.2.0".to_string(), "develop".to_string()];
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new(); // unscripted: any select would error
+    let branch_type = BranchType::Feature { name: "login".to_string() };
+
+    finish_work_branch(&git, &hosting, &prompter, &branch_type, Some(false), None, None).unwrap();
+
+    assert!(prompter.calls().is_empty(),
+        "chore/set-version-* must be filtered, leaving develop as the sole/auto candidate");
+    assert!(hosting.calls()[1].starts_with("create_or_get_pr:feature/login:develop:"),
+        "chore/set-version-1.2.0 must never be offered as a PR target, got: {}", hosting.calls()[1]);
+}
+
 // --- Already-merged PR: finish is complete, clean up instead of a new PR ---
 
 use bflow::hosting::MergedPr;
@@ -445,6 +486,23 @@ fn merged_pr_cleans_up_release_fix_too() {
     assert!(!git.calls().iter().any(|c| c.starts_with("push:")), "nothing to push on a finished branch");
     assert!(git.calls().contains(&"remove_current_worktree".to_string()));
     assert_eq!(hosting.calls(), vec!["merged_pr:release-fix/1.1.0/login-bug"]);
+}
+
+#[test]
+fn merged_pr_cleans_up_release_chore_too() {
+    let mut git = MockGit::new();
+    git.current_branch = "release-chore/1.1.0/set-version".to_string();
+    git.head_sha = "abc123".to_string();
+    git.linked_worktree = true;
+    let mut hosting = MockHosting::new();
+    hosting.merged_pr = merged("https://github.com/org/repo/pull/50", "abc123", "release/1.1.0");
+    let branch_type = BranchType::ReleaseChore { major: 1, minor: 1, patch: 0, name: "set-version".to_string() };
+
+    finish_release_chore(&git, &hosting, &branch_type, None).unwrap();
+
+    assert!(!git.calls().iter().any(|c| c.starts_with("push:")), "nothing to push on a finished branch");
+    assert!(git.calls().contains(&"remove_current_worktree".to_string()));
+    assert_eq!(hosting.calls(), vec!["merged_pr:release-chore/1.1.0/set-version"]);
 }
 
 // --- Cleanup: warn-and-continue when the work already succeeded ---
@@ -581,6 +639,17 @@ fn finish_release_fix_rejects_a_branch_that_is_not_a_release_fix() {
     let err = finish_release_fix(&git, &hosting, &BranchType::Develop, None).unwrap_err();
 
     assert_eq!(err, "Cannot finish: not on a release-fix branch");
+    assert!(git.calls().is_empty(), "the guard runs before any git call; calls: {:?}", git.calls());
+}
+
+#[test]
+fn finish_release_chore_rejects_a_branch_that_is_not_a_release_chore() {
+    let git = MockGit::new();
+    let hosting = MockHosting::new();
+
+    let err = finish_release_chore(&git, &hosting, &BranchType::Develop, None).unwrap_err();
+
+    assert_eq!(err, "Cannot finish: not on a release-chore branch");
     assert!(git.calls().is_empty(), "the guard runs before any git call; calls: {:?}", git.calls());
 }
 

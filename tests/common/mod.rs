@@ -12,6 +12,7 @@ use bflow::editor::Editor;
 use bflow::git::{CliOutput, CommandRunner, Git};
 use bflow::hosting::{CliRunner, HostingPlatform};
 use bflow::prompt::Prompter;
+use bflow::version_script::VersionScript;
 
 const MERGE_BASE: &str = "abc123";
 const REMOVED_WORKTREE_PATH: &str = "/repos/beans-gitflow-feature-x";
@@ -80,10 +81,22 @@ pub struct MockGit {
     pub fail_remote_url: bool,
     /// Value returned by `repo_root`.
     pub repo_root: PathBuf,
+    /// Value returned by `worktree_root`.
+    pub worktree_root: PathBuf,
     /// SHA returned by `head_sha`.
     pub head_sha: String,
     /// Whether the current checkout is a linked worktree.
     pub linked_worktree: bool,
+    /// Commit SHA each annotated tag resolves to via `tag_commit_sha`. A tag
+    /// missing here fails, modeling "tag doesn't exist" (flows only call this
+    /// after `tag_exists`).
+    pub tag_commits: HashMap<String, String>,
+    /// SHA each branch's tip resolves to via `branch_sha`. A branch missing
+    /// here falls back to `head_sha`.
+    pub branch_shas: HashMap<String, String>,
+    /// Scripted `is_working_tree_clean` answers, consumed front-first. Empty
+    /// (the default) falls back to `working_tree_clean`.
+    pub working_tree_clean_seq: RefCell<VecDeque<bool>>,
     _git_dir_guard: Option<TempDir>,
 }
 
@@ -124,8 +137,12 @@ impl MockGit {
             remote_url: "https://github.com/acme/repo.git".to_string(),
             fail_remote_url: false,
             repo_root: PathBuf::from("/repos/beans-gitflow"),
+            worktree_root: PathBuf::from("/repos/beans-gitflow"),
             head_sha: "headsha".to_string(),
             linked_worktree: false,
+            tag_commits: HashMap::new(),
+            branch_shas: HashMap::new(),
+            working_tree_clean_seq: RefCell::new(VecDeque::new()),
             _git_dir_guard: None,
         }
     }
@@ -221,7 +238,10 @@ impl Git for MockGit {
 
     fn is_working_tree_clean(&self) -> Result<bool, String> {
         self.calls.borrow_mut().push("is_working_tree_clean".to_string());
-        Ok(self.working_tree_clean)
+        match self.working_tree_clean_seq.borrow_mut().pop_front() {
+            Some(clean) => Ok(clean),
+            None => Ok(self.working_tree_clean),
+        }
     }
 
     fn delete_branch_local(&self, branch: &str) -> Result<(), String> {
@@ -348,6 +368,11 @@ impl Git for MockGit {
         Ok(self.repo_root.clone())
     }
 
+    fn worktree_root(&self) -> Result<PathBuf, String> {
+        self.calls.borrow_mut().push("worktree_root".to_string());
+        Ok(self.worktree_root.clone())
+    }
+
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("add_worktree:{}:{branch}", path.display()));
         Ok(())
@@ -400,6 +425,31 @@ impl Git for MockGit {
         self.calls.borrow_mut().push("detach_head".to_string());
         Ok(())
     }
+
+    fn stage_all(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("stage_all".to_string());
+        Ok(())
+    }
+
+    fn commit(&self, message: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("commit:{message}"));
+        Ok(())
+    }
+
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("create_tag_at:{tag}:{message}:{sha}"));
+        Ok(())
+    }
+
+    fn tag_commit_sha(&self, tag: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("tag_commit_sha:{tag}"));
+        self.tag_commits.get(tag).cloned().ok_or_else(|| format!("tag {tag} does not exist"))
+    }
+
+    fn branch_sha(&self, branch: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("branch_sha:{branch}"));
+        Ok(self.branch_shas.get(branch).cloned().unwrap_or_else(|| self.head_sha.clone()))
+    }
 }
 
 pub struct MockHosting {
@@ -407,6 +457,8 @@ pub struct MockHosting {
     pub pr_url: String,
     /// What `merged_pr` reports (defaults to no merged PR).
     pub merged_pr: Option<bflow::hosting::MergedPr>,
+    /// What `merged_pr_to` reports, keyed by (head, base) (defaults to none landed).
+    pub merged_prs_to: HashMap<(String, String), bflow::hosting::LandedPr>,
 }
 
 impl MockHosting {
@@ -415,6 +467,7 @@ impl MockHosting {
             calls: RefCell::new(Vec::new()),
             pr_url: "https://github.com/org/repo/pull/1".to_string(),
             merged_pr: None,
+            merged_prs_to: HashMap::new(),
         }
     }
 
@@ -433,6 +486,11 @@ impl HostingPlatform for MockHosting {
     fn merged_pr(&self, head: &str) -> Result<Option<bflow::hosting::MergedPr>, String> {
         self.calls.borrow_mut().push(format!("merged_pr:{head}"));
         Ok(self.merged_pr.clone())
+    }
+
+    fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<bflow::hosting::LandedPr>, String> {
+        self.calls.borrow_mut().push(format!("merged_pr_to:{head}:{base}"));
+        Ok(self.merged_prs_to.get(&(head.to_string(), base.to_string())).cloned())
     }
 
     fn open_url(&self, url: &str) -> Result<(), String> {
@@ -470,6 +528,47 @@ impl Editor for MockEditor {
         } else {
             Ok(())
         }
+    }
+}
+
+pub struct MockVersionScript {
+    pub calls: RefCell<Vec<String>>,
+    /// When set, `run` returns this error instead of succeeding.
+    pub fail: Option<String>,
+    /// When set, only the Nth `run` call (1-indexed) fails; others succeed.
+    /// Lets a test exercise a script that succeeds on an earlier call in the
+    /// same flow (e.g. M1) and fails on a later one (e.g. M2) — `fail` alone
+    /// cannot express that, since it applies to every call uniformly.
+    pub fail_nth_run: Option<u32>,
+    run_call_count: RefCell<u32>,
+}
+
+impl MockVersionScript {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), fail: None, fail_nth_run: None, run_call_count: RefCell::new(0) }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl VersionScript for MockVersionScript {
+    fn run(&self, version: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("run:{version}"));
+        let mut count = self.run_call_count.borrow_mut();
+        *count += 1;
+        if Some(*count) == self.fail_nth_run {
+            return Err(format!("version script failed on run #{count}"));
+        }
+        match &self.fail {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
+    }
+
+    fn display_name(&self) -> String {
+        "set-version.sh".to_string()
     }
 }
 

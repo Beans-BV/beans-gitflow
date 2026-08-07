@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Protected landing mode (`mode=protected` in the new committed `.bflow/config` file): on repos where `main`/`develop` require pull requests, `bflow finish`, `bump`, and `sync` open a PR for every landing instead of merging directly, print its URL, and exit 0 — bflow never merges a PR. Re-running the same command after a human merges it continues from there; one PR lands per run, and only the last one deletes the branch (unless its tip isn't part of any landed PR, in which case bflow keeps it and prints how to remove it by hand).
+- Repo-owned version script (`.bflow/set-version.sh` / `.bflow/set-version.cmd`, picked by platform): an opt-in file bflow runs with the clean `X.Y.Z` version when a release or hotfix branch is cut, when develop is bumped after a release, and on `bflow bump`, committing whatever it changes as `chore: set version {v}`. A repo with neither file behaves exactly as before.
+- `keep-release-branches` config key (`.bflow/config`): skips bflow's own deletion of `release/*`/`hotfix/*` branches once a finish or bump is done with them; work branches are unaffected.
+- `release-chore/{v}/set-version` branch type: bflow-created branches carrying a version-script commit that can't land directly on a protected release branch; finishes like `release-fix` if a human needs to intervene.
+
+### Fixed
+- GitHub's open-PR probe (`create_or_get_pr`) now filters by base branch instead of returning a branch's newest PR regardless of target, which could reuse the wrong PR when a hotfix fans out into several release branches.
+- `release/*`/`hotfix/*` branches whose clean tag already exists are now treated as shipped, not open — `bflow start`'s reuse checks, `release-fix` discovery, and hotfix fan-out no longer loop onto or merge into a branch kept around via `keep-release-branches`.
+- Protected release and hotfix finishes could dead-end after a version-file conflict was resolved; they now continue from the first landing that has not completed.
+- A protected hotfix could silently re-open a pull request for a branch it had already landed instead of propagating to the remaining open release branches.
+- `.bflow/config`, the version script and PR templates are now read from the working tree the command runs in, instead of the main working tree.
+- A version script that is not executable now names the fix instead of reporting a bare OS error.
+- A landing's "has this branch already merged here" lookup asked for the newest pull request and accepted it only if merged, so a newer open or abandoned one for the same branch and target hid an earlier merge and stalled the finish. It now asks only for merged pull requests.
+- A commit pushed to a release or hotfix branch after its pull request into the mainline merged reaches neither the tag nor the mainline. bflow now counts those commits and says so; before, protected mode passed over them in silence while free mode refused.
+
 ## [3.1.0] - 2026-08-03
 
 ### Changed

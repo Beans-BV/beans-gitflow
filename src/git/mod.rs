@@ -55,6 +55,14 @@ pub trait Git {
     /// inside a linked worktree (`rev-parse --show-toplevel` would return the
     /// worktree's own directory there, compounding worktree folder names).
     fn repo_root(&self) -> Result<PathBuf>;
+    /// Absolute path to the root of the working tree the command is running in —
+    /// the linked worktree when standing in one, the main tree otherwise. Repo
+    /// *content* (`.bflow/config`, the version script, PR templates) must be read
+    /// from here: a linked worktree can have a different branch checked out than
+    /// the main tree, and reading the main tree's copy would apply another
+    /// branch's policy. Contrast `repo_root`, which is deliberately the MAIN
+    /// tree's root and stays correct for worktree bookkeeping.
+    fn worktree_root(&self) -> Result<PathBuf>;
     /// Add a worktree at `path` checked out to the (already existing) `branch`.
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
     /// Whether the current checkout is a linked worktree rather than the main
@@ -74,6 +82,21 @@ pub trait Git {
     fn stash_push_with_message(&self, msg: &str) -> Result<()>;
     fn find_stash_by_message(&self, msg: &str) -> Result<Option<String>>;
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()>;
+
+    // Version commits and merge-commit tagging
+    fn stage_all(&self) -> Result<()>;
+    fn commit(&self, message: &str) -> Result<()>;
+    /// Tags `sha` (not HEAD) — a separate method from `create_tag` because a
+    /// landing PR's merge commit is created by the hosting platform, not by a
+    /// local `git merge`.
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()>;
+    /// Resolves an annotated tag to the commit it points at (`^{commit}`).
+    /// Plain `rev-parse <tag>` on an annotated tag returns the tag object's own
+    /// SHA, not the commit's.
+    fn tag_commit_sha(&self, tag: &str) -> Result<String>;
+    /// SHA of a branch's tip — never HEAD, which is only the source branch when
+    /// the caller happens to be standing on it.
+    fn branch_sha(&self, branch: &str) -> Result<String>;
 }
 
 /// One finished `git` invocation, in a form tests can construct. `std::process::
@@ -326,6 +349,9 @@ impl Git for GitCli<'_> {
             .map(PathBuf::from)
             .ok_or_else(|| "Could not determine the main working tree from 'git worktree list'.".to_string())
     }
+    fn worktree_root(&self) -> Result<PathBuf> {
+        self.run(&["rev-parse", "--show-toplevel"]).map(PathBuf::from)
+    }
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;
         self.run(&["worktree", "add", path_str, branch]).map(|_| ())
@@ -374,5 +400,17 @@ impl Git for GitCli<'_> {
     }
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()> {
         self.run(&["stash", "pop", stash_ref]).map(|_| ())
+    }
+
+    fn stage_all(&self) -> Result<()> { self.run(&["add", "-A"]).map(|_| ()) }
+    fn commit(&self, message: &str) -> Result<()> { self.run(&["commit", "-m", message]).map(|_| ()) }
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()> {
+        self.run(&["tag", "-a", tag, "-m", message, sha]).map(|_| ())
+    }
+    fn tag_commit_sha(&self, tag: &str) -> Result<String> {
+        self.run(&["rev-parse", &format!("{tag}^{{commit}}")])
+    }
+    fn branch_sha(&self, branch: &str) -> Result<String> {
+        self.run(&["rev-parse", &format!("refs/heads/{branch}")])
     }
 }

@@ -1,6 +1,10 @@
+use crate::flows::{open_versioned_branches, require_clean_tree, run_version_script};
 use crate::git::Git;
+use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
+use crate::repo_config::{Mode, RepoConfig};
 use crate::version::SemVer;
+use crate::version_script::VersionScript;
 use crate::worktree::{open_worktree, WorktreeContext};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,15 +63,15 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })
 }
 
-pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, prompter, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type)?;
     Ok(())
 }
 
 pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let release_branch = if effective_no_checkout {
-        git.list_branches_matching("release/*")?
+        open_versioned_branches(git, "release")?
             .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
             .clone()
@@ -83,15 +87,15 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str) -> Result<(), String> {
+pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch)?;
+    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch, script)?;
     let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
-fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let release_branches = git.list_branches_matching("release/*")?;
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<String, String> {
+    let release_branches = open_versioned_branches(git, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -113,16 +117,113 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, release_typ
     let rc = next.with_rc(1);
     let tag = rc.tag_name();
 
+    if script.is_some() {
+        require_clean_tree(git)?;
+    }
     println!("Creating release branch: {branch}");
     git.checkout("develop")?;
     git.create_branch(&branch, "develop")?;
+    if let Some(script) = script {
+        run_version_script(git, script, &next)?;
+    }
     git.push(&branch)?;
 
     println!("Tagging: {tag}");
     git.create_tag(&tag, &format!("chore: create release branch {next}"))?;
     git.push_tag(&tag)?;
 
+    if let Some(script) = script {
+        let dev = next.bump_minor();
+        if let Err(e) = bump_develop(git, hosting, script, cfg, &dev, &branch) {
+            eprintln!("Warning: develop version bump failed: {e}");
+            eprintln!("{}", m2_failure_advice(cfg.mode, &script.display_name(), &dev));
+            let _ = git.checkout(&branch);
+        }
+    }
+
     Ok(branch)
+}
+
+/// M2 warn-and-continue advice: how to finish the develop version bump by
+/// hand after a failure. Free mode can commit and push develop directly;
+/// protected mode never pushes develop (bflow SKILL.md, "Landing modes"), so a
+/// direct push there would just be rejected — the fix must go out as its own PR.
+fn m2_failure_advice(mode: Mode, script_name: &str, version: &SemVer) -> String {
+    match mode {
+        Mode::Free => format!(
+            "The release was created successfully. Update develop's version manually: run {script_name} {version} on develop and commit."
+        ),
+        Mode::Protected => format!(
+            "The release was created successfully. Update develop's version manually: branch from develop, run {script_name} {version}, commit, and open a PR to develop."
+        ),
+    }
+}
+
+/// Moment 2: after the release is cut (and its rc.1 tag pushed), bump develop
+/// to the next dev version so it never regresses behind the release branch.
+/// Always ends back on `release_branch` on its own success paths; a failure
+/// here is caught by the caller, which restores the checkout itself.
+fn bump_develop(git: &dyn Git, hosting: &dyn HostingPlatform, script: &dyn VersionScript, cfg: &RepoConfig, dev: &SemVer, release_branch: &str) -> Result<(), String> {
+    git.checkout("develop")?;
+    git.ff_merge("origin/develop")?;
+
+    match cfg.mode {
+        Mode::Free => {
+            require_clean_tree(git)?;
+            if run_version_script(git, script, dev)? {
+                git.push("develop")?;
+            } else {
+                println!("↷ skipped: develop version bump (no changes)");
+            }
+        }
+        Mode::Protected => bump_develop_protected(git, hosting, script, dev)?,
+    }
+
+    git.checkout(release_branch)
+}
+
+/// Protected-mode M2: never push develop directly. Reuses a leftover
+/// `chore/set-version-*` branch instead of recreating it — the resume case
+/// after a prior run's crash between branch creation and the version PR.
+fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: &dyn VersionScript, dev: &SemVer) -> Result<(), String> {
+    let chore_branch = format!("chore/set-version-{dev}");
+    let title = format!("chore: set version {dev}");
+
+    if git.remote_branch_exists(&chore_branch)? {
+        let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+        println!("Version PR: {url}");
+        return Ok(());
+    }
+
+    // A prior run can leave this branch behind locally (created, then
+    // interrupted before the script committed or pushed) — machine-owned, so
+    // bflow clears it itself rather than dying on git's raw "branch already
+    // exists" (mirrors bump_protected in finish_release.rs).
+    if git.local_branch_exists(&chore_branch)? {
+        git.delete_branch_local(&chore_branch)?;
+    }
+    git.create_branch(&chore_branch, "develop")?;
+    require_clean_tree(git)?;
+    match run_version_script(git, script, dev) {
+        Ok(true) => {
+            git.push(&chore_branch)?;
+            let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+            println!("Version PR: {url}");
+            Ok(())
+        }
+        Ok(false) => {
+            git.checkout("develop")?;
+            git.delete_branch_local(&chore_branch)?;
+            println!("↷ skipped: develop version bump (no changes)");
+            Ok(())
+        }
+        Err(e) => {
+            // Best-effort: restore develop so the caller's own final checkout
+            // (back to the release branch) still runs from a sane place.
+            let _ = git.checkout("develop");
+            Err(e)
+        }
+    }
 }
 
 pub fn detect_breaking_changes(git: &dyn Git, latest: &SemVer) -> bool {
@@ -191,8 +292,8 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
     }
 }
 
-fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str) -> Result<String, String> {
-    let hotfix_branches = git.list_branches_matching("hotfix/*")?;
+fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
+    let hotfix_branches = open_versioned_branches(git, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");
@@ -206,12 +307,27 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str)
     let next = latest.bump_patch();
     let branch = next.hotfix_branch();
 
+    if !no_checkout && script.is_some() {
+        require_clean_tree(git)?;
+    }
     println!("Creating hotfix branch: {branch}");
     if no_checkout {
         git.create_branch_no_checkout(&branch, main_branch)?;
+        if let Some(script) = script {
+            eprintln!(
+                "⚠ Version script not run: {branch} was created without checkout, so bflow cannot commit version files there."
+            );
+            eprintln!(
+                "  Recover manually: git switch {branch}, run {} {next}, commit, and push.",
+                script.display_name(),
+            );
+        }
     } else {
         git.checkout(main_branch)?;
         git.create_branch(&branch, main_branch)?;
+        if let Some(script) = script {
+            run_version_script(git, script, &next)?;
+        }
     }
     git.push(&branch)?;
 
@@ -237,7 +353,21 @@ fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::message_is_breaking;
+    use super::{message_is_breaking, m2_failure_advice};
+    use crate::repo_config::Mode;
+    use crate::version::SemVer;
+
+    #[test]
+    fn m2_failure_advice_free_mode_names_the_direct_commit() {
+        let msg = m2_failure_advice(Mode::Free, "set-version.sh", &SemVer::new(1, 2, 0));
+        assert_eq!(msg, "The release was created successfully. Update develop's version manually: run set-version.sh 1.2.0 on develop and commit.");
+    }
+
+    #[test]
+    fn m2_failure_advice_protected_mode_names_a_pr() {
+        let msg = m2_failure_advice(Mode::Protected, "set-version.sh", &SemVer::new(1, 2, 0));
+        assert_eq!(msg, "The release was created successfully. Update develop's version manually: branch from develop, run set-version.sh 1.2.0, commit, and open a PR to develop.");
+    }
 
     #[test]
     fn bang_in_title() {

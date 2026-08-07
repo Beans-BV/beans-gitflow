@@ -230,6 +230,22 @@ fn finish_on_hotfix_fix_branch() {
 }
 
 #[test]
+fn finish_with_base_on_release_chore_branch_errors() {
+    let cmd = Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false };
+    let branch_type = BranchType::ReleaseChore { major: 1, minor: 1, patch: 0, name: "set-version".to_string() };
+    let result = resolve_action(cmd, &branch_type, false, "main");
+    assert!(result.is_err());
+}
+
+#[test]
+fn finish_on_release_chore_branch() {
+    let cmd = Commands::Finish { breaking: None, base: None, abort: false };
+    let branch_type = BranchType::ReleaseChore { major: 1, minor: 1, patch: 0, name: "set-version".to_string() };
+    let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
+    assert!(matches!(action, Action::FinishReleaseChore));
+}
+
+#[test]
 fn start_fix_returns_start_work_branch_action() {
     let cmd = Commands::Start { kind: StartKind::Fix { name: "bug".to_string(), base: "develop".to_string(), opts: StartOptions::default() } };
     let branch_type = BranchType::Develop;

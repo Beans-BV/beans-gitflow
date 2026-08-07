@@ -94,6 +94,12 @@ fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -
         if parsed != BranchType::Develop && !parsed.is_work_branch() {
             continue;
         }
+        // chore/set-version-* is bflow-created and machine-owned: a protected
+        // version bump merges and deletes it, which would strand a PR that
+        // targeted it as a base.
+        if branch.starts_with("chore/set-version-") {
+            continue;
+        }
         let base = match git.merge_base(current, branch) {
             Ok(b) => b,
             Err(_) => continue,
@@ -195,26 +201,33 @@ fn prompt_breaking_change(prompter: &dyn Prompter) -> Result<bool, String> {
     Ok(idx == 1)
 }
 
-fn finish_fix(git: &dyn Git, hosting: &dyn HostingPlatform, name: &str, parent: &str, template: Option<&Path>) -> Result<(), String> {
+fn finish_fix(git: &dyn Git, hosting: &dyn HostingPlatform, commit_type: &str, name: &str, parent: &str, template: Option<&Path>) -> Result<(), String> {
     let current = git.current_branch()?;
     if try_cleanup_merged(git, hosting, &current)? {
         return Ok(());
     }
-    push_and_create_pr(git, hosting, &current, parent, &pr_title("fix", false, name), template)
+    push_and_create_pr(git, hosting, &current, parent, &pr_title(commit_type, false, name), template)
 }
 
 pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
     let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a release-fix branch".to_string());
     };
-    finish_fix(git, hosting, name, &SemVer::new(*major, *minor, *patch).release_branch(), template)
+    finish_fix(git, hosting, "fix", name, &SemVer::new(*major, *minor, *patch).release_branch(), template)
 }
 
 pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
     let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
-    finish_fix(git, hosting, name, &SemVer::new(*major, *minor, *patch).hotfix_branch(), template)
+    finish_fix(git, hosting, "fix", name, &SemVer::new(*major, *minor, *patch).hotfix_branch(), template)
+}
+
+pub fn finish_release_chore(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
+    let BranchType::ReleaseChore { major, minor, patch, name } = branch_type else {
+        return Err("Cannot finish: not on a release-chore branch".to_string());
+    };
+    finish_fix(git, hosting, "chore", name, &SemVer::new(*major, *minor, *patch).release_branch(), template)
 }
 
 #[cfg(test)]

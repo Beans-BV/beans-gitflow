@@ -163,6 +163,13 @@ fn fix_family_branch_names() {
 }
 
 #[test]
+fn release_chore_branch_name() {
+    assert_eq!(SemVer::new(1, 1, 0).release_chore_branch("set-version"), "release-chore/1.1.0/set-version");
+    // Pre-release dropped: the chore branches off the release line, not off an RC.
+    assert_eq!(SemVer::new(1, 1, 0).with_rc(1).release_chore_branch("set-version"), "release-chore/1.1.0/set-version");
+}
+
+#[test]
 fn generated_branch_names_round_trip_through_parse() {
     // decisions.md: branch/tag names are always generated from SemVer methods,
     // never string-concatenated.
@@ -176,6 +183,8 @@ fn generated_branch_names_round_trip_through_parse() {
         BranchType::ReleaseFix { major: 2, minor: 6, patch: 0, name: "db-index".to_string() });
     assert_eq!(BranchType::parse(&v.hotfix_fix_branch("npe")),
         BranchType::HotfixFix { major: 2, minor: 6, patch: 0, name: "npe".to_string() });
+    assert_eq!(BranchType::parse(&v.release_chore_branch("set-version")),
+        BranchType::ReleaseChore { major: 2, minor: 6, patch: 0, name: "set-version".to_string() });
 }
 
 #[test]

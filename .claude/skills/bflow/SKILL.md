@@ -99,6 +99,22 @@ bflow bump # create next RC tag (on release/* only)
 bflow sync # merge release into develop (on release/* only)
 ```
 
+### Landing modes & version script
+
+`.bflow/config` (committed file, not git config — repo policy, not per-clone): `mode=free|protected` (default `free` = today's behavior), `keep-release-branches=true|false` (default `false`; skips deleting `release/*`/`hotfix/*` on finish, work branches unaffected).
+
+**`mode=protected`** — `main`/`develop` require PRs. `finish`/`bump`/`sync` open (or reuse) a PR for every landing instead of merging directly, print its URL, and **exit 0** — bflow never merges a PR. **Re-run the same command after a human merges it**; it resumes even if resolving a PR conflict (e.g. a version-file conflict landing into develop) added a commit to the source branch — an already-landed leg stays landed. One PR per run, in order (main → develop → each open release branch for hotfixes); only the last landing deletes the branch — unless its tip isn't part of any landed PR, in which case bflow keeps it, warns why, and prints the manual delete command (a guard, not a failure — the run still completed). Nothing is stored on disk to resume — progress is re-derived from PR/tag state each run. Don't add new, unrelated work to a release branch once its `main` PR has merged (the clean tag is already placed) — ship fixes as a hotfix instead.
+
+`bump` may print `Version PR: {url}` and defer the RC tag when a version-script commit needs its own PR on an already-pushed release branch — re-run `bflow bump` after that PR merges; it tags the **PR's merge commit**, it does not re-run the script.
+
+**Version script** (`.bflow/set-version.sh` / `.bflow/set-version.cmd`, platform-picked; both missing = feature off): runs with the clean `X.Y.Z` at release/hotfix branch creation, the post-release develop bump, and `bump`; commits `chore: set version {v}` only if it changed files. Requires a clean tree first.
+
+`chore/set-version-{v}` and `release-chore/{v}/set-version` are **bflow-created** — merge their PR, never commit to them. `chore/set-version-*` is also excluded from `finish`'s PR-target candidates (it gets merged and deleted out from under a PR that targeted it). A `release-chore/*` branch finishes like `release-fix` (PR into its release branch, no `--base`).
+
+**Papercut**: version files can conflict on merge (hotfix vs. develop, major release vs. develop) — resolve manually, bflow does not auto-resolve.
+
+`--no-checkout` hotfix creation skips the script (HEAD isn't on the new branch) and warns with the manual recovery steps.
+
 ### Tag Strategy
 
 bflow uses SemVer pre-release tags for CI integration:
@@ -141,6 +157,7 @@ Not available for `start release`.
 | `refactor/{name}` | develop | develop (PR) |
 | `release/{major}.{minor}.{patch}` | develop | main + develop |
 | `release-fix/{v}/{name}` | release/{v} | release/{v} (PR) |
+| `release-chore/{v}/set-version` | release/{v} (bflow-created) | release/{v} (PR) |
 | `hotfix/{major}.{minor}.{patch}` | main | main + develop + open `release/*` |
 | `hotfix-fix/{v}/{name}` | hotfix/{v} | hotfix/{v} (PR) |
 
