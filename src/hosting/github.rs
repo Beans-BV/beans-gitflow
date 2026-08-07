@@ -24,7 +24,7 @@ impl HostingPlatform for GitHub<'_> {
         // an arbitrary one. ADO's create_or_get_pr already filters by both
         // --source-branch and --target-branch.
         let existing = self
-            .run_gh(&["pr", "list", "--head", head, "--base", base, "--state", "open", "--limit", "1", "--json", "url", "--jq", ".[0].url"])
+            .run_gh(&["pr", "list", "--head", head, "--base", base, "--state", "open", "--limit", "1", "--json", "url", "--jq", ".[0].url // empty"])
             .map_err(|e| format!("Could not check for an existing PR: {e}\n{AUTH_REMEDY}"))?;
         if !existing.is_empty() {
             return Ok(existing);

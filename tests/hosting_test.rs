@@ -31,8 +31,22 @@ fn an_open_pr_is_reused_instead_of_creating_a_second_one() {
 
     assert_eq!(url, "https://github.com/o/r/pull/7");
     assert_eq!(runner.calls(), vec![
-        "gh pr list --head feature/x --base develop --state open --limit 1 --json url --jq .[0].url"
+        "gh pr list --head feature/x --base develop --state open --limit 1 --json url --jq .[0].url // empty"
     ]);
+}
+
+#[test]
+fn the_probe_filter_never_lets_a_missing_pr_become_a_url() {
+    // `.[0].url` over an empty list is jq null. Suppressing a null result is
+    // gh's output formatting, not a promised contract, and a "null" reaching
+    // the caller would be returned as the PR's URL — the landing PR silently
+    // never created. `// empty` makes emptiness the filter's own guarantee.
+    let runner = MockCliRunner::scripted(&[Ok(""), Ok("https://github.com/o/r/pull/12")]);
+
+    gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+
+    let probe = &runner.calls()[0];
+    assert!(probe.ends_with("--jq .[0].url // empty"), "probe must coerce null to empty; got: {probe}");
 }
 
 #[test]
@@ -99,7 +113,7 @@ fn an_open_pr_to_a_different_base_is_not_reused() {
 
     assert_eq!(url, "https://github.com/o/r/pull/11");
     assert_eq!(runner.calls()[0],
-        "gh pr list --head hotfix/1.2.4 --base release/1.2.0 --state open --limit 1 --json url --jq .[0].url");
+        "gh pr list --head hotfix/1.2.4 --base release/1.2.0 --state open --limit 1 --json url --jq .[0].url // empty");
 }
 
 // --- GitHub: merged_pr and check_auth ---
