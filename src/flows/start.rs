@@ -146,8 +146,8 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
 
 /// M2 warn-and-continue advice: how to finish the develop version bump by
 /// hand after a failure. Free mode can commit and push develop directly;
-/// protected mode never pushes develop (SKILL.md principle 1), so a direct
-/// push there would just be rejected — the fix must go out as its own PR.
+/// protected mode never pushes develop (bflow SKILL.md, "Landing modes"), so a
+/// direct push there would just be rejected — the fix must go out as its own PR.
 fn m2_failure_advice(mode: Mode, script_name: &str, version: &SemVer) -> String {
     match mode {
         Mode::Free => format!(

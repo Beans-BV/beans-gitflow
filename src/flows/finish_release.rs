@@ -297,9 +297,10 @@ fn rc_gate(git: &dyn Git, release_branch: &str, main_branch: &str, major: u32, m
     Ok(())
 }
 
-/// Protected mode: bflow never merges into `main`/`develop` itself (SKILL.md
-/// principle 1), so each landing step opens a PR and stops for a human to
-/// merge; the next run picks up from wherever `leg_landed` finds it landed.
+/// Protected mode: bflow never merges into `main`/`develop` itself (bflow
+/// SKILL.md, "Landing modes"), so each landing step opens a PR and stops for a
+/// human to merge; the next run picks up from wherever `leg_landed` finds it
+/// landed.
 /// The tag is checked for mainline containment *before* consulting the main
 /// leg's current PR lookup — once a re-opened main PR has merged, that lookup
 /// returns the new PR, whose merge commit is not what an already-cut tag
