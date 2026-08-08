@@ -159,6 +159,54 @@ pub(crate) fn announce_pending_landing(url: &str) {
     println!("Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.");
 }
 
+/// One leg of a protected landing sequence, as the flow's own walk derived it.
+pub(crate) enum LegState {
+    Landed { tag: Option<String> },
+    AwaitingMerge { url: String },
+    Pending,
+}
+
+pub(crate) struct LandingStep {
+    pub target: String,
+    pub state: LegState,
+}
+
+impl LandingStep {
+    pub(crate) fn landed(target: &str, tag: Option<String>) -> Self {
+        Self { target: target.to_string(), state: LegState::Landed { tag } }
+    }
+    pub(crate) fn awaiting(target: &str, url: String) -> Self {
+        Self { target: target.to_string(), state: LegState::AwaitingMerge { url } }
+    }
+    pub(crate) fn pending(target: &str) -> Self {
+        Self { target: target.to_string(), state: LegState::Pending }
+    }
+}
+
+/// Render the full landing sequence with per-leg status. Pure — the sequence
+/// itself is derived by each flow's walk (later legs are `Pending` by the
+/// sequential-landing invariant: no leg opens before the previous one lands).
+/// `rerun` is the command to re-run after merging the open PR.
+/// Thin caller of `render_landing_plan` — the printing half of the split.
+pub(crate) fn announce_landing_plan(source: &str, steps: &[LandingStep], rerun: &str) {
+    println!("{}", render_landing_plan(source, steps, rerun));
+}
+
+pub(crate) fn render_landing_plan(source: &str, steps: &[LandingStep], rerun: &str) -> String {
+    let width = steps.iter().map(|s| s.target.len()).max().unwrap_or(0) + 3;
+    let mut out = format!("Landing plan for {source}:");
+    for step in steps {
+        let (glyph, status) = match &step.state {
+            LegState::Landed { tag: Some(tag) } => ('✓', format!("merged ({tag} tagged)")),
+            LegState::Landed { tag: None } => ('✓', "merged".to_string()),
+            LegState::AwaitingMerge { url } => ('→', format!("PR open: {url} — merge it, then re-run {rerun}")),
+            LegState::Pending => ('○', "pending".to_string()),
+        };
+        out.push_str(&format!("\n  {glyph} {:<width$}{status}", step.target));
+    }
+    out
+}
+
 /// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and
 /// when it does, verify it points at that same commit rather than trusting a
 /// stale or hand-created tag (a mismatch is fatal, not silently skipped).
@@ -299,6 +347,88 @@ pub(crate) fn resume_hint(source_branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn landing_plan_renders_the_mid_sequence_sample() {
+        let steps = [
+            LandingStep { target: "main".to_string(), state: LegState::Landed { tag: Some("v2.6.2".to_string()) } },
+            LandingStep { target: "develop".to_string(), state: LegState::AwaitingMerge { url: "https://example.com/pr/7".to_string() } },
+            LandingStep { target: "release/2.7.0".to_string(), state: LegState::Pending },
+        ];
+        assert_eq!(
+            render_landing_plan("hotfix/2.6.2", &steps, "bflow finish"),
+            "Landing plan for hotfix/2.6.2:\n  \
+             ✓ main            merged (v2.6.2 tagged)\n  \
+             → develop         PR open: https://example.com/pr/7 — merge it, then re-run bflow finish\n  \
+             ○ release/2.7.0   pending"
+        );
+    }
+
+    #[test]
+    fn landing_plan_fresh_start_marks_later_legs_pending() {
+        let steps = [
+            LandingStep { target: "main".to_string(), state: LegState::AwaitingMerge { url: "https://example.com/pr/1".to_string() } },
+            LandingStep { target: "develop".to_string(), state: LegState::Pending },
+            LandingStep { target: "release/1.2.0".to_string(), state: LegState::Pending },
+        ];
+        assert_eq!(
+            render_landing_plan("hotfix/1.1.1", &steps, "bflow finish"),
+            "Landing plan for hotfix/1.1.1:\n  \
+             → main            PR open: https://example.com/pr/1 — merge it, then re-run bflow finish\n  \
+             ○ develop         pending\n  \
+             ○ release/1.2.0   pending"
+        );
+    }
+
+    #[test]
+    fn landing_plan_completion_receipt_renders_bare_merged_without_tag() {
+        let steps = [
+            LandingStep { target: "main".to_string(), state: LegState::Landed { tag: Some("v1.1.0".to_string()) } },
+            LandingStep { target: "develop".to_string(), state: LegState::Landed { tag: None } },
+        ];
+        assert_eq!(
+            render_landing_plan("release/1.1.0", &steps, "bflow finish"),
+            "Landing plan for release/1.1.0:\n  \
+             ✓ main      merged (v1.1.0 tagged)\n  \
+             ✓ develop   merged"
+        );
+    }
+
+    #[test]
+    fn landing_plan_single_leg_bump_deferred() {
+        let steps = [
+            LandingStep { target: "release/1.1.0".to_string(), state: LegState::AwaitingMerge { url: "https://example.com/pr/9".to_string() } },
+        ];
+        assert_eq!(
+            render_landing_plan("release-chore/1.1.0/set-version", &steps, "bflow bump"),
+            "Landing plan for release-chore/1.1.0/set-version:\n  \
+             → release/1.1.0   PR open: https://example.com/pr/9 — merge it, then re-run bflow bump"
+        );
+    }
+
+    #[test]
+    fn landing_plan_single_leg_bump_consumed() {
+        let steps = [
+            LandingStep { target: "release/1.1.0".to_string(), state: LegState::Landed { tag: Some("v1.1.0-rc.3".to_string()) } },
+        ];
+        assert_eq!(
+            render_landing_plan("release-chore/1.1.0/set-version", &steps, "bflow bump"),
+            "Landing plan for release-chore/1.1.0/set-version:\n  \
+             ✓ release/1.1.0   merged (v1.1.0-rc.3 tagged)"
+        );
+    }
+
+    #[test]
+    fn landing_plan_single_leg_sync() {
+        let steps = [
+            LandingStep { target: "develop".to_string(), state: LegState::AwaitingMerge { url: "https://example.com/pr/4".to_string() } },
+        ];
+        assert_eq!(
+            render_landing_plan("release/1.1.0", &steps, "bflow sync"),
+            "Landing plan for release/1.1.0:\n  \
+             → develop   PR open: https://example.com/pr/4 — merge it, then re-run bflow sync"
+        );
+    }
 
     #[test]
     fn resume_hint_commits_before_switching_back() {

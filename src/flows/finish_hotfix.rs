@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, delete_source_branch, leg_landed, merge_into, open_landing_pr,
+    announce_landing_plan, delete_source_branch, leg_landed, merge_into, open_landing_pr,
     open_versioned_branches, push_if_needed, push_tag_if_missing, report_commits_past_landing, resume_hint, tag_at_if_missing,
-    tag_if_missing, tip_landed_somewhere,
+    tag_if_missing, tip_landed_somewhere, LandingStep,
 };
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
@@ -103,7 +103,15 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
     let hotfix_branch = version.hotfix_branch();
     let tag = version.tag_name();
 
+    // Hoisted above the walk (read-only, same values) so the landing plan can
+    // name the release legs still to come even when this run stops at main or
+    // develop. Sorted despite the trait contract already promising it:
+    // deterministic replay on resume is a crash-safety invariant.
+    let mut release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
+    release_branches.sort();
+
     let mut landed: Vec<LandedPr> = Vec::new();
+    let mut steps: Vec<LandingStep> = Vec::new();
 
     let main_pr = leg_landed(git, hosting, &hotfix_branch, main_branch)?;
     if let Some(pr) = &main_pr {
@@ -124,41 +132,53 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
             None => {
                 let title = format!("chore: merge hotfix {version} into {main_branch}");
                 let url = open_landing_pr(git, hosting, &hotfix_branch, main_branch, &title, template)?;
-                announce_pending_landing(&url);
+                steps.push(LandingStep::awaiting(main_branch, url));
+                steps.push(LandingStep::pending("develop"));
+                steps.extend(release_branches.iter().map(|r| LandingStep::pending(r)));
+                announce_landing_plan(&hotfix_branch, &steps, "bflow finish");
                 return Ok(());
             }
         }
     }
+    steps.push(LandingStep::landed(main_branch, Some(tag.clone())));
 
     if let Some(pr) = &main_pr {
         report_commits_past_landing(git, &hotfix_branch, pr, main_branch, &tag)?;
     }
 
     match leg_landed(git, hosting, &hotfix_branch, "develop")? {
-        Some(pr) => landed.push(pr),
+        Some(pr) => {
+            landed.push(pr);
+            steps.push(LandingStep::landed("develop", None));
+        }
         None => {
             let title = format!("chore: merge hotfix {version} into develop");
             let url = open_landing_pr(git, hosting, &hotfix_branch, "develop", &title, template)?;
-            announce_pending_landing(&url);
+            steps.push(LandingStep::awaiting("develop", url));
+            steps.extend(release_branches.iter().map(|r| LandingStep::pending(r)));
+            announce_landing_plan(&hotfix_branch, &steps, "bflow finish");
             return Ok(());
         }
     }
 
-    let mut release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
-    release_branches.sort();
-
-    for release in &release_branches {
+    for (i, release) in release_branches.iter().enumerate() {
         match leg_landed(git, hosting, &hotfix_branch, release)? {
-            Some(pr) => landed.push(pr),
+            Some(pr) => {
+                landed.push(pr);
+                steps.push(LandingStep::landed(release, None));
+            }
             None => {
                 let title = format!("chore: merge hotfix {version} into {release}");
                 let url = open_landing_pr(git, hosting, &hotfix_branch, release, &title, template)?;
-                announce_pending_landing(&url);
+                steps.push(LandingStep::awaiting(release, url));
+                steps.extend(release_branches[i + 1..].iter().map(|r| LandingStep::pending(r)));
+                announce_landing_plan(&hotfix_branch, &steps, "bflow finish");
                 return Ok(());
             }
         }
     }
 
+    announce_landing_plan(&hotfix_branch, &steps, "bflow finish");
     let tip_landed = tip_landed_somewhere(git, &hotfix_branch, &landed)?;
     finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)
 }

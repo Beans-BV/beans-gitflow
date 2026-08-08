@@ -450,6 +450,7 @@ fn protected_hotfix_opens_main_pr_and_stops() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
         "tag_exists:v1.1.1",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
@@ -480,6 +481,7 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
         "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_exists:v1.1.1",
@@ -519,6 +521,9 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "tag_exists:v1.3.0",
+        "tag_exists:v1.2.0",
         "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
@@ -526,9 +531,6 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
-        "list_branches_matching:release/*",
-        "tag_exists:v1.3.0",
-        "tag_exists:v1.2.0",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
     ]);
@@ -561,6 +563,9 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "tag_exists:v1.3.0",
+        "tag_exists:v1.2.0",
         "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
@@ -568,9 +573,6 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
-        "list_branches_matching:release/*",
-        "tag_exists:v1.3.0",
-        "tag_exists:v1.2.0",
         "is_ancestor:mc3:origin/release/1.2.0",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
@@ -607,6 +609,8 @@ fn protected_hotfix_completes_after_all_landed() {
     finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
 
     assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "tag_exists:v1.2.0",
         "is_ancestor:mc1:origin/main",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
@@ -614,8 +618,6 @@ fn protected_hotfix_completes_after_all_landed() {
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
-        "list_branches_matching:release/*",
-        "tag_exists:v1.2.0",
         "is_ancestor:mc3:origin/release/1.2.0",
         "branch_sha:hotfix/1.1.1",
         "current_branch",
