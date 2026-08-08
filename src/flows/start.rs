@@ -2,7 +2,7 @@ use crate::flows::{open_versioned_branches, require_clean_tree, run_version_scri
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
-use crate::repo_config::{Mode, RepoConfig};
+use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
 use crate::worktree::{open_worktree, WorktreeContext};
@@ -114,8 +114,11 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
     };
 
     let branch = next.release_branch();
-    let rc = next.with_rc(1);
-    let tag = rc.tag_name();
+    let first_tag = match cfg.bump_strategy {
+        BumpStrategy::Rc => next.with_rc(1),
+        BumpStrategy::Patch => next.clone(),
+    };
+    let tag = first_tag.tag_name();
 
     if script.is_some() {
         require_clean_tree(git)?;

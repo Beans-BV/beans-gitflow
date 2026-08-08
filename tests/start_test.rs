@@ -2,7 +2,11 @@ mod common;
 
 use common::{MockEditor, MockGit, MockHosting, MockPrompter, MockVersionScript};
 use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
-use bflow::repo_config::{Mode, RepoConfig};
+use bflow::repo_config::{BumpStrategy, Mode, RepoConfig};
+
+fn patch_cfg() -> RepoConfig {
+    RepoConfig { bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
+}
 use bflow::version::SemVer;
 use bflow::worktree::{WorktreeConfig, WorktreeContext};
 
@@ -77,6 +81,25 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
         "push:release/0.1.0",
         "create_tag:v0.1.0-rc.1:chore: create release branch 0.1.0",
         "push_tag:v0.1.0-rc.1",
+    ]);
+}
+
+#[test]
+fn start_release_patch_mode_cuts_a_clean_first_tag() {
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["v1.0.0".to_string()];
+
+    start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &patch_cfg(), Some(ReleaseType::Minor)).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:release/*",
+        "list_tags",
+        "checkout:develop",
+        "create_branch:release/1.1.0:develop",
+        "push:release/1.1.0",
+        "create_tag:v1.1.0:chore: create release branch 1.1.0",
+        "push_tag:v1.1.0",
     ]);
 }
 
