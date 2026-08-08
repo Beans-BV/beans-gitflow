@@ -239,6 +239,32 @@ pub(crate) fn run_version_script(git: &dyn Git, script: &dyn VersionScript, vers
     Ok(true)
 }
 
+/// `run_version_script`'s checkout-less sibling: same rule (script → clean
+/// check → stage → commit), executed in an ephemeral worktree of `branch` so
+/// the user's checkout is never touched. The worktree is removed on success
+/// and on failure alike; a removal failure only warns, naming the command —
+/// the version commit (the actual work) is not at stake by then.
+pub(crate) fn run_version_script_in_temp_worktree(git: &dyn Git, script: &dyn VersionScript, branch: &str, version: &SemVer) -> Result<bool, String> {
+    let repo_root = git.repo_root()?;
+    let path = crate::worktree::temp_worktree_path(&repo_root, branch);
+    git.add_worktree(&path, branch)?;
+    let result = (|| {
+        let release = version.to_release();
+        script.run_in(&path, &release.to_string())?;
+        if git.is_working_tree_clean_at(&path)? {
+            return Ok(false);
+        }
+        git.stage_all_at(&path)?;
+        git.commit_at(&path, &format!("chore: set version {release}"))?;
+        Ok(true)
+    })();
+    if let Err(e) = git.remove_worktree(&path) {
+        eprintln!("Warning: could not remove the temporary worktree: {e}");
+        eprintln!("  Remove it yourself: git worktree remove --force {}", path.display());
+    }
+    result
+}
+
 /// List `{prefix}/*` branches that are still open, excluding any that already
 /// shipped — reusing a shipped branch would make `bflow start` loop onto a
 /// dead branch forever and hotfix fan-out merge into history that already

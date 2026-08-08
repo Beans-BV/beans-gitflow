@@ -1,4 +1,4 @@
-use crate::flows::{open_versioned_branches, require_clean_tree, run_version_script};
+use crate::flows::{open_versioned_branches, require_clean_tree, run_version_script, run_version_script_in_temp_worktree};
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
@@ -320,13 +320,15 @@ fn resolve_or_create_hotfix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
     if no_checkout {
         git.create_branch_no_checkout(&branch, main_branch)?;
         if let Some(script) = script {
-            eprintln!(
-                "⚠ Version script not run: {branch} was created without checkout, so bflow cannot commit version files there."
-            );
-            eprintln!(
-                "  Recover manually: git switch {branch}, run {} {next}, commit, and push.",
-                script.display_name(),
-            );
+            // Warn-and-continue (M2 precedent): a broken script must never
+            // block the hotfix — the branch push below still proceeds.
+            if let Err(e) = run_version_script_in_temp_worktree(git, script, &branch, &next) {
+                eprintln!("⚠ Version script failed in a temporary worktree: {e}");
+                eprintln!(
+                    "  Recover manually: git switch {branch}, run {} {next}, commit, and push.",
+                    script.display_name(),
+                );
+            }
         }
     } else {
         git.checkout(main_branch)?;

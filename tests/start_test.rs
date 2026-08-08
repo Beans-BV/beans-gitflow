@@ -1128,23 +1128,55 @@ fn start_hotfix_fix_reuse_path_never_runs_script() {
 }
 
 #[test]
-fn hotfix_no_checkout_skips_script() {
+fn hotfix_no_checkout_runs_script_in_temp_worktree() {
+    // Spec change (supersedes mutation-audit trap 9's "no checkout, no
+    // script"): the version invariant holds in every mode. The script runs in
+    // an ephemeral worktree, the commit lands on hotfix/X.Y.Z before the one
+    // push, and the worktree is removed — the user's checkout stays untouched.
     let mut git = MockGit::new();
     git.branches_matching = vec![];
     git.tags = vec!["1.0.0".to_string()];
+    git.working_tree_clean_seq.borrow_mut().extend([false]);
     let script = MockVersionScript::new();
 
     start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "urgent-crash", true, None, "main", Some(&script)).unwrap();
 
+    let wt = "/repos/beans-gitflow-bflow-tmp-hotfix-1.0.1";
     assert_eq!(git.calls(), vec![
-        "list_branches_matching:hotfix/*",
-        "list_tags",
-        "create_branch_no_checkout:hotfix/1.0.1:main",
-        "push:hotfix/1.0.1",
-        "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1",
-        "push:hotfix-fix/1.0.1/urgent-crash",
+        "list_branches_matching:hotfix/*".to_string(),
+        "list_tags".to_string(),
+        "create_branch_no_checkout:hotfix/1.0.1:main".to_string(),
+        "repo_root".to_string(),
+        format!("add_worktree:{wt}:hotfix/1.0.1"),
+        format!("is_working_tree_clean_at:{wt}"),
+        format!("stage_all_at:{wt}"),
+        format!("commit_at:{wt}:chore: set version 1.0.1"),
+        format!("remove_worktree:{wt}"),
+        "push:hotfix/1.0.1".to_string(),
+        "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1".to_string(),
+        "push:hotfix-fix/1.0.1/urgent-crash".to_string(),
     ]);
-    assert!(script.calls().is_empty());
+    assert_eq!(script.calls(), vec![format!("run_in:{wt}:1.0.1")]);
+}
+
+#[test]
+fn hotfix_no_checkout_script_noop_commits_nothing() {
+    // The script left the temp worktree clean — no stage, no commit, worktree
+    // still removed, push still happens.
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+    git.working_tree_clean_seq.borrow_mut().extend([true]);
+    let script = MockVersionScript::new();
+
+    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "urgent-crash", true, None, "main", Some(&script)).unwrap();
+
+    let calls = git.calls();
+    let wt = "/repos/beans-gitflow-bflow-tmp-hotfix-1.0.1";
+    assert!(!calls.iter().any(|c| c.starts_with("stage_all_at") || c.starts_with("commit_at")),
+        "a no-op script must not commit; calls: {calls:?}");
+    assert!(calls.contains(&format!("remove_worktree:{wt}")), "calls: {calls:?}");
+    assert!(calls.contains(&"push:hotfix/1.0.1".to_string()), "calls: {calls:?}");
 }
 
 // Note: the pure `message_is_breaking` string-matching logic is tested
