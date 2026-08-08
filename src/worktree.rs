@@ -106,6 +106,22 @@ pub fn worktree_path(repo_root: &Path, repo_name: &str, base_path: Option<&str>,
     base.join(folder)
 }
 
+/// Compute the directory for an ephemeral, bflow-internal worktree of `branch`.
+///
+/// `<repo-name>-bflow-tmp-<branch-with-slashes-as-dashes>`, always in the
+/// repository's parent directory. The `bflow-tmp` infix keeps it disjoint from
+/// `worktree_path`'s user-facing scheme, and `bflow.worktree.*` config is
+/// deliberately ignored — this is internal plumbing, not a user worktree.
+pub fn temp_worktree_path(repo_root: &Path, branch: &str) -> PathBuf {
+    let repo_name = repo_root.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
+    let folder = format!("{repo_name}-bflow-tmp-{}", branch.replace('/', "-"));
+    repo_root
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(folder)
+}
+
 /// Create a git worktree for `branch` and open it in the configured editor.
 ///
 /// `branch` must already exist. Worktree creation is fatal on error; editor-open

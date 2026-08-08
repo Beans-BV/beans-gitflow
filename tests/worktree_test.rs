@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use common::{MockEditor, MockGit, MockPrompter};
 use bflow::worktree::{
-    worktree_path, WorktreeConfig, EDITOR_PRESETS,
+    temp_worktree_path, worktree_path, WorktreeConfig, EDITOR_PRESETS,
     set_enabled, set_editor, set_path, use_default_path, show_status, wizard,
 };
 
@@ -45,6 +45,24 @@ fn worktree_path_expands_leading_tilde_in_custom_base() {
     let root = Path::new("/repos/beans-gitflow");
     let p = worktree_path(root, "beans-gitflow", Some("~/worktrees"), "feature/login");
     assert_eq!(p, PathBuf::from(home).join("worktrees/beans-gitflow-feature-login"));
+}
+
+// --- temp_worktree_path (pure) ---
+
+#[test]
+fn temp_worktree_path_is_repo_parent_with_tmp_infix() {
+    let root = Path::new("/repos/beans-gitflow");
+    let p = temp_worktree_path(root, "hotfix/1.0.1");
+    assert_eq!(p, PathBuf::from("/repos/beans-gitflow-bflow-tmp-hotfix-1.0.1"));
+}
+
+#[test]
+fn temp_worktree_path_cannot_collide_with_a_user_worktree_for_the_same_branch() {
+    let root = Path::new("/repos/beans-gitflow");
+    assert_ne!(
+        temp_worktree_path(root, "hotfix/1.0.1"),
+        worktree_path(root, "beans-gitflow", None, "hotfix/1.0.1"),
+    );
 }
 
 // --- WorktreeConfig::load ---
