@@ -159,6 +159,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
             git.create_tag_at(&tag, &format!("chore: bump version to {tag}"), &pr.merge_commit_sha)?;
             git.push_tag(&tag)?;
             delete_branch_guarded(git, &chore_branch)?;
+            announce_landing_plan(&chore_branch, &[LandingStep::landed(branch, Some(tag.clone()))], "bflow bump");
             println!("Tagged and pushed: {tag}");
             return Ok(());
         }
@@ -184,7 +185,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
 
     if git.remote_branch_exists(&chore_branch)? {
         let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
-        announce_deferred(&url);
+        announce_deferred(&chore_branch, branch, &url);
         return Ok(());
     }
 
@@ -201,7 +202,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
         Ok(true) => {
             git.push(&chore_branch)?;
             let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
-            announce_deferred(&url);
+            announce_deferred(&chore_branch, branch, &url);
             git.checkout(branch)?;
             Ok(())
         }
@@ -219,8 +220,8 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     }
 }
 
-fn announce_deferred(pr_url: &str) {
-    println!("Version PR: {pr_url}");
+fn announce_deferred(chore_branch: &str, branch: &str, pr_url: &str) {
+    announce_landing_plan(chore_branch, &[LandingStep::awaiting(branch, pr_url.to_string())], "bflow bump");
     println!("The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.");
 }
 
