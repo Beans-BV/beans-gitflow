@@ -651,7 +651,7 @@ fn m2_protected_mode_opens_a_version_pr_on_a_fresh_branch() {
     git.working_tree_clean_seq.borrow_mut().extend([true, false, true, false]);
     let script = MockVersionScript::new();
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor)).unwrap();
 
@@ -695,7 +695,7 @@ fn m2_protected_mode_noop_deletes_the_fresh_chore_branch() {
     git.working_tree_clean_seq.borrow_mut().extend([true, false, true, true]);
     let script = MockVersionScript::new();
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor)).unwrap();
 
@@ -735,7 +735,7 @@ fn m2_protected_mode_reuses_a_leftover_chore_branch_without_recreating_it() {
     git.existing_remote_branches.insert("chore/set-version-1.2.0".to_string());
     let script = MockVersionScript::new();
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor)).unwrap();
 
@@ -776,7 +776,7 @@ fn bump_develop_protected_deletes_leftover_local_chore_branch_before_recreating(
     git.existing_local_branches.insert("chore/set-version-1.2.0".to_string());
     let script = MockVersionScript::new();
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor)).unwrap();
 
@@ -822,7 +822,7 @@ fn bump_develop_protected_script_failure_restores_to_develop_then_release_branch
     let mut script = MockVersionScript::new();
     script.fail_nth_run = Some(2); // M1's run succeeds; M2's (the 2nd) fails
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     let result = start_release(&git, &MockPrompter::new(), &hosting, Some(&script), &cfg, Some(ReleaseType::Minor));
 

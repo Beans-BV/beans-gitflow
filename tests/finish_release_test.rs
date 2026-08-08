@@ -131,7 +131,7 @@ fn bump_protected_fresh_with_changes_defers_the_tag_to_the_landing_pr() {
     git.working_tree_clean_seq.get_mut().extend([true, false]);
     let hosting = MockHosting::new();
     let script = MockVersionScript::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
 
@@ -160,7 +160,7 @@ fn bump_protected_fresh_noop_cuts_the_tag_immediately() {
     git.working_tree_clean_seq.get_mut().extend([true, true]);
     let hosting = MockHosting::new();
     let script = MockVersionScript::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
 
@@ -194,7 +194,7 @@ fn bump_protected_cuts_the_deferred_tag_at_the_merge_commit_once_the_pr_lands() 
         },
     );
     let script = MockVersionScript::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
 
@@ -228,7 +228,7 @@ fn bump_protected_already_consumed_falls_through_to_the_fresh_path() {
         },
     );
     let script = MockVersionScript::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
 
@@ -260,7 +260,7 @@ fn bump_protected_with_no_script_tags_the_tip_directly() {
     let mut git = MockGit::new();
     git.tags_on_branch = vec!["v1.1.0-rc.1".to_string()];
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, None, &cfg, 1, 1).unwrap();
 
@@ -278,7 +278,7 @@ fn bump_protected_reuses_a_leftover_remote_chore_branch_without_recreating_it() 
     git.existing_remote_branches.insert("release-chore/1.1.0/set-version".to_string());
     let hosting = MockHosting::new();
     let script = MockVersionScript::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
 
@@ -302,7 +302,7 @@ fn bump_protected_deletes_leftover_local_chore_branch_before_recreating() {
     git.working_tree_clean_seq.get_mut().extend([true, false]);
     let hosting = MockHosting::new();
     let script = MockVersionScript::new();
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
 
@@ -334,7 +334,7 @@ fn bump_protected_script_failure_returns_to_the_release_branch() {
     let hosting = MockHosting::new();
     let mut script = MockVersionScript::new();
     script.fail = Some("set-version.sh: command not found".to_string());
-    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false };
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
 
     let err = bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap_err();
 
@@ -636,7 +636,7 @@ fn finish_release_keeps_branch_when_configured() {
     git.existing_remote_branches.insert("release/1.1.0".to_string());
 
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true };
+    let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true, ..RepoConfig::default() };
     finish_release(&git, &hosting, &cfg, 1, 1, "main", None).unwrap();
 
     let calls = git.calls();
@@ -674,7 +674,7 @@ fn finish_release_develop_merge_conflict_names_source_branch_to_switch_back() {
 // --- Protected mode: sequential landing PRs (run 1 → RC gate → main PR) ---
 
 fn protected_cfg(keep: bool) -> RepoConfig {
-    RepoConfig { mode: Mode::Protected, keep_release_branches: keep }
+    RepoConfig { mode: Mode::Protected, keep_release_branches: keep, ..RepoConfig::default() }
 }
 
 fn landed(head_sha: &str, merge_commit_sha: &str) -> bflow::hosting::LandedPr {

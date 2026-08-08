@@ -391,7 +391,7 @@ fn finish_hotfix_keeps_branch_when_configured() {
     git.existing_remote_branches.insert("hotfix/1.0.1".to_string());
 
     let hosting = MockHosting::new();
-    let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true };
+    let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true, ..RepoConfig::default() };
     finish_hotfix(&git, &hosting, &cfg, 1, 0, 1, "main", None).unwrap();
 
     let calls = git.calls();
@@ -429,7 +429,7 @@ fn finish_hotfix_develop_merge_conflict_names_source_branch_to_switch_back() {
 // --- Protected mode: sequential landing PRs (hotfixes have no RC gate) ---
 
 fn protected_cfg(keep: bool) -> RepoConfig {
-    RepoConfig { mode: Mode::Protected, keep_release_branches: keep }
+    RepoConfig { mode: Mode::Protected, keep_release_branches: keep, ..RepoConfig::default() }
 }
 
 fn landed(head_sha: &str, merge_commit_sha: &str) -> bflow::hosting::LandedPr {

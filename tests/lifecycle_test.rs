@@ -93,7 +93,7 @@ fn dirty_tree_finish_rejected_before_any_side_effect() {
 }
 
 fn protected_cfg() -> RepoConfig {
-    RepoConfig { mode: Mode::Protected, keep_release_branches: false }
+    RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() }
 }
 
 #[test]
