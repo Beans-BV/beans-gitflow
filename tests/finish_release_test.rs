@@ -2,7 +2,15 @@ mod common;
 
 use common::{MockGit, MockHosting, MockVersionScript};
 use bflow::flows::finish_release::{bump_version, sync_with_develop, finish_release};
-use bflow::repo_config::{Mode, RepoConfig};
+use bflow::repo_config::{BumpStrategy, Mode, RepoConfig};
+
+fn patch_cfg() -> RepoConfig {
+    RepoConfig { bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
+}
+
+fn patch_protected_cfg() -> RepoConfig {
+    RepoConfig { mode: Mode::Protected, bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
+}
 
 /// Configure a MockGit for a "fresh start" release finish: nothing yet merged,
 /// no tags exist past the latest RC, source branch still exists.
@@ -123,6 +131,137 @@ fn bump_free_with_script_noop_still_cuts_the_tag() {
         "create_tag:v1.1.0-rc.2:chore: bump version to v1.1.0-rc.2",
         "push_tag:v1.1.0-rc.2",
     ]);
+}
+
+#[test]
+fn bump_patch_increments_patch_and_tags_clean() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0".to_string()];
+
+    bump_version(&git, &MockHosting::new(), None, &patch_cfg(), 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "create_tag:v1.1.1:chore: bump version to v1.1.1",
+        "push_tag:v1.1.1",
+    ]);
+}
+
+#[test]
+fn bump_patch_ignores_pre_release_and_other_minor_tags() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec![
+        "v1.1.0".to_string(),
+        "v1.1.1".to_string(),
+        "v1.1.2-rc.1".to_string(),
+        "v1.0.9".to_string(),
+    ];
+
+    bump_version(&git, &MockHosting::new(), None, &patch_cfg(), 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "create_tag:v1.1.2:chore: bump version to v1.1.2",
+        "push_tag:v1.1.2",
+    ]);
+}
+
+#[test]
+fn bump_patch_with_no_tag_tags_the_release_version_itself() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec![];
+
+    bump_version(&git, &MockHosting::new(), None, &patch_cfg(), 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "create_tag:v1.1.0:chore: bump version to v1.1.0",
+        "push_tag:v1.1.0",
+    ]);
+}
+
+#[test]
+fn bump_patch_with_script_runs_it_with_the_new_version() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0".to_string()];
+    git.working_tree_clean_seq.get_mut().extend([true, false]);
+    let script = MockVersionScript::new();
+
+    bump_version(&git, &MockHosting::new(), Some(&script), &patch_cfg(), 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "is_working_tree_clean",
+        "is_working_tree_clean",
+        "stage_all",
+        "commit:chore: set version 1.1.1",
+        "push:release/1.1.0",
+        "create_tag:v1.1.1:chore: bump version to v1.1.1",
+        "push_tag:v1.1.1",
+    ]);
+    assert_eq!(script.calls(), vec!["run:1.1.1"]);
+}
+
+#[test]
+fn bump_patch_protected_fresh_defers_the_tag_and_uses_the_new_version() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0".to_string()];
+    git.working_tree_clean_seq.get_mut().extend([true, false]);
+    let hosting = MockHosting::new();
+    let script = MockVersionScript::new();
+
+    bump_version(&git, &hosting, Some(&script), &patch_protected_cfg(), 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "remote_branch_exists:release-chore/1.1.0/set-version",
+        "is_working_tree_clean",
+        "local_branch_exists:release-chore/1.1.0/set-version",
+        "create_branch:release-chore/1.1.0/set-version:release/1.1.0",
+        "is_working_tree_clean",
+        "stage_all",
+        "commit:chore: set version 1.1.1",
+        "push:release-chore/1.1.0/set-version",
+        "checkout:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
+        "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.1",
+    ]);
+    assert_eq!(script.calls(), vec!["run:1.1.1"]);
+    assert!(!git.calls().iter().any(|c| c.starts_with("create_tag")));
+}
+
+#[test]
+fn bump_patch_protected_cuts_the_deferred_tag_at_the_merge_commit() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0".to_string()];
+    git.tag_commits.insert("v1.1.0".to_string(), "old-tip-sha".to_string());
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("release-chore/1.1.0/set-version".to_string(), "release/1.1.0".to_string()),
+        bflow::hosting::LandedPr {
+            url: "https://github.com/org/repo/pull/9".to_string(),
+            head_sha: "chore-head-sha".to_string(),
+            merge_commit_sha: "merge-commit-sha".to_string(),
+        },
+    );
+    let script = MockVersionScript::new();
+
+    bump_version(&git, &hosting, Some(&script), &patch_protected_cfg(), 1, 1).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "tag_commit_sha:v1.1.0",
+        "create_tag_at:v1.1.1:chore: bump version to v1.1.1:merge-commit-sha",
+        "push_tag:v1.1.1",
+        "local_branch_exists:release-chore/1.1.0/set-version",
+        "remote_branch_exists:release-chore/1.1.0/set-version",
+    ]);
+    assert_eq!(hosting.calls(), vec!["merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0"]);
+    // Convergence rule carries over from rc mode: never re-run the script on
+    // the merged-PR path.
+    assert!(script.calls().is_empty());
 }
 
 #[test]

@@ -7,7 +7,7 @@ use crate::flows::{
 };
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
-use crate::repo_config::{Mode, RepoConfig};
+use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
 
@@ -36,29 +36,52 @@ fn latest_rc(git: &dyn Git, branch: &str, major: u32, minor: u32) -> Result<Opti
         .max())
 }
 
-/// The RC to cut next: one past the branch's highest existing RC tag, or `.1`
-/// when it has none yet (`bflow start release` leaves no tag behind).
+/// Highest clean `v{major}.{minor}.Z` tag on `branch` (the patch strategy's
+/// sibling of `latest_rc`), or `None` when the branch has none. Ancestor tags
+/// from earlier releases carry a different major/minor, so the filter isolates
+/// this release's own tags.
+fn latest_patch(git: &dyn Git, branch: &str, major: u32, minor: u32) -> Result<Option<SemVer>, String> {
+    let tags = git.tags_on_branch(branch)?;
+    Ok(tags.iter().filter_map(|t| SemVer::parse(t))
+        .filter(|v| v.major == major && v.minor == minor && !v.is_pre_release())
+        .max())
+}
+
+/// The tag to cut next under `strategy`: one past the branch's highest existing
+/// RC/patch tag, or the strategy's first tag (`-rc.1` / the clean release
+/// itself) when it has none yet.
 /// Reads `branch`'s tags, so callers call it only where a tag is actually about
 /// to be cut or checked — protected mode's deferred/reuse paths never do.
-fn next_rc(git: &dyn Git, branch: &str, major: u32, minor: u32, release: &SemVer) -> Result<(Option<SemVer>, SemVer, String), String> {
-    let latest = latest_rc(git, branch, major, minor)?;
-    let next = latest.clone().map(|v| v.bump_rc()).unwrap_or_else(|| release.with_rc(1));
+fn next_version(git: &dyn Git, branch: &str, major: u32, minor: u32, release: &SemVer, strategy: BumpStrategy) -> Result<(Option<SemVer>, SemVer, String), String> {
+    let (latest, next) = match strategy {
+        BumpStrategy::Rc => {
+            let latest = latest_rc(git, branch, major, minor)?;
+            let next = latest.clone().map(|v| v.bump_rc()).unwrap_or_else(|| release.with_rc(1));
+            (latest, next)
+        }
+        BumpStrategy::Patch => {
+            let latest = latest_patch(git, branch, major, minor)?;
+            let next = latest.clone().map(|v| v.bump_patch()).unwrap_or_else(|| release.clone());
+            (latest, next)
+        }
+    };
     let tag = next.tag_name();
     Ok((latest, next, tag))
 }
 
 /// Announce the tag about to be cut: the ordinary "bumping from X" line, or —
-/// when the branch has no RC yet — the first-RC line instead.
-fn announce_next_rc(latest: Option<&SemVer>, next: &SemVer, tag: &str) {
+/// when the branch has no tag of its strategy yet — the first-tag line instead.
+fn announce_next_version(latest: Option<&SemVer>, next: &SemVer, tag: &str) {
     match latest {
         Some(l) => println!("Bumping version: {l} → {next}"),
-        None => println!("Tagging first RC: {tag}"),
+        None if next.is_rc() => println!("Tagging first RC: {tag}"),
+        None => println!("Tagging first version: {tag}"),
     }
 }
 
 /// Cut `tag` at the branch tip (the common case: nothing to wait on).
 fn cut_tag_at_tip(git: &dyn Git, latest: Option<&SemVer>, next: &SemVer, tag: &str) -> Result<(), String> {
-    announce_next_rc(latest, next, tag);
+    announce_next_version(latest, next, tag);
     git.create_tag(tag, &format!("chore: bump version to {tag}"))?;
     git.push_tag(tag)?;
     println!("Tagged and pushed: {tag}");
@@ -77,20 +100,26 @@ pub fn bump_version(
     let branch = release.release_branch();
 
     match cfg.mode {
-        Mode::Free => bump_free(git, script, &release, &branch, major, minor),
-        Mode::Protected => bump_protected(git, hosting, script, &release, &branch, major, minor),
+        Mode::Free => bump_free(git, script, &release, &branch, major, minor, cfg.bump_strategy),
+        Mode::Protected => bump_protected(git, hosting, script, &release, &branch, major, minor, cfg.bump_strategy),
     }
 }
 
 /// Free mode: no landing PR to wait for, so a version-script commit (if there
 /// is a script) lands straight on the release branch and the tag is cut at the
-/// tip in the same run.
-fn bump_free(git: &dyn Git, script: Option<&dyn VersionScript>, release: &SemVer, branch: &str, major: u32, minor: u32) -> Result<(), String> {
-    let (latest, next, tag) = next_rc(git, branch, major, minor, release)?;
+/// tip in the same run. The script receives the version whose file state the
+/// next tag must carry: the constant release under rc, the freshly incremented
+/// patch under the patch strategy.
+fn bump_free(git: &dyn Git, script: Option<&dyn VersionScript>, release: &SemVer, branch: &str, major: u32, minor: u32, strategy: BumpStrategy) -> Result<(), String> {
+    let (latest, next, tag) = next_version(git, branch, major, minor, release, strategy)?;
 
     if let Some(script) = script {
         require_clean_tree(git)?;
-        if run_version_script(git, script, release)? {
+        let script_version = match strategy {
+            BumpStrategy::Rc => release,
+            BumpStrategy::Patch => &next,
+        };
+        if run_version_script(git, script, script_version)? {
             git.push(branch)?;
         }
     }
@@ -101,17 +130,18 @@ fn bump_free(git: &dyn Git, script: Option<&dyn VersionScript>, release: &SemVer
 /// commit is trustworthy, so the RC tag is deferred to that PR's merge commit
 /// rather than cut on a local commit. Order (task brief): consume a landed PR
 /// first, then pure-tagging, then PR reuse, then a fresh script run.
-fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, release: &SemVer, branch: &str, major: u32, minor: u32) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, release: &SemVer, branch: &str, major: u32, minor: u32, strategy: BumpStrategy) -> Result<(), String> {
     let chore_branch = release.release_chore_branch("set-version");
 
     if let Some(pr) = hosting.merged_pr_to(&chore_branch, branch)? {
-        let (latest, next, tag) = next_rc(git, branch, major, minor, release)?;
+        let (latest, next, tag) = next_version(git, branch, major, minor, release, strategy)?;
         let consumed = match &latest {
             Some(l) => git.tag_commit_sha(&l.tag_name())? == pr.merge_commit_sha,
             None => false,
         };
         if !consumed {
-            announce_next_rc(latest.as_ref(), &next, &tag);
+            announce_next_version(latest.as_ref(), &next, &tag);
             git.create_tag_at(&tag, &format!("chore: bump version to {tag}"), &pr.merge_commit_sha)?;
             git.push_tag(&tag)?;
             delete_branch_guarded(git, &chore_branch)?;
@@ -124,11 +154,19 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     }
 
     let Some(script) = script else {
-        let (latest, next, tag) = next_rc(git, branch, major, minor, release)?;
+        let (latest, next, tag) = next_version(git, branch, major, minor, release, strategy)?;
         return cut_tag_at_tip(git, latest.as_ref(), &next, &tag);
     };
 
-    let title = format!("chore: set version {release}");
+    // The version the script must write — and thus the PR's title and commit
+    // message. The patch strategy has to read the branch's tags to know it;
+    // recomputing it on a later run converges (the next patch tag only ever
+    // appears after this PR's merge is consumed).
+    let script_version = match strategy {
+        BumpStrategy::Rc => release.clone(),
+        BumpStrategy::Patch => next_version(git, branch, major, minor, release, strategy)?.1,
+    };
+    let title = format!("chore: set version {script_version}");
 
     if git.remote_branch_exists(&chore_branch)? {
         let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
@@ -145,7 +183,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
         git.delete_branch_local(&chore_branch)?;
     }
     git.create_branch(&chore_branch, branch)?;
-    match run_version_script(git, script, release) {
+    match run_version_script(git, script, &script_version) {
         Ok(true) => {
             git.push(&chore_branch)?;
             let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
@@ -156,7 +194,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
         Ok(false) => {
             git.checkout(branch)?;
             git.delete_branch_local(&chore_branch)?;
-            let (latest, next, tag) = next_rc(git, branch, major, minor, release)?;
+            let (latest, next, tag) = next_version(git, branch, major, minor, release, strategy)?;
             cut_tag_at_tip(git, latest.as_ref(), &next, &tag)
         }
         Err(e) => {
