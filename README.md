@@ -216,7 +216,7 @@ bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must 
 
 `--major` / `--minor` on `start release` skips the interactive prompt and forces the bump level. Useful for scripts and AI agents.
 
-`--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Designed for [git worktree](https://git-scm.com/docs/git-worktree) workflows. Not available for `start release`.
+`--no-checkout` creates and pushes the branch without switching to it. You stay on your current branch. Prefer [worktree mode](#worktree-integration), which manages the worktree and editor for you — `--no-checkout` is the low-level escape hatch for users with their own worktree tooling. Not available for `start release`.
 
 `--no-worktree` skips the optional [worktree flow](#worktree-integration) for a single command when `bflow.worktree.enabled` is set. No effect otherwise.
 
@@ -588,10 +588,12 @@ Because `develop` and an open hotfix or release branch can carry different versi
 
 #### Hotfix branches created without checkout
 
-`bflow start hotfix-fix --no-checkout` (or an active [worktree](#worktree-integration) flow) creates the hotfix branch without switching to it, so bflow cannot safely commit version files there — HEAD stays on your current branch. bflow skips the script and warns instead of guessing:
+`bflow start hotfix-fix --no-checkout` (or an active [worktree](#worktree-integration) flow) creates the hotfix branch without switching to it — HEAD stays on your current branch. The version script still runs: bflow adds a temporary git worktree for `hotfix/X.Y.Z`, runs the branch's own copy of the script there, commits, removes the worktree, and pushes the branch carrying its version commit. Your checkout and any local changes are never touched.
+
+Only if the script itself fails does bflow fall back to a warning with the manual recovery steps — a broken script never blocks an urgent hotfix:
 
 ```
-⚠ Version script not run: hotfix/1.2.1 was created without checkout, so bflow cannot commit version files there.
+⚠ Version script failed in a temporary worktree: ...
   Recover manually: git switch hotfix/1.2.1, run set-version.sh 1.2.1, commit, and push.
 ```
 

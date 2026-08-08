@@ -113,7 +113,7 @@ bflow sync # merge release into develop (on release/* only)
 
 **Papercut**: version files can conflict on merge (hotfix vs. develop, major release vs. develop) — resolve manually, bflow does not auto-resolve.
 
-`--no-checkout` hotfix creation skips the script (HEAD isn't on the new branch) and warns with the manual recovery steps.
+`--no-checkout` hotfix creation still runs the script: via a temporary worktree of the new branch (commit lands there, worktree removed, user's checkout untouched). Only a failing script falls back to a warning with manual recovery steps.
 
 ### Tag Strategy
 
