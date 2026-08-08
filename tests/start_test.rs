@@ -1179,6 +1179,50 @@ fn hotfix_no_checkout_script_noop_commits_nothing() {
     assert!(calls.contains(&"push:hotfix/1.0.1".to_string()), "calls: {calls:?}");
 }
 
+#[test]
+fn hotfix_no_checkout_script_failure_warns_removes_worktree_and_still_pushes() {
+    // Warn-and-continue: a broken script must never block the hotfix. The
+    // temp worktree is removed even on failure, and the branch still pushes —
+    // the end state matches the old manual-recovery warning path.
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+    let mut script = MockVersionScript::new();
+    script.fail = Some("boom".to_string());
+
+    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "urgent-crash", true, None, "main", Some(&script)).unwrap();
+
+    let calls = git.calls();
+    let wt = "/repos/beans-gitflow-bflow-tmp-hotfix-1.0.1";
+    assert!(calls.contains(&format!("remove_worktree:{wt}")),
+        "the temp worktree must be removed on script failure; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("commit_at")),
+        "a failed script must not commit; calls: {calls:?}");
+    assert!(calls.contains(&"push:hotfix/1.0.1".to_string()),
+        "the hotfix branch must still push after a script failure; calls: {calls:?}");
+}
+
+#[test]
+fn hotfix_no_checkout_add_worktree_failure_warns_without_removal() {
+    // Nothing was created, so there is nothing to remove — straight to the
+    // warn fallback, and the hotfix still pushes.
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+    git.add_worktree_error = Some("fatal: a leftover directory is in the way".to_string());
+    let script = MockVersionScript::new();
+
+    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "urgent-crash", true, None, "main", Some(&script)).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("remove_worktree")),
+        "no worktree was created, none may be removed; calls: {calls:?}");
+    assert!(script.calls().is_empty(),
+        "the script must not run without its worktree; script calls: {:?}", script.calls());
+    assert!(calls.contains(&"push:hotfix/1.0.1".to_string()),
+        "the hotfix branch must still push; calls: {calls:?}");
+}
+
 // Note: the pure `message_is_breaking` string-matching logic is tested
 // as unit tests in src/flows/start.rs. These integration tests cover the
 // git interaction — which ref is queried, and the develop → origin/develop
