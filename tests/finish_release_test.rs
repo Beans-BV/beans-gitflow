@@ -634,6 +634,114 @@ fn finish_release_targets_master_when_that_is_the_mainline() {
 }
 
 #[test]
+fn finish_release_patch_mode_merges_without_tagging() {
+    // The last bump tag (v1.1.1) is already the final version — finish only merges.
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0", "v1.1.1"]);
+    git.rev_list_count_result = 0;
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &patch_cfg(), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "is_ancestor:release/1.1.0:main",
+        "rev_list_count:v1.1.1:release/1.1.0",
+        "checkout:main",
+        "ff_merge:origin/main",
+        "merge:release/1.1.0:chore: merge release 1.1.0 into main",
+        "is_pushed:main",
+        "push:main",
+        "is_ancestor:release/1.1.0:develop",
+        "checkout:develop",
+        "ff_merge:origin/develop",
+        "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
+        "is_pushed:develop",
+        "push:develop",
+        "current_branch",
+        "local_branch_exists:release/1.1.0",
+        "delete_branch_local:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "delete_branch_remote:release/1.1.0",
+    ]);
+    assert!(hosting.calls().is_empty());
+}
+
+#[test]
+fn finish_release_patch_mode_gate_fires_when_head_past_latest_tag() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0", "v1.1.1"]);
+    git.rev_list_count_result = 2;
+
+    let hosting = MockHosting::new();
+    let err = finish_release(&git, &hosting, &patch_cfg(), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("v1.1.1"), "error should name the latest patch tag; got: {err}");
+    assert!(err.contains("bflow bump"), "error should tell user to bump; got: {err}");
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("checkout:main")),
+        "guard must abort before touching main; calls: {calls:?}");
+}
+
+#[test]
+fn protected_patch_finish_opens_main_pr_without_any_tag_machinery() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &patch_protected_cfg(), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tags_on_branch:release/1.1.0",
+        "rev_list_count:v1.1.0:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "is_pushed:release/1.1.0",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "merged_pr_to:release/1.1.0:main",
+        "create_or_get_pr:release/1.1.0:main:chore: merge release 1.1.0 into main",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("tag_exists")),
+        "patch mode has no tag step to sequence on; calls: {calls:?}");
+}
+
+#[test]
+fn protected_patch_finish_completes_after_both_legs_without_tagging() {
+    let mut git = MockGit::new();
+    git.current_branch = "release/1.1.0".to_string();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.tags_on_branch = vec!["v1.1.0".to_string(), "v1.1.1".to_string()];
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("relsha", "mc2"));
+
+    finish_release(&git, &hosting, &patch_protected_cfg(), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "is_ancestor:mc1:origin/main",
+        "tags_on_branch:release/1.1.0",
+        "branch_sha:release/1.1.0",
+        "is_ancestor:mc2:origin/develop",
+        "branch_sha:release/1.1.0",
+        "current_branch",
+        "checkout:main",
+        "local_branch_exists:release/1.1.0",
+        "delete_branch_local:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "delete_branch_remote:release/1.1.0",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.contains("tag_exists") || c.starts_with("create_tag") || c.starts_with("push_tag")),
+        "no tag is cut, checked, or pushed at patch-mode finish; calls: {calls:?}");
+}
+
+#[test]
 fn the_rc_gate_error_names_the_configured_mainline() {
     let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
     git.rev_list_count_result = 3;
