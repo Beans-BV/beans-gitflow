@@ -96,7 +96,7 @@ Opt-in: with no `.github/pr-templates/`, behavior is unchanged.
 
 ```bash
 bflow bump # create next RC tag (on release/* only)
-bflow sync # merge release into develop (on release/* only; one-way — develop is never merged into a release, the staging-tag gate depends on it)
+bflow sync # merge release into develop (on release/* only; one-way — the reverse would pull next-release work into a stabilizing release)
 ```
 
 ### Landing modes & version script

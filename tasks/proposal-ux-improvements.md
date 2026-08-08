@@ -6,7 +6,7 @@
 | **Date** | 2026-08-06 |
 | **Source** | Full command-surface review of bflow from the end-user perspective (every command, flag, and configuration variation) |
 | **Status** | Draft — awaiting approval |
-| **Supersedes** | The interim plan in `tasks/todo.md` (same content, this document is the authoritative form) |
+| **Supersedes** | The interim plan formerly in `tasks/todo.md`, which now tracks in-flight work only and points here |
 
 ---
 
@@ -44,16 +44,28 @@ review.
 **Type:** Fix (UX) · **Priority:** Low · **Size:** S
 
 **Problem.** "Sync" reads as bidirectional. Users will reach for it hoping
-to pull `develop` into the release — the one thing it never does, by design
-(the RC gate exists so unstaged develop content cannot ride into a release).
+to pull `develop` into the release — the one thing it never does, by design.
+A release branch freezes its scope when it is cut from `develop`, while
+`develop` keeps collecting work for the *next* release; merging `develop`
+back in would pull that unfinished work into a release being stabilized.
 The operation is strictly release → develop, and nothing at the CLI level
 says so.
 
-**Proposed change.** Wording only, in three places:
-- Command narration: `Merging release/X.Y.Z into develop (one-way — develop
-  is never merged into a release)`.
+**Not** the staging-tag gate's doing — that gate counts commits past the
+latest RC/patch tag (`rev_list_count`, `finish_release.rs`) and has no
+notion of `develop`. Stating it as the reason would misdescribe the gate.
+
+**Proposed change.** Wording only, on all four surfaces that name the
+command — a miss on any one of them leaves the ambiguity intact
+(architecture principle 8, "one behavior, two interfaces"):
+- Command narration, printed **above** the `Mode::Protected` branch:
+  `Syncing release/X.Y.Z into develop (one-way — develop is never merged
+  into a release).` Protected mode returns early, so a line inside the
+  free-mode path would never reach it.
 - clap `--help` text for the subcommand.
-- README + bflow skill: state the direction and the *why* (RC gate).
+- Interactive menu label (`ReleaseOption::SyncWithDevelop`, `menu.rs`) —
+  the surface whose user never sees `--help`.
+- README + bflow skill: state the direction and the real *why* above.
 
 **Alternatives considered.**
 1. *Do nothing.* Declined — the ambiguity costs a docs round-trip per user.
@@ -64,11 +76,18 @@ says so.
 **Decision axis:** clarity vs. CLI surface stability.
 
 **Implementation plan.**
-- [ ] 2.1 Narration + clap help text updated. If the narration line is
-      asserted anywhere, adjust that test red-first; otherwise this is a
-      copy-level change (no new test — CLAUDE.md's "does NOT apply" list).
-- [ ] 2.2 Docs (same change): README + bflow skill sentence — one-way,
-      release → develop, and why the reverse doesn't exist.
+- [ ] 2.1 Menu label red-first: `tests/menu_test.rs` pins the label set, so
+      change the assertion, watch it fail, then change `menu.rs`.
+- [ ] 2.2 Narration + clap help text. Narration is not test-observable here
+      (flows `println!` straight to stdout; tests assert `git.calls()`), so
+      no test can cover 2.2's narration half. That is a gap in the harness,
+      not a TDD exemption — CLAUDE.md's "does NOT apply" list belongs to
+      Architectural Decisions and Documentation Sync, and the TDD Policy
+      admits no copy-level carve-out. Adding an output port to close it is
+      out of scope for a wording fix; say so out loud instead.
+- [ ] 2.3 Docs (same change): README + bflow skill sentence, plus the two
+      README spots that print the menu — one-way, release → develop, and
+      why the reverse doesn't exist.
 
 **Risk / reversibility.** Copy-level; trivially reversible.
 
@@ -120,8 +139,16 @@ step level to plan level.
 - [ ] 3.1 Red first: unit tests for the pure derivation covering fresh
       start, mid-sequence, tag-deferred bump, and `keep-release-branches`.
 - [ ] 3.2 Wire into the protected paths of `finish` (release + hotfix),
-      `bump`, `sync`. Existing protected call-sequence tests must stay
-      green **byte-for-byte** — they pin the no-local-mutation guarantee.
+      `bump`, `sync`. Note the tension: deriving the full plan *adds read
+      calls*, so the existing exact-sequence assertions cannot survive
+      unchanged — `protected_hotfix_opens_main_pr_and_stops`
+      (`tests/finish_hotfix_test.rs`) pins `git.calls()` with `assert_eq!`
+      on a three-call vector, and full-plan derivation necessarily grows
+      it. What must be preserved is the **no-local-mutation guarantee**,
+      which those tests already assert separately (`!calls.iter().any(...)`
+      for `checkout:`, `merge:`, `create_tag`). Update the exact-sequence
+      vectors deliberately, red-first; keep every no-mutation assertion
+      byte-for-byte.
 - [ ] 3.3 Docs (same change): README protected-mode section shows one
       sample plan block; bflow skill gets one sentence (keep it concise).
 
@@ -163,9 +190,24 @@ M2 develop-bump warn-and-continue in `start.rs`).
 
 **Decision axis:** who completes the version commit — the operator (1),
 nobody (2), or bflow (proposed).
-**Precedent:** the worktree machinery and its `Git` primitives already
-exist (`worktree.rs`); this reuses them privately rather than adding
-surface.
+
+**Precedent — and where it runs out.** `worktree.rs` and `Git::add_worktree`
+exist, but the current primitives do **not** support the "use a temp
+worktree privately" shape this request assumes:
+- `Git::remove_current_worktree` removes only the worktree the process is
+  *standing in*, and its contract says it "must be the LAST git operation
+  of a flow" (`git/mod.rs`) — it cannot clean up a temp worktree the flow
+  merely created and wants to keep working after.
+- `VersionScript`'s `ScriptCli::run` executes with `.current_dir(&self.repo_root)`
+  fixed at construction (`version_script.rs`) — it cannot be pointed at a
+  temp worktree path.
+
+So CR-04 is **not** a private reuse of existing surface: it needs
+path-scoped worktree removal and a path-scoped version-script run, i.e.
+trait changes on `Git` and `VersionScript` plus their mocks. That is a real
+architectural decision (new port surface against a present-tense problem)
+and must be made explicitly before 4.2, not assumed away. Sizing this L was
+already right; the reason is this, not the test rewrite.
 
 **Implementation plan (TDD).**
 - [ ] 4.1 Spec change first: replace `hotfix_no_checkout_skips_script` with

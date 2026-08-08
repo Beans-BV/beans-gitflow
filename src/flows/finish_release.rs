@@ -228,13 +228,16 @@ pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
 
+    // Protected mode returns early and states the direction nowhere else, so
+    // this line has to sit above the branch.
+    println!("Syncing {release_branch} into develop (one-way — develop is never merged into a release).");
+
     if cfg.mode == Mode::Protected {
         return sync_with_develop_protected(git, hosting, &release, &release_branch, template);
     }
 
     let current = git.current_branch()?;
 
-    println!("Merging {release_branch} into develop (one-way — develop is never merged into a release)...");
     git.checkout("develop")?;
     git.ff_merge("origin/develop")?;
     git.merge(&release_branch, &format!("chore: sync release {release} with develop"))?;

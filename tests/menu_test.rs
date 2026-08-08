@@ -109,7 +109,7 @@ fn a_release_branch_offers_its_four_actions() {
         let action = show_menu(&prompter, &branch_type, "release/2.5.0", "main").unwrap();
 
         assert_eq!(prompter.calls()[0],
-            "select:What would you like to do?:[finish release, start release fix, bump version, sync with develop]");
+            "select:What would you like to do?:[finish release, start release fix, bump version, sync release into develop]");
         assert_eq!(format!("{action:?}"), format!("{expected:?}"), "index {idx}");
     }
 }

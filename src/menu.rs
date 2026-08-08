@@ -37,7 +37,7 @@ impl ReleaseOption {
             Self::FinishRelease => "finish release",
             Self::StartReleaseFix => "start release fix",
             Self::BumpVersion => "bump version",
-            Self::SyncWithDevelop => "sync with develop",
+            Self::SyncWithDevelop => "sync release into develop",
         }
     }
 

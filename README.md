@@ -170,7 +170,7 @@ Selecting finish creates a PR back to the base branch. You can also start a new 
 > finish release
   start release fix
   bump version
-  sync with develop
+  sync release into develop
 ```
 
 ### On `release-fix/{v}/{name}`
@@ -282,7 +282,7 @@ bflow sync    # sync release into develop (one-way)
 
 Both require being on a release branch.
 
-`bflow sync` is strictly one-way: it merges the release branch into `develop`, never the reverse. Develop is deliberately never merged into a release — the staging-tag gate exists so unstaged develop content cannot ride into a release.
+`bflow sync` is strictly one-way: it merges the release branch into `develop`, never the reverse. A release branch freezes its scope the moment it is cut from `develop`, while `develop` keeps collecting work for the *next* release. Merging `develop` back in would pull that unfinished work into a release that is being stabilized, so bflow has no command that does it.
 
 ## Worktree integration
 
@@ -388,7 +388,7 @@ sequenceDiagram
     Note over RF: Fix the issue
     RF->>R: bflow → finish release fix (PR)
     Note over R: bflow → bump version → tags v2.6.0-rc.2
-    Note over R: bflow → sync with develop (if needed)
+    Note over R: bflow → sync release into develop (if needed)
     R->>M: bflow → finish release
     R->>D: merges into develop
     Note over R: Branch deleted

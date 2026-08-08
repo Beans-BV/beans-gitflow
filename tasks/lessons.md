@@ -63,3 +63,36 @@ claimed bad behavior first. If the premise does not hold, rejecting the
 request is a valid — often the best — architectural outcome. A critical
 architect reviews the *whether*, not just the *how*; record rejections with
 rationale so they are not re-litigated.
+
+## Verify a mechanism's purpose before citing it as a rationale
+
+**Correction (2026-08-08):** the CR-02 wording change justified `sync` being
+one-way with "the staging-tag gate exists so unstaged develop content cannot
+ride into a release". The gate does nothing of the sort — it counts commits
+past the latest RC/patch tag (`rev_list_count`) and has no notion of
+`develop`. The invented reason contradicted the gate's own description 120
+lines further down the same README, and would not even have held: merging
+develop into a release fires the gate, which then tells the user to `bflow
+bump`, after which the content rides in legally.
+
+**Rule:** a *why* added to docs is a factual claim about the code and gets the
+same scrutiny as code. Before writing "X exists so that Y", read X's
+implementation and check for an existing recorded purpose — `decisions.md`
+and the README guard blockquote both already stated this one. Reaching for
+the most authoritative-sounding nearby mechanism is the failure mode; the
+honest answer here was the mundane one (a release branch freezes scope when
+it is cut from develop).
+
+## Derive the surface list from the architecture, not from memory
+
+**Correction (2026-08-08):** CR-02 was planned as a wording fix "in three
+places" — narration, `--help`, docs — and shipped missing the interactive
+menu label, the one surface whose user never reads `--help`. Two reviewers
+caught it independently. The same plan also put the narration inside the
+free-mode path, where protected mode's early return skips it.
+
+**Rule:** for any user-facing wording change, enumerate surfaces from
+architecture principle 8 ("one behavior, two interfaces") — CLI help, menu
+label, narration, README, skill — and then walk each *mode branch* of the
+flow to confirm the narration is reachable in all of them. A fix that lands
+on some surfaces is not a smaller fix; it is an inconsistency.
