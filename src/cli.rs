@@ -28,7 +28,7 @@ pub enum Commands {
         #[arg(long, conflicts_with = "breaking")]
         abort: bool,
     },
-    /// Bump the patch version on the current release branch
+    /// Cut the next RC tag on the current release branch (the next patch tag under bump-strategy=patch)
     Bump,
     /// Sync the current release branch into develop (one-way; develop is never merged into a release)
     Sync,
