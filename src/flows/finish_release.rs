@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, leg_landed,
+    announce_landing_plan, delete_branch_guarded, delete_source_branch, landed_pr, leg_landed,
     merge_into, open_landing_pr, push_if_needed, push_tag_if_missing, report_commits_past_landing, require_clean_tree,
-    resume_hint, run_version_script, tag_at_if_missing, tag_if_missing, tip_landed_somewhere,
+    resume_hint, run_version_script, tag_at_if_missing, tag_if_missing, tip_landed_somewhere, LandingStep,
 };
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
@@ -253,14 +253,14 @@ pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
 /// this same PR-opening path instead.
 fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, release: &SemVer, release_branch: &str, template: Option<&Path>) -> Result<(), String> {
     if landed_pr(git, hosting, release_branch, "develop")?.is_some() {
+        announce_landing_plan(release_branch, &[LandingStep::landed("develop", None)], "bflow sync");
         println!("Develop already contains {release_branch}.");
         return Ok(());
     }
 
     let title = format!("chore: sync release {release} with develop");
     let url = open_landing_pr(git, hosting, release_branch, "develop", &title, template)?;
-    println!("PR: {url}");
-    println!("Waiting for a human to merge this PR. Re-run 'bflow sync' after the merge.");
+    announce_landing_plan(release_branch, &[LandingStep::awaiting("develop", url)], "bflow sync");
     Ok(())
 }
 
@@ -368,6 +368,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
     let release_branch = release.release_branch();
 
     let mut landed: Vec<LandedPr> = Vec::new();
+    let mut steps: Vec<LandingStep> = Vec::new();
 
     let main_pr = leg_landed(git, hosting, &release_branch, main_branch)?;
     if let Some(pr) = &main_pr {
@@ -399,7 +400,9 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                         staging_gate(git, &release_branch, main_branch, major, minor, cfg.bump_strategy)?;
                         let title = format!("chore: merge release {release} into {main_branch}");
                         let url = open_landing_pr(git, hosting, &release_branch, main_branch, &title, template)?;
-                        announce_pending_landing(&url);
+                        steps.push(LandingStep::awaiting(main_branch, url));
+                        steps.push(LandingStep::pending("develop"));
+                        announce_landing_plan(&release_branch, &steps, "bflow finish");
                         return Ok(());
                     }
                 }
@@ -426,22 +429,30 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                 staging_gate(git, &release_branch, main_branch, major, minor, cfg.bump_strategy)?;
                 let title = format!("chore: merge release {release} into {main_branch}");
                 let url = open_landing_pr(git, hosting, &release_branch, main_branch, &title, template)?;
-                announce_pending_landing(&url);
+                steps.push(LandingStep::awaiting(main_branch, url));
+                steps.push(LandingStep::pending("develop"));
+                announce_landing_plan(&release_branch, &steps, "bflow finish");
                 return Ok(());
             }
         },
     }
+    steps.push(LandingStep::landed(main_branch, Some(shipped_version.tag_name())));
 
     match leg_landed(git, hosting, &release_branch, "develop")? {
-        Some(pr) => landed.push(pr),
+        Some(pr) => {
+            landed.push(pr);
+            steps.push(LandingStep::landed("develop", None));
+        }
         None => {
             let title = format!("chore: merge release {release} into develop");
             let url = open_landing_pr(git, hosting, &release_branch, "develop", &title, template)?;
-            announce_pending_landing(&url);
+            steps.push(LandingStep::awaiting("develop", url));
+            announce_landing_plan(&release_branch, &steps, "bflow finish");
             return Ok(());
         }
     }
 
+    announce_landing_plan(&release_branch, &steps, "bflow finish");
     let tip_landed = tip_landed_somewhere(git, &release_branch, &landed)?;
     finish_release_cleanup(git, cfg, &release_branch, main_branch, &shipped_version, tip_landed)
 }

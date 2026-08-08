@@ -152,13 +152,6 @@ pub(crate) fn report_commits_past_landing(git: &dyn Git, source: &str, pr: &Land
     Ok(())
 }
 
-/// Announce a landing step that opened (or reused) a PR and is stopping for a
-/// human to merge it.
-pub(crate) fn announce_pending_landing(url: &str) {
-    println!("PR: {url}");
-    println!("Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.");
-}
-
 /// One leg of a protected landing sequence, as the flow's own walk derived it.
 pub(crate) enum LegState {
     Landed { tag: Option<String> },
