@@ -305,15 +305,15 @@ pub fn finish_release(
         println!("↷ skipped: merge into {main_branch} (already merged)");
     }
 
-    // Patch strategy: the final tag is the last bump tag, already cut and
-    // pushed on the release branch — there is nothing to tag at finish.
+    // Patch strategy: the final tag is the last bump tag, already cut on the
+    // release branch — nothing to tag at finish. The push stays in both
+    // strategies: a bump's push_tag can have failed, and this is the last
+    // moment the missing production tag gets caught before the branch goes.
     if cfg.bump_strategy == BumpStrategy::Rc {
         tag_if_missing(git, &tag, &format!("chore: release {release_version}"))?;
     }
     push_if_needed(git, main_branch)?;
-    if cfg.bump_strategy == BumpStrategy::Rc {
-        push_tag_if_missing(git, &tag)?;
-    }
+    push_tag_if_missing(git, &tag)?;
 
     merge_into(git, &release_branch, "develop",
         &format!("chore: merge release {release} into develop"),
@@ -417,6 +417,9 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                 shipped_version = latest_patch(git, &release_branch, major, minor)?
                     .map(|v| v.to_release())
                     .unwrap_or(release.clone());
+                // Same safety net as rc's tag_landed arm: the last bump's tag
+                // can exist locally and never have reached origin.
+                push_tag_if_missing(git, &shipped_version.tag_name())?;
                 report_commits_past_landing(git, &release_branch, pr, main_branch, &shipped_version.tag_name())?;
             }
             None => {

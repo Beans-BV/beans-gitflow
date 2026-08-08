@@ -651,6 +651,8 @@ fn finish_release_patch_mode_merges_without_tagging() {
         "merge:release/1.1.0:chore: merge release 1.1.0 into main",
         "is_pushed:main",
         "push:main",
+        "remote_tag_exists:v1.1.1",
+        "push_tag:v1.1.1",
         "is_ancestor:release/1.1.0:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
@@ -726,6 +728,8 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
     assert_eq!(git.calls(), vec![
         "is_ancestor:mc1:origin/main",
         "tags_on_branch:release/1.1.0",
+        "remote_tag_exists:v1.1.1",
+        "push_tag:v1.1.1",
         "branch_sha:release/1.1.0",
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
@@ -737,8 +741,10 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "delete_branch_remote:release/1.1.0",
     ]);
     let calls = git.calls();
-    assert!(!calls.iter().any(|c| c.contains("tag_exists") || c.starts_with("create_tag") || c.starts_with("push_tag")),
-        "no tag is cut, checked, or pushed at patch-mode finish; calls: {calls:?}");
+    // The final tag was cut at bump — finish never creates one, but it does
+    // re-push it (a bump's push_tag can have failed on network/auth).
+    assert!(!calls.iter().any(|c| c.starts_with("tag_exists:") || c.starts_with("create_tag")),
+        "no tag is cut or checked at patch-mode finish; calls: {calls:?}");
 }
 
 #[test]

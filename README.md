@@ -485,9 +485,9 @@ Some projects can't consume pre-release tags — every staged build needs a real
 |------|----------------|---------|
 | `bflow start release` | tags `v2.6.0-rc.1` | tags `v2.6.0` (clean) |
 | `bflow bump` | tags `v2.6.0-rc.2`; version script gets `2.6.0` every time | increments the patch: tags `v2.6.1`; version script gets the **new** `2.6.1` |
-| `bflow finish` | cuts the clean production tag `v2.6.0` | **merges only** — the last bump tag (e.g. `v2.6.2`) is already the final version |
+| `bflow finish` | cuts the clean production tag `v2.6.0` | **merges only** — the last bump tag (e.g. `v2.6.2`) is already the final version (finish re-pushes it if origin is missing it) |
 
-Everything else is identical: the staging guard still refuses `finish` when HEAD has commits past the latest tag (`bflow bump` is the remedy), protected mode still routes version-script commits through a PR and tags the PR's merge commit, and the hotfix flow is unchanged in both strategies.
+Everything else is identical: the staging guard still refuses `finish` when HEAD has commits past the latest tag (`bflow bump` is the remedy), protected mode still routes version-script commits through a PR and tags the PR's merge commit, and hotfixes work the same way. One patch-specific subtlety is handled for you: an open release branch's staging tags (`v2.6.0`, `v2.6.1`, …) are *not* production history, so a hotfix started while that release is in flight derives its version from the last shipped tag (e.g. `v2.5.4`), never from the release's in-flight numbers.
 
 One consequence to plan for: under `patch` every tag is a clean `vX.Y.Z` — there is no tag-shape distinction between staging and production, so CI must gate production on something other than the tag pattern (a branch, the merge to `main`, or a manual promotion step).
 

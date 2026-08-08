@@ -3,12 +3,16 @@ mod common;
 use common::{MockEditor, MockGit, MockHosting, MockPrompter, MockVersionScript};
 use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
 use bflow::repo_config::{BumpStrategy, Mode, RepoConfig};
+use bflow::version::SemVer;
+use bflow::worktree::{WorktreeConfig, WorktreeContext};
 
 fn patch_cfg() -> RepoConfig {
     RepoConfig { bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
 }
-use bflow::version::SemVer;
-use bflow::worktree::{WorktreeConfig, WorktreeContext};
+
+fn patch_protected_cfg() -> RepoConfig {
+    RepoConfig { mode: Mode::Protected, bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
+}
 
 // The exact-script assertions below are also what pins the mock's
 // `call:arg:arg` recording format (decisions.md, Testing Strategy).
@@ -84,10 +88,6 @@ fn start_release_creates_new_when_no_release_exists_no_tags() {
     ]);
 }
 
-fn patch_protected_cfg() -> RepoConfig {
-    RepoConfig { mode: Mode::Protected, bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
-}
-
 #[test]
 fn start_release_patch_mode_reuses_branch_despite_its_clean_tag() {
     // Patch mode cuts v1.1.0 at branch creation — the tag's existence must not
@@ -100,9 +100,81 @@ fn start_release_patch_mode_reuses_branch_despite_its_clean_tag() {
 
     assert_eq!(git.calls(), vec![
         "list_branches_matching:release/*",
+        "remote_branch_exists:release/1.1.0",
         "is_ancestor:release/1.1.0:origin/main",
         "checkout:release/1.1.0",
     ]);
+}
+
+#[test]
+fn start_release_patch_mode_checks_ancestry_via_the_remote_ref_when_available() {
+    // A remote-only branch name is not a local rev — the ancestry check must
+    // run against origin/{branch} or it hard-errors on a fresh clone.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["release/1.1.0".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("origin/release/1.1.0".to_string(), "origin/main".to_string()));
+    git.tags = vec!["v1.1.5".to_string()];
+
+    start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &patch_cfg(), Some(ReleaseType::Minor), "main").unwrap();
+
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c == "is_ancestor:origin/release/1.1.0:origin/main"),
+        "ancestry must be read from the remote ref when it exists; calls: {calls:?}");
+    assert!(calls.iter().any(|c| c == "create_branch:release/1.2.0:develop"),
+        "the landed branch is shipped, so a fresh release is cut; calls: {calls:?}");
+}
+
+#[test]
+fn start_hotfix_fix_patch_mode_skips_in_flight_release_tags() {
+    // Production is at v2.5.3; release/2.6.0 is open with staging tags v2.6.0
+    // and v2.6.1 already pushed. The hotfix must patch production (2.5.4), not
+    // steal the number the release's next bump would compute (2.6.2).
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["release/2.6.0".to_string()];
+    git.tags = vec!["v2.5.3".to_string(), "v2.6.0".to_string(), "v2.6.1".to_string()];
+
+    start_hotfix_fix(&git, &MockHosting::new(), &patch_cfg(), "urgent-crash", false, None, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c == "create_branch:hotfix/2.5.4:main"),
+        "hotfix version derives from shipped tags only; calls: {calls:?}");
+}
+
+#[test]
+fn start_hotfix_fix_patch_mode_counts_tags_of_shipped_releases() {
+    // Same layout, but release/2.6.0 already landed in main — its tags are
+    // production history now, so the hotfix continues from v2.6.1.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["release/2.6.0".to_string()];
+    git.ancestors.insert(("release/2.6.0".to_string(), "origin/main".to_string()));
+    git.tags = vec!["v2.5.3".to_string(), "v2.6.0".to_string(), "v2.6.1".to_string()];
+
+    start_hotfix_fix(&git, &MockHosting::new(), &patch_cfg(), "urgent-crash", false, None, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c == "create_branch:hotfix/2.6.2:main"),
+        "a shipped release's tags are the production version; calls: {calls:?}");
+}
+
+#[test]
+fn start_hotfix_fix_patch_mode_reuses_a_fresh_hotfix_branch() {
+    // A hotfix cut from main with no version-script commit has main's tip —
+    // ancestry would call it shipped on the spot. Hotfix tagging is identical
+    // in both strategies (tag only at finish), so the tag stays the signal.
+    let mut git = MockGit::new();
+    git.branches_matching = vec!["hotfix/1.0.1".to_string()];
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "origin/main".to_string()));
+
+    start_hotfix_fix(&git, &MockHosting::new(), &patch_cfg(), "urgent-crash", false, None, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c == "tag_exists:v1.0.1"),
+        "hotfix shipped-detection is the clean tag in both strategies; calls: {calls:?}");
+    assert!(calls.iter().any(|c| c == "checkout:hotfix/1.0.1"),
+        "the untagged hotfix is still open and must be reused; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("is_ancestor:hotfix")),
+        "ancestry must not decide hotfix shipped-ness; calls: {calls:?}");
 }
 
 #[test]

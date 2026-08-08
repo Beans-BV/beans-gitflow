@@ -131,13 +131,14 @@ CI systems filter on `v*-rc.*` for staging and clean `v*` (no hyphen) for produc
 
 - **Release start** → `v{X}.{Y}.0` (clean tag)
 - **Bump version** → next patch, e.g. `v{X}.{Y}.1`, `v{X}.{Y}.2` (clean tags)
-- **Finish release** → merge only — the last bump tag is already the final version
+- **Finish release** → merge only — the last bump tag is already final (finish re-pushes it if origin lacks it)
+- **Hotfix version** derives from *shipped* tags only — an open release's staging tags are skipped
 
 No tag-shape staging/production split exists under `patch`: CI must gate production on something else (branch, merge to main, manual promotion).
 
 **Both strategies:**
 
-- **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag); hotfix flow is identical in both
+- **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag at finish, both strategies)
 - **Guard:** `bflow finish` rejects a release branch if HEAD is past the latest RC/patch tag — prevents promoting unstaged commits to production. Fix by running `bflow bump` and waiting for staging.
 
 ### When to use `--base`

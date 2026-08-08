@@ -306,7 +306,10 @@ fn resolve_or_create_hotfix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
         return Ok(branch.to_string());
     }
 
-    let latest = find_latest_tag(git)?;
+    let latest = match cfg.bump_strategy {
+        BumpStrategy::Rc => find_latest_tag(git)?,
+        BumpStrategy::Patch => find_latest_shipped_tag(git, hosting, cfg, main_branch)?,
+    };
     let next = latest.bump_patch();
     let branch = next.hotfix_branch();
 
@@ -335,6 +338,30 @@ fn resolve_or_create_hotfix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
     git.push(&branch)?;
 
     Ok(branch)
+}
+
+/// Patch-strategy sibling of `find_latest_tag` for hotfix versioning: every
+/// tag is clean under patch, so an open release branch's staging tags
+/// (`v2.6.0`, `v2.6.1`, …) would win the global max while production still
+/// runs `v2.5.3` — the hotfix would misversion itself and steal the number the
+/// release's next bump computes. Tags whose `major.minor` matches an open
+/// (unshipped) release branch are that release's staging history, not
+/// production's, and are excluded. Under rc this filter is provably empty (an
+/// open release carries only `-rc.N` tags), which is why rc keeps the plain
+/// global scan.
+fn find_latest_shipped_tag(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, main_branch: &str) -> Result<SemVer, String> {
+    let in_flight: Vec<SemVer> = crate::flows::open_versioned_branches(git, hosting, cfg, main_branch, "release")?
+        .iter()
+        .filter_map(|b| b.strip_prefix("release/").and_then(SemVer::parse))
+        .collect();
+    let tags = git.list_tags()?;
+    Ok(tags
+        .iter()
+        .filter_map(|t| SemVer::parse(t))
+        .filter(|v| !v.is_pre_release())
+        .filter(|v| !in_flight.iter().any(|r| r.major == v.major && r.minor == v.minor))
+        .max()
+        .unwrap_or_else(|| SemVer::new(0, 0, 0)))
 }
 
 fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {
