@@ -400,11 +400,11 @@ When finishing a feature, fix, or refactor branch, bflow asks whether the work c
 
 | Command | What it does |
 |---------|-------------|
-| **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) |
+| **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) — or the next patch tag (v2.6.0 → v2.6.1) under [`bump-strategy=patch`](#bump-strategy-rc-vs-patch) |
 | **bflow sync** | Merges release changes into `develop` for fixes needed immediately |
-| **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch |
+| **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch. Under `bump-strategy=patch` it only merges — the last bump tag is already final |
 
-> **RC-head guard:** `bflow finish` on a release branch is rejected if HEAD has commits past the latest RC tag. Every commit merged to `main` must have been validated on staging via an RC deploy. If the guard fires, run `bflow bump` to cut the next RC, wait for staging to pass, then `bflow finish`.
+> **Staging-tag guard:** `bflow finish` on a release branch is rejected if HEAD has commits past the latest RC tag (or latest patch tag under `bump-strategy=patch`). Every commit merged to `main` must have been validated on staging via a tagged deploy. If the guard fires, run `bflow bump` to cut the next tag, wait for staging to pass, then `bflow finish`.
 
 ### Hotfix
 
@@ -473,8 +473,23 @@ keep-release-branches=true
 |-----|--------|---------|---------|
 | `mode` | `free` \| `protected` | `free` | `free` is today's behavior: `finish`/`bump`/`sync` merge and push directly. `protected` lands every merge into `main`, `develop`, or an already-pushed `release/*` branch via a PR instead. |
 | `keep-release-branches` | `true` \| `false` | `false` | When `true`, `finish` and `bump` stop deleting the `release/*`/`hotfix/*` branch when they're done with it. Work branches (`feature/*`, `fix/*`, ...) are never affected. |
+| `bump-strategy` | `rc` \| `patch` | `rc` | How `bump` versions staged builds. `rc` is today's behavior: pre-release tags (`v2.6.0-rc.1`, `-rc.2`, …) with one clean tag at finish. `patch` increments the real patch version at every bump (`v2.6.0` → `v2.6.1` → …) — see [Bump strategy](#bump-strategy-rc-vs-patch). |
 
-Any other value is a hard error naming the file, the key, and the accepted values. This is a **committed file, not git config**: `mode` and `keep-release-branches` are team decisions, and a fresh clone must see the same policy everyone else does — git config is per-clone and would silently drift. (Same reasoning as the version script below.) Developer/machine preferences — the worktree flow, `bflow.branch.main` — stay in git config; only repo-wide landing policy moved here.
+Any other value is a hard error naming the file, the key, and the accepted values. This is a **committed file, not git config**: these are team decisions, and a fresh clone must see the same policy everyone else does — git config is per-clone and would silently drift. (Same reasoning as the version script below.) Developer/machine preferences — the worktree flow, `bflow.branch.main` — stay in git config; only repo-wide landing policy moved here.
+
+### Bump strategy: `rc` vs `patch`
+
+Some projects can't consume pre-release tags — every staged build needs a real, incrementing version written into the project's own version files. `bump-strategy=patch` serves those projects:
+
+| Step | `rc` (default) | `patch` |
+|------|----------------|---------|
+| `bflow start release` | tags `v2.6.0-rc.1` | tags `v2.6.0` (clean) |
+| `bflow bump` | tags `v2.6.0-rc.2`; version script gets `2.6.0` every time | increments the patch: tags `v2.6.1`; version script gets the **new** `2.6.1` |
+| `bflow finish` | cuts the clean production tag `v2.6.0` | **merges only** — the last bump tag (e.g. `v2.6.2`) is already the final version |
+
+Everything else is identical: the staging guard still refuses `finish` when HEAD has commits past the latest tag (`bflow bump` is the remedy), protected mode still routes version-script commits through a PR and tags the PR's merge commit, and the hotfix flow is unchanged in both strategies.
+
+One consequence to plan for: under `patch` every tag is a clean `vX.Y.Z` — there is no tag-shape distinction between staging and production, so CI must gate production on something other than the tag pattern (a branch, the merge to `main`, or a manual promotion step).
 
 ### Protected mode
 
@@ -754,7 +769,7 @@ src/
 │   ├── finish_release.rs — Bump, sync, finish release (idempotent)
 │   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
 ├── state.rs             — Persisted finish state for conflict recovery
-├── repo_config.rs       — Parses .bflow/config (mode, keep-release-branches)
+├── repo_config.rs       — Parses .bflow/config (mode, keep-release-branches, bump-strategy)
 ├── version_script.rs    — Discovery + execution port for .bflow/set-version.{sh,cmd}
 ├── version.rs           — SemVer parsing and bumping
 ├── menu.rs              — Interactive menus via crossterm; implements Prompter

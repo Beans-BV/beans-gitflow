@@ -101,13 +101,13 @@ bflow sync # merge release into develop (on release/* only)
 
 ### Landing modes & version script
 
-`.bflow/config` (committed file, not git config — repo policy, not per-clone): `mode=free|protected` (default `free` = today's behavior), `keep-release-branches=true|false` (default `false`; skips deleting `release/*`/`hotfix/*` on finish, work branches unaffected).
+`.bflow/config` (committed file, not git config — repo policy, not per-clone): `mode=free|protected` (default `free` = today's behavior), `keep-release-branches=true|false` (default `false`; skips deleting `release/*`/`hotfix/*` on finish, work branches unaffected), `bump-strategy=rc|patch` (default `rc`; see Tag Strategy).
 
 **`mode=protected`** — `main`/`develop` require PRs. `finish`/`bump`/`sync` open (or reuse) a PR for every landing instead of merging directly, print its URL, and **exit 0** — bflow never merges a PR. **Re-run the same command after a human merges it**; it resumes even if resolving a PR conflict (e.g. a version-file conflict landing into develop) added a commit to the source branch — an already-landed leg stays landed. One PR per run, in order (main → develop → each open release branch for hotfixes); only the last landing deletes the branch — unless its tip isn't part of any landed PR, in which case bflow keeps it, warns why, and prints the manual delete command (a guard, not a failure — the run still completed). Nothing is stored on disk to resume — progress is re-derived from PR/tag state each run. Don't add new, unrelated work to a release branch once its `main` PR has merged (the clean tag is already placed) — ship fixes as a hotfix instead.
 
 `bump` may print `Version PR: {url}` and defer the RC tag when a version-script commit needs its own PR on an already-pushed release branch — re-run `bflow bump` after that PR merges; it tags the **PR's merge commit**, it does not re-run the script.
 
-**Version script** (`.bflow/set-version.sh` / `.bflow/set-version.cmd`, platform-picked; both missing = feature off): runs with the clean `X.Y.Z` at release/hotfix branch creation, the post-release develop bump, and `bump`; commits `chore: set version {v}` only if it changed files. Requires a clean tree first.
+**Version script** (`.bflow/set-version.sh` / `.bflow/set-version.cmd`, platform-picked; both missing = feature off): runs with the clean `X.Y.Z` at release/hotfix branch creation, the post-release develop bump, and `bump`; commits `chore: set version {v}` only if it changed files. Requires a clean tree first. Under `bump-strategy=patch` each `bump` passes the **newly incremented** `X.Y.Z` (so the script commits every bump); under `rc` it gets the constant `X.Y.0`.
 
 `chore/set-version-{v}` and `release-chore/{v}/set-version` are **bflow-created** — merge their PR, never commit to them. `chore/set-version-*` is also excluded from `finish`'s PR-target candidates (it gets merged and deleted out from under a PR that targeted it). A `release-chore/*` branch finishes like `release-fix` (PR into its release branch, no `--base`).
 
@@ -117,15 +117,28 @@ bflow sync # merge release into develop (on release/* only)
 
 ### Tag Strategy
 
-bflow uses SemVer pre-release tags for CI integration:
+Selected per repo via `bump-strategy` in `.bflow/config`. All tags use the `v` prefix.
+
+**`rc` (default)** — SemVer pre-release tags for CI integration:
 
 - **Release start** → `v{X}.{Y}.0-rc.1` (RC tag — triggers staging deploy)
 - **Bump version** → `v{X}.{Y}.0-rc.{N+1}` (next RC — triggers staging deploy)
 - **Finish release** → `v{X}.{Y}.0` (clean tag — triggers production deploy)
-- **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag — triggers production deploy)
-- **Guard:** `bflow finish` rejects a release branch if HEAD is past the latest RC tag — prevents promoting unstaged commits to production. Fix by running `bflow bump` and waiting for staging.
 
-All tags use the `v` prefix. CI systems filter on `v*-rc.*` for staging and clean `v*` (no hyphen) for production.
+CI systems filter on `v*-rc.*` for staging and clean `v*` (no hyphen) for production.
+
+**`patch`** — every staged build carries a real, incrementing version (for projects that can't consume pre-release tags):
+
+- **Release start** → `v{X}.{Y}.0` (clean tag)
+- **Bump version** → next patch, e.g. `v{X}.{Y}.1`, `v{X}.{Y}.2` (clean tags)
+- **Finish release** → merge only — the last bump tag is already the final version
+
+No tag-shape staging/production split exists under `patch`: CI must gate production on something else (branch, merge to main, manual promotion).
+
+**Both strategies:**
+
+- **Finish hotfix** → `v{X}.{Y}.{Z}` (clean tag); hotfix flow is identical in both
+- **Guard:** `bflow finish` rejects a release branch if HEAD is past the latest RC/patch tag — prevents promoting unstaged commits to production. Fix by running `bflow bump` and waiting for staging.
 
 ### When to use `--base`
 
