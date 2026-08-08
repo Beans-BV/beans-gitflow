@@ -234,7 +234,7 @@ pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
 
     let current = git.current_branch()?;
 
-    println!("Merging {release_branch} into develop...");
+    println!("Merging {release_branch} into develop (one-way — develop is never merged into a release)...");
     git.checkout("develop")?;
     git.ff_merge("origin/develop")?;
     git.merge(&release_branch, &format!("chore: sync release {release} with develop"))?;

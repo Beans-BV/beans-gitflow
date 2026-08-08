@@ -48,3 +48,18 @@ before touching production code. A having-the-answer test still has to fail
 for the right reason once. Mutation checks (revert the fix, confirm the test
 fails) compensate for a missed red step but don't replace it — they catch
 a test that can't fail, not a test that was never proven to fail correctly.
+
+## Re-validate a change request's premise before designing its fix
+
+**Correction (2026-08-08):** handed a change-request document, this run went
+straight to designing the best implementation for every request. The user had
+to prompt "did you consider denying a change?" — and re-checking CR-01's
+premise against the actual binary showed it was false (clap already prints a
+guiding "similar subcommand" tip; the claimed "bare invalid value error" does
+not exist). The request was rejected as unnecessary.
+
+**Rule:** before planning any fix from a proposal or bug report, reproduce the
+claimed bad behavior first. If the premise does not hold, rejecting the
+request is a valid — often the best — architectural outcome. A critical
+architect reviews the *whether*, not just the *how*; record rejections with
+rationale so they are not re-litigated.

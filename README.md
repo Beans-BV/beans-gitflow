@@ -277,10 +277,12 @@ The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls ba
 
 ```bash
 bflow bump    # bump patch version
-bflow sync    # sync release into develop
+bflow sync    # sync release into develop (one-way)
 ```
 
 Both require being on a release branch.
+
+`bflow sync` is strictly one-way: it merges the release branch into `develop`, never the reverse. Develop is deliberately never merged into a release — the staging-tag gate exists so unstaged develop content cannot ride into a release.
 
 ## Worktree integration
 
@@ -401,7 +403,7 @@ When finishing a feature, fix, or refactor branch, bflow asks whether the work c
 | Command | What it does |
 |---------|-------------|
 | **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) — or the next patch tag (v2.6.0 → v2.6.1) under [`bump-strategy=patch`](#bump-strategy-rc-vs-patch) |
-| **bflow sync** | Merges release changes into `develop` for fixes needed immediately |
+| **bflow sync** | Merges release changes into `develop` for fixes needed immediately (one-way: develop is never merged into a release) |
 | **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch. Under `bump-strategy=patch` it only merges — the last bump tag is already final |
 
 > **Staging-tag guard:** `bflow finish` on a release branch is rejected if HEAD has commits past the latest RC tag (or latest patch tag under `bump-strategy=patch`). Every commit merged to `main` must have been validated on staging via a tagged deploy. If the guard fires, run `bflow bump` to cut the next tag, wait for staging to pass, then `bflow finish`.

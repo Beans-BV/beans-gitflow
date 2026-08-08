@@ -30,7 +30,7 @@ pub enum Commands {
     },
     /// Bump the patch version on the current release branch
     Bump,
-    /// Sync the current release branch into develop
+    /// Sync the current release branch into develop (one-way; develop is never merged into a release)
     Sync,
     /// Configure the optional worktree flow (run with no subcommand for an interactive setup)
     Worktree {
