@@ -47,7 +47,7 @@ pub fn finish_hotfix(
     // for that; `open_versioned_branches` also drops any release already shipped.
     // Sorted despite the trait contract already promising it: deterministic
     // replay on resume is a crash-safety invariant, not something to delegate.
-    let mut release_branches = open_versioned_branches(git, "release")?;
+    let mut release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
     release_branches.sort();
 
     for release in &release_branches {
@@ -144,7 +144,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
         }
     }
 
-    let mut release_branches = open_versioned_branches(git, "release")?;
+    let mut release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
     release_branches.sort();
 
     for release in &release_branches {

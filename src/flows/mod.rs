@@ -7,6 +7,7 @@ use std::path::Path;
 
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
+use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
 
@@ -238,19 +239,41 @@ pub(crate) fn run_version_script(git: &dyn Git, script: &dyn VersionScript, vers
     Ok(true)
 }
 
-/// List `{prefix}/*` branches that are still open, excluding any whose clean
-/// release already shipped. A release/hotfix branch is shipped once its clean
-/// tag (e.g. `v1.1.0`, never the `-rc.N` tag) exists — reusing it would make
-/// `bflow start` loop onto a dead branch forever and hotfix fan-out merge into
-/// history that already landed. Branches whose version does not parse stay in,
-/// unchanged from today's behavior.
-pub(crate) fn open_versioned_branches(git: &dyn Git, prefix: &str) -> Result<Vec<String>, String> {
+/// List `{prefix}/*` branches that are still open, excluding any that already
+/// shipped — reusing a shipped branch would make `bflow start` loop onto a
+/// dead branch forever and hotfix fan-out merge into history that already
+/// landed. What "shipped" means depends on when the clean tag appears:
+///
+/// - `hotfix/*` (both strategies) and `release/*` under rc: the clean tag
+///   (e.g. `v1.1.0`, never the `-rc.N` tag) exists — it is only ever cut at
+///   finish, so its existence is the shipped record. Branches whose version
+///   does not parse stay in, unchanged from today's behavior.
+/// - `release/*` under patch: the clean tag is cut at branch *creation*, so it
+///   proves nothing. Shipped is the branch being an ancestor of
+///   `origin/{main}`, or — under protected mode, where a squash landing leaves
+///   no ancestry — a merged landing PR into the mainline (`leg_landed`).
+///   Derived, never stored. The ancestry check reads `origin/{branch}` when
+///   the remote branch exists (the local name may be a remote-only branch that
+///   resolves to nothing on a fresh clone), falling back to the local name.
+pub(crate) fn open_versioned_branches(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, main_branch: &str, prefix: &str) -> Result<Vec<String>, String> {
     let branches = git.list_branches_matching(&format!("{prefix}/*"))?;
     let mut open = Vec::with_capacity(branches.len());
     for branch in branches {
-        let shipped = match branch.strip_prefix(&format!("{prefix}/")).and_then(SemVer::parse) {
-            Some(version) => git.tag_exists(&version.to_release().tag_name())?,
-            None => false,
+        let tag_is_shipped_record = cfg.bump_strategy == BumpStrategy::Rc || prefix == "hotfix";
+        let shipped = if tag_is_shipped_record {
+            match branch.strip_prefix(&format!("{prefix}/")).and_then(SemVer::parse) {
+                Some(version) => git.tag_exists(&version.to_release().tag_name())?,
+                None => false,
+            }
+        } else {
+            let branch_ref = if git.remote_branch_exists(&branch)? {
+                format!("origin/{branch}")
+            } else {
+                branch.clone()
+            };
+            git.is_ancestor(&branch_ref, &format!("origin/{main_branch}"))?
+                || (cfg.mode == Mode::Protected
+                    && leg_landed(git, hosting, &branch, main_branch)?.is_some())
         };
         if !shipped {
             open.push(branch);

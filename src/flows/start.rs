@@ -2,7 +2,7 @@ use crate::flows::{open_versioned_branches, require_clean_tree, run_version_scri
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
-use crate::repo_config::{Mode, RepoConfig};
+use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::SemVer;
 use crate::version_script::VersionScript;
 use crate::worktree::{open_worktree, WorktreeContext};
@@ -63,15 +63,15 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })
 }
 
-pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type, main_branch)?;
     Ok(())
 }
 
-pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+pub fn start_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, main_branch: &str, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let release_branch = if effective_no_checkout {
-        open_versioned_branches(git, "release")?
+        open_versioned_branches(git, hosting, cfg, main_branch, "release")?
             .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
             .clone()
@@ -87,15 +87,15 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
+pub fn start_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch, script)?;
+    let hotfix_branch = resolve_or_create_hotfix(git, hosting, cfg, effective_no_checkout, main_branch, script)?;
     let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
-fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let release_branches = open_versioned_branches(git, "release")?;
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str) -> Result<String, String> {
+    let release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -114,8 +114,11 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
     };
 
     let branch = next.release_branch();
-    let rc = next.with_rc(1);
-    let tag = rc.tag_name();
+    let first_tag = match cfg.bump_strategy {
+        BumpStrategy::Rc => next.with_rc(1),
+        BumpStrategy::Patch => next.clone(),
+    };
+    let tag = first_tag.tag_name();
 
     if script.is_some() {
         require_clean_tree(git)?;
@@ -292,8 +295,8 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
     }
 }
 
-fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
-    let hotfix_branches = open_versioned_branches(git, "hotfix")?;
+fn resolve_or_create_hotfix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
+    let hotfix_branches = open_versioned_branches(git, hosting, cfg, main_branch, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");
@@ -303,7 +306,10 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str,
         return Ok(branch.to_string());
     }
 
-    let latest = find_latest_tag(git)?;
+    let latest = match cfg.bump_strategy {
+        BumpStrategy::Rc => find_latest_tag(git)?,
+        BumpStrategy::Patch => find_latest_shipped_tag(git, hosting, cfg, main_branch)?,
+    };
     let next = latest.bump_patch();
     let branch = next.hotfix_branch();
 
@@ -332,6 +338,30 @@ fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str,
     git.push(&branch)?;
 
     Ok(branch)
+}
+
+/// Patch-strategy sibling of `find_latest_tag` for hotfix versioning: every
+/// tag is clean under patch, so an open release branch's staging tags
+/// (`v2.6.0`, `v2.6.1`, …) would win the global max while production still
+/// runs `v2.5.3` — the hotfix would misversion itself and steal the number the
+/// release's next bump computes. Tags whose `major.minor` matches an open
+/// (unshipped) release branch are that release's staging history, not
+/// production's, and are excluded. Under rc this filter is provably empty (an
+/// open release carries only `-rc.N` tags), which is why rc keeps the plain
+/// global scan.
+fn find_latest_shipped_tag(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, main_branch: &str) -> Result<SemVer, String> {
+    let in_flight: Vec<SemVer> = crate::flows::open_versioned_branches(git, hosting, cfg, main_branch, "release")?
+        .iter()
+        .filter_map(|b| b.strip_prefix("release/").and_then(SemVer::parse))
+        .collect();
+    let tags = git.list_tags()?;
+    Ok(tags
+        .iter()
+        .filter_map(|t| SemVer::parse(t))
+        .filter(|v| !v.is_pre_release())
+        .filter(|v| !in_flight.iter().any(|r| r.major == v.major && r.minor == v.minor))
+        .max()
+        .unwrap_or_else(|| SemVer::new(0, 0, 0)))
 }
 
 fn find_latest_tag(git: &dyn Git) -> Result<SemVer, String> {

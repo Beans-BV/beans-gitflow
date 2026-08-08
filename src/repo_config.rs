@@ -7,10 +7,17 @@ pub enum Mode {
     Protected,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BumpStrategy {
+    Rc,
+    Patch,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RepoConfig {
     pub mode: Mode,
     pub keep_release_branches: bool,
+    pub bump_strategy: BumpStrategy,
 }
 
 impl Default for RepoConfig {
@@ -18,6 +25,7 @@ impl Default for RepoConfig {
         Self {
             mode: Mode::Free,
             keep_release_branches: false,
+            bump_strategy: BumpStrategy::Rc,
         }
     }
 }
@@ -41,6 +49,15 @@ pub fn parse(contents: &str) -> Result<RepoConfig, String> {
                 _ => {
                     return Err(format!(
                         "Invalid mode '{value}' in .bflow/config. Use 'mode=free' or 'mode=protected'."
+                    ));
+                }
+            },
+            "bump-strategy" => match value {
+                "rc" => config.bump_strategy = BumpStrategy::Rc,
+                "patch" => config.bump_strategy = BumpStrategy::Patch,
+                _ => {
+                    return Err(format!(
+                        "Invalid bump-strategy '{value}' in .bflow/config. Use 'bump-strategy=rc' or 'bump-strategy=patch'."
                     ));
                 }
             },
@@ -141,6 +158,33 @@ keep-release-branches=true
     }
 
     #[test]
+    fn bump_strategy_defaults_to_rc() {
+        let config = parse("").unwrap();
+        assert_eq!(config.bump_strategy, BumpStrategy::Rc);
+    }
+
+    #[test]
+    fn bump_strategy_patch_parses() {
+        let config = parse("bump-strategy=patch\n").unwrap();
+        assert_eq!(config.bump_strategy, BumpStrategy::Patch);
+    }
+
+    #[test]
+    fn bump_strategy_rc_parses_explicitly() {
+        let config = parse("bump-strategy=rc\n").unwrap();
+        assert_eq!(config.bump_strategy, BumpStrategy::Rc);
+    }
+
+    #[test]
+    fn invalid_bump_strategy_is_a_hard_error_naming_the_remedy() {
+        let err = parse("bump-strategy=banana\n").unwrap_err();
+        assert!(
+            err.contains("Use 'bump-strategy=rc' or 'bump-strategy=patch'"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn load_round_trips_through_the_filesystem() {
         let dir = tmp_dir();
         let bflow_dir = dir.join(".bflow");
@@ -158,6 +202,7 @@ keep-release-branches=true
             RepoConfig {
                 mode: Mode::Protected,
                 keep_release_branches: true,
+                bump_strategy: BumpStrategy::Rc,
             }
         );
         fs::remove_dir_all(&dir).ok();
