@@ -509,26 +509,33 @@ Use `mode=protected` when `main`/`develop` require pull requests (branch protect
 
   Those commits still reach `develop` through the remaining landing, so nothing is lost — they just are not in this release.
 
-A `bflow finish` loop on a release branch looks like this:
+Every protected `finish`/`bump`/`sync` run prints the full derived landing plan — where each leg stands and what to do next — before stopping or completing. A `bflow finish` loop on a release branch looks like this:
 
 ```
 $ bflow finish
-PR: https://github.com/org/repo/pull/42
-Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.
+Landing plan for release/2.6.0:
+  → main      PR open: https://github.com/org/repo/pull/42 — merge it, then re-run bflow finish
+  ○ develop   pending
 
   ... a human merges pull/42 on GitHub ...
 
 $ bflow finish
 Tagging: v2.6.0
-PR: https://github.com/org/repo/pull/43
-Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.
+Landing plan for release/2.6.0:
+  ✓ main      merged (v2.6.0 tagged)
+  → develop   PR open: https://github.com/org/repo/pull/43 — merge it, then re-run bflow finish
 
   ... a human merges pull/43 ...
 
 $ bflow finish
+Landing plan for release/2.6.0:
+  ✓ main      merged (v2.6.0 tagged)
+  ✓ develop   merged
 Cleaning up release branch...
 Release 2.6.0 complete.
 ```
+
+Hotfix plans additionally list every open `release/*` branch as its own leg, so a multi-day propagation always shows where it stands. Legs after the first open PR show as `○ pending` — protected landings are strictly sequential, so nothing beyond the stopping point has been opened yet.
 
 If cleanup finds commits on the branch that never reached any of the landed PRs — e.g. something was pushed to it directly after everything else landed — it keeps the branch instead of deleting it:
 
@@ -539,7 +546,7 @@ If cleanup finds commits on the branch that never reached any of the landed PRs 
 
 Hotfix branches print the same warning, naming the hotfix branch instead.
 
-`bflow sync` behaves the same way on a release branch ("Re-run 'bflow sync' after the merge."). `bflow bump` may also defer its RC tag — see below.
+`bflow sync` behaves the same way on a release branch (a one-leg plan for `develop`, re-run `bflow sync` after the merge). `bflow bump` may also defer its RC tag — see below.
 
 ### Version script
 
