@@ -15,6 +15,11 @@ pub const SCRIPT_WINDOWS: &str = ".bflow/set-version.cmd";
 /// without spawning a real process.
 pub trait VersionScript {
     fn run(&self, version: &str) -> Result<(), String>;
+    /// Run the script inside another working tree: `dir`'s own copy of the
+    /// script, with `dir` as the working directory. Repo content applies to
+    /// the tree it lives in — a checkout-less branch may carry a different
+    /// script than the tree bflow was started from.
+    fn run_in(&self, dir: &Path, version: &str) -> Result<(), String>;
     fn display_name(&self) -> String;
 }
 
@@ -70,20 +75,34 @@ impl ScriptCli {
     }
 }
 
-impl VersionScript for ScriptCli {
-    fn run(&self, version: &str) -> Result<(), String> {
-        // KISS: zero-policy shell, like CommandEditor::open — the spawn itself
-        // has no decision to test; interpret() carries the outcome policy.
-        let output = Command::new(&self.path)
+impl ScriptCli {
+    /// Zero-policy shell, like CommandEditor::open — the spawn itself has no
+    /// decision to test; interpret() carries the outcome policy.
+    fn spawn_at(&self, script: &Path, cwd: &Path, version: &str) -> Result<(), String> {
+        let output = Command::new(script)
             .arg(version)
-            .current_dir(&self.repo_root)
+            .current_dir(cwd)
             .output()
             .map_err(|e| format!(
                 "Version script {} could not be run: {e}\nMake it executable: chmod +x {} && git update-index --chmod=+x {}, then re-run the command.",
-                self.path.display(), self.path.display(), self.path.display(),
+                script.display(), script.display(), script.display(),
             ))?;
         let stderr = String::from_utf8_lossy(&output.stderr);
-        interpret(&self.path, output.status.code(), stderr.trim())
+        interpret(script, output.status.code(), stderr.trim())
+    }
+}
+
+impl VersionScript for ScriptCli {
+    fn run(&self, version: &str) -> Result<(), String> {
+        self.spawn_at(&self.path, &self.repo_root, version)
+    }
+
+    fn run_in(&self, dir: &Path, version: &str) -> Result<(), String> {
+        let rel = self.path.strip_prefix(&self.repo_root).map_err(|_| format!(
+            "Version script {} is not under the repo root {}, so it cannot be located in another worktree.",
+            self.path.display(), self.repo_root.display(),
+        ))?;
+        self.spawn_at(&dir.join(rel), dir, version)
     }
 
     fn display_name(&self) -> String {
@@ -167,6 +186,37 @@ mod tests {
     fn script_cli_display_name_is_the_file_name() {
         let script = ScriptCli::new(PathBuf::from("/repo/.bflow/set-version.sh"), PathBuf::from("/repo"));
         assert_eq!(script.display_name(), "set-version.sh");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_in_executes_the_target_trees_own_copy_with_cwd_there() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tmp_dir();
+        let worktree = tmp_dir();
+        for (dir, marker) in [(&root, "root"), (&worktree, "worktree")] {
+            std::fs::create_dir_all(dir.join(".bflow")).unwrap();
+            let script = dir.join(SCRIPT_UNIX);
+            std::fs::write(&script, format!("#!/bin/sh\necho {marker} $1 > marker.txt\n")).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let script = ScriptCli::new(root.join(SCRIPT_UNIX), root.clone());
+
+        script.run_in(&worktree, "1.0.1").unwrap();
+
+        let marker = std::fs::read_to_string(worktree.join("marker.txt")).unwrap();
+        assert_eq!(marker.trim(), "worktree 1.0.1");
+        assert!(!root.join("marker.txt").exists(), "the root tree must stay untouched");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&worktree).ok();
+    }
+
+    #[test]
+    fn run_in_errors_when_the_script_is_not_under_the_repo_root() {
+        let script = ScriptCli::new(PathBuf::from("/elsewhere/set-version.sh"), PathBuf::from("/repo"));
+        let err = script.run_in(Path::new("/wt"), "1.0.1").unwrap_err();
+        assert!(err.contains("/elsewhere/set-version.sh"), "got: {err}");
+        assert!(err.contains("/repo"), "got: {err}");
     }
 
     #[test]

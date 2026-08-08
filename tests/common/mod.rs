@@ -582,11 +582,10 @@ impl MockVersionScript {
     pub fn calls(&self) -> Vec<String> {
         self.calls.borrow().clone()
     }
-}
 
-impl VersionScript for MockVersionScript {
-    fn run(&self, version: &str) -> Result<(), String> {
-        self.calls.borrow_mut().push(format!("run:{version}"));
+    /// Shared by `run` and `run_in` (LSP: both entry points honor the same
+    /// failure knobs and share one run counter).
+    fn outcome(&self) -> Result<(), String> {
         let mut count = self.run_call_count.borrow_mut();
         *count += 1;
         if Some(*count) == self.fail_nth_run {
@@ -596,6 +595,18 @@ impl VersionScript for MockVersionScript {
             Some(e) => Err(e.clone()),
             None => Ok(()),
         }
+    }
+}
+
+impl VersionScript for MockVersionScript {
+    fn run(&self, version: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("run:{version}"));
+        self.outcome()
+    }
+
+    fn run_in(&self, dir: &Path, version: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("run_in:{}:{version}", dir.display()));
+        self.outcome()
     }
 
     fn display_name(&self) -> String {
