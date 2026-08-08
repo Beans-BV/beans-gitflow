@@ -382,6 +382,14 @@ fn every_primitive_issues_its_documented_git_command() {
         ("git stash pop stash@{1}", Box::new(|g| { g.stash_pop_ref("stash@{1}").ok(); })),
         ("git add -A", Box::new(|g| { g.stage_all().ok(); })),
         ("git commit -m chore: set version 2.5.0", Box::new(|g| { g.commit("chore: set version 2.5.0").ok(); })),
+        // The _at family targets another worktree via -C (the ephemeral
+        // version-script worktree) without touching the CommandRunner seam.
+        ("git -C /wt status --porcelain", Box::new(|g| { g.is_working_tree_clean_at(Path::new("/wt")).ok(); })),
+        ("git -C /wt add -A", Box::new(|g| { g.stage_all_at(Path::new("/wt")).ok(); })),
+        ("git -C /wt commit -m chore: set version 2.5.0", Box::new(|g| { g.commit_at(Path::new("/wt"), "chore: set version 2.5.0").ok(); })),
+        // --force: a failed version script can leave the temp tree dirty and
+        // cleanup must still succeed.
+        ("git worktree remove --force /wt", Box::new(|g| { g.remove_worktree(Path::new("/wt")).ok(); })),
         // A separate method from create_tag: it tags a specific sha (a merge
         // commit), not HEAD.
         ("git tag -a v2.5.0 -m chore: release 2.5.0 abc123",

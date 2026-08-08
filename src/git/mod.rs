@@ -86,6 +86,18 @@ pub trait Git {
     // Version commits and merge-commit tagging
     fn stage_all(&self) -> Result<()>;
     fn commit(&self, message: &str) -> Result<()>;
+    // The `_at` family runs in another working tree via `-C` — used for the
+    // ephemeral version-script worktree, whose commit must never touch the
+    // user's checkout. Refs are shared across worktrees, so `push` needs no
+    // `_at` variant.
+    fn is_working_tree_clean_at(&self, dir: &Path) -> Result<bool>;
+    fn stage_all_at(&self, dir: &Path) -> Result<()>;
+    fn commit_at(&self, dir: &Path, message: &str) -> Result<()>;
+    /// Remove the worktree at `path`. Unlike `remove_current_worktree` this has
+    /// no last-operation constraint: the process never stands in `path`.
+    /// `--force`, because a failed script can leave the tree dirty and cleanup
+    /// must still succeed.
+    fn remove_worktree(&self, path: &Path) -> Result<()>;
     /// Tags `sha` (not HEAD) — a separate method from `create_tag` because a
     /// landing PR's merge commit is created by the hosting platform, not by a
     /// local `git merge`.
@@ -404,6 +416,23 @@ impl Git for GitCli<'_> {
 
     fn stage_all(&self) -> Result<()> { self.run(&["add", "-A"]).map(|_| ()) }
     fn commit(&self, message: &str) -> Result<()> { self.run(&["commit", "-m", message]).map(|_| ()) }
+    fn is_working_tree_clean_at(&self, dir: &Path) -> Result<bool> {
+        let dir = dir.display().to_string();
+        let output = self.run(&["-C", &dir, "status", "--porcelain"])?;
+        Ok(output.is_empty())
+    }
+    fn stage_all_at(&self, dir: &Path) -> Result<()> {
+        let dir = dir.display().to_string();
+        self.run(&["-C", &dir, "add", "-A"]).map(|_| ())
+    }
+    fn commit_at(&self, dir: &Path, message: &str) -> Result<()> {
+        let dir = dir.display().to_string();
+        self.run(&["-C", &dir, "commit", "-m", message]).map(|_| ())
+    }
+    fn remove_worktree(&self, path: &Path) -> Result<()> {
+        let path = path.display().to_string();
+        self.run(&["worktree", "remove", "--force", &path]).map(|_| ())
+    }
     fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()> {
         self.run(&["tag", "-a", tag, "-m", message, sha]).map(|_| ())
     }

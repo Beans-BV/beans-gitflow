@@ -95,8 +95,12 @@ pub struct MockGit {
     /// here falls back to `head_sha`.
     pub branch_shas: HashMap<String, String>,
     /// Scripted `is_working_tree_clean` answers, consumed front-first. Empty
-    /// (the default) falls back to `working_tree_clean`.
+    /// (the default) falls back to `working_tree_clean`. Shared with
+    /// `is_working_tree_clean_at` — one flow's clean-checks are strictly
+    /// ordered, whichever tree they read.
     pub working_tree_clean_seq: RefCell<VecDeque<bool>>,
+    /// `add_worktree` fails with this message (e.g. a leftover directory).
+    pub add_worktree_error: Option<String>,
     _git_dir_guard: Option<TempDir>,
 }
 
@@ -143,6 +147,7 @@ impl MockGit {
             tag_commits: HashMap::new(),
             branch_shas: HashMap::new(),
             working_tree_clean_seq: RefCell::new(VecDeque::new()),
+            add_worktree_error: None,
             _git_dir_guard: None,
         }
     }
@@ -375,7 +380,10 @@ impl Git for MockGit {
 
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("add_worktree:{}:{branch}", path.display()));
-        Ok(())
+        match &self.add_worktree_error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
     }
 
     fn stash_push_with_message(&self, msg: &str) -> Result<(), String> {
@@ -433,6 +441,29 @@ impl Git for MockGit {
 
     fn commit(&self, message: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("commit:{message}"));
+        Ok(())
+    }
+
+    fn is_working_tree_clean_at(&self, dir: &Path) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("is_working_tree_clean_at:{}", dir.display()));
+        match self.working_tree_clean_seq.borrow_mut().pop_front() {
+            Some(answer) => Ok(answer),
+            None => Ok(self.working_tree_clean),
+        }
+    }
+
+    fn stage_all_at(&self, dir: &Path) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("stage_all_at:{}", dir.display()));
+        Ok(())
+    }
+
+    fn commit_at(&self, dir: &Path, message: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("commit_at:{}:{message}", dir.display()));
+        Ok(())
+    }
+
+    fn remove_worktree(&self, path: &Path) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("remove_worktree:{}", path.display()));
         Ok(())
     }
 
