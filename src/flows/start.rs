@@ -63,15 +63,15 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })
 }
 
-pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<(), String> {
-    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type)?;
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str) -> Result<(), String> {
+    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type, main_branch)?;
     Ok(())
 }
 
-pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+pub fn start_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, main_branch: &str, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let release_branch = if effective_no_checkout {
-        open_versioned_branches(git, "release")?
+        open_versioned_branches(git, hosting, cfg, main_branch, "release")?
             .first()
             .ok_or("No release branch found. Create one with 'bflow start release' first.")?
             .clone()
@@ -87,15 +87,15 @@ pub fn start_release_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree:
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
-pub fn start_hotfix_fix(git: &dyn Git, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
+pub fn start_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
-    let hotfix_branch = resolve_or_create_hotfix(git, effective_no_checkout, main_branch, script)?;
+    let hotfix_branch = resolve_or_create_hotfix(git, hosting, cfg, effective_no_checkout, main_branch, script)?;
     let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
-fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>) -> Result<String, String> {
-    let release_branches = open_versioned_branches(git, "release")?;
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str) -> Result<String, String> {
+    let release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
@@ -295,8 +295,8 @@ fn prompt_release_type(prompter: &dyn Prompter, latest: &SemVer, has_breaking: b
     }
 }
 
-fn resolve_or_create_hotfix(git: &dyn Git, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
-    let hotfix_branches = open_versioned_branches(git, "hotfix")?;
+fn resolve_or_create_hotfix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, no_checkout: bool, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<String, String> {
+    let hotfix_branches = open_versioned_branches(git, hosting, cfg, main_branch, "hotfix")?;
 
     if let Some(branch) = hotfix_branches.first() {
         println!("Using existing hotfix branch: {branch}");
