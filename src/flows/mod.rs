@@ -226,12 +226,17 @@ pub(crate) fn delete_branch_guarded(git: &dyn Git, branch: &str) -> Result<(), S
 }
 
 /// Delete the finished source branch locally and remotely, both idempotent.
-/// Switches to the mainline first when HEAD is still on the branch — a resume
-/// that skipped the develop merge leaves it there, git refuses to delete the
-/// checked-out branch, and the mainline is always safe (the work is merged there).
+/// Moves HEAD off the branch first when it is still there — a resume that
+/// skipped the develop merge leaves it there, and git refuses to delete the
+/// checked-out branch: onto the mainline (always safe, the work is merged
+/// there) when no worktree holds it, otherwise by detaching, since git also
+/// refuses to check out a branch held by another worktree.
 pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &str) -> Result<(), String> {
     if git.current_branch()? == branch {
-        git.checkout(main_branch)?;
+        match git.worktree_of(main_branch)? {
+            None => git.checkout(main_branch)?,
+            Some(_) => git.detach_head()?,
+        }
     }
     delete_branch_guarded(git, branch)
 }
