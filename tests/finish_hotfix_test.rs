@@ -628,6 +628,7 @@ fn protected_hotfix_completes_after_all_landed() {
         "is_ancestor:mc3:origin/release/1.2.0",
         "branch_sha:hotfix/1.1.1",
         "current_branch",
+        "worktree_of:main",
         "checkout:main",
         "local_branch_exists:hotfix/1.1.1",
         "delete_branch_local:hotfix/1.1.1",
@@ -760,4 +761,30 @@ fn finish_hotfix_refuses_to_merge_into_a_dirty_worktree_it_does_not_stand_in() {
     assert!(err.contains("/repos/beans-api") && err.contains("develop"), "got: {err}");
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("ff_merge_at") || c.starts_with("merge_at")), "must not touch a dirty tree; calls: {calls:?}");
+}
+
+#[test]
+fn finish_hotfix_cleanup_detaches_when_main_is_held_by_another_worktree() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.current_branch = "hotfix/1.0.1".to_string();
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "main".to_string()));
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "develop".to_string()));
+    git.existing_tags.insert("v1.0.1".to_string());
+    git.existing_remote_tags.insert("v1.0.1".to_string());
+    git.pushed_branches.insert("main".to_string());
+    git.pushed_branches.insert("develop".to_string());
+    git.worktrees.insert("main".to_string(), std::path::PathBuf::from("/repos/beans-api-main"));
+
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.contains(&"checkout:main".to_string()), "must not check out a branch held by another worktree; calls: {calls:?}");
+    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").take(4).collect();
+    assert_eq!(cleanup, vec![
+        "current_branch",
+        "worktree_of:main",
+        "detach_head",
+        "local_branch_exists:hotfix/1.0.1",
+    ]);
 }

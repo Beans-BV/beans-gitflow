@@ -740,6 +740,7 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "current_branch",
+        "worktree_of:main",
         "checkout:main",
         "local_branch_exists:release/1.1.0",
         "delete_branch_local:release/1.1.0",
@@ -1056,6 +1057,7 @@ fn protected_finish_completes_after_develop_merge() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "current_branch",
+        "worktree_of:main",
         "checkout:main",
         "local_branch_exists:release/1.1.0",
         "delete_branch_local:release/1.1.0",
@@ -1354,4 +1356,25 @@ fn finish_release_refuses_a_dirty_main_worktree_before_touching_it() {
     assert!(err.contains("/repos/beans-api-main"), "got: {err}");
     assert!(err.contains("release/1.1.0"), "must carry the resume hint naming the source branch; got: {err}");
     assert!(!git.calls().iter().any(|c| c.starts_with("merge_at") || c.starts_with("ff_merge_at")), "calls: {:?}", git.calls());
+}
+
+#[test]
+fn finish_release_cleanup_detaches_when_main_is_held_by_another_worktree() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
+    git.rev_list_count_result = 0;
+    git.current_branch = "release/1.1.0".to_string();
+    git.ancestors.insert(("release/1.1.0".to_string(), "main".to_string()));
+    git.ancestors.insert(("release/1.1.0".to_string(), "develop".to_string()));
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.pushed_branches.insert("main".to_string());
+    git.pushed_branches.insert("develop".to_string());
+    git.worktrees.insert("main".to_string(), std::path::PathBuf::from("/repos/beans-api-main"));
+
+    finish_release(&git, &MockHosting::new(), &RepoConfig::default(), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.contains(&"checkout:main".to_string()), "calls: {calls:?}");
+    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").take(3).collect();
+    assert_eq!(cleanup, vec!["current_branch", "worktree_of:main", "detach_head"]);
 }
