@@ -63,8 +63,18 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
     })
 }
 
-pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str) -> Result<(), String> {
-    resolve_or_create_release(git, prompter, hosting, script, cfg, release_type, main_branch)?;
+/// With a worktree context the release is still created in the current tree
+/// (the version script needs the branch checked out), then the tree returns to
+/// develop and the release opens in its own worktree — or, when a worktree
+/// already holds it, that one is announced.
+pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
+    let branch = resolve_or_create_release(git, prompter, hosting, script, cfg, release_type, main_branch, worktree.is_some())?;
+    if let Some(ctx) = worktree {
+        match git.worktree_of(&branch)? {
+            Some(path) => println!("Release branch {branch} is already open at {}", path.display()),
+            None => open_worktree(git, ctx.editor, ctx.config, &branch)?,
+        }
+    }
     Ok(())
 }
 
@@ -94,12 +104,17 @@ pub fn start_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Repo
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
 }
 
-fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str) -> Result<String, String> {
+/// `hand_off`: the caller will move the release into a worktree, so the current
+/// tree must not be left on it — no checkout of an existing release, and a
+/// return to develop after creating a new one.
+fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str, hand_off: bool) -> Result<String, String> {
     let release_branches = open_versioned_branches(git, hosting, cfg, main_branch, "release")?;
 
     if let Some(branch) = release_branches.first() {
         println!("Using existing release branch: {branch}");
-        git.checkout(branch)?;
+        if !hand_off {
+            git.checkout(branch)?;
+        }
         return Ok(branch.to_string());
     }
 
@@ -142,6 +157,9 @@ fn resolve_or_create_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &d
             eprintln!("{}", m2_failure_advice(cfg.mode, &script.display_name(), &dev));
             let _ = git.checkout(&branch);
         }
+    }
+    if hand_off {
+        git.checkout("develop")?;
     }
 
     Ok(branch)
