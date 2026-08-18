@@ -207,7 +207,7 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
-bflow start release [--major | --minor]
+bflow start release [--major | --minor] [--no-worktree]
 bflow start release-fix --name <name> [--no-checkout] [--no-worktree]    # must be on a release branch
 bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on the mainline or a hotfix branch
 ```
@@ -333,7 +333,13 @@ When enabled, `bflow start feature/fix/chore/docs/refactor` (and `release-fix` /
 2. Add a git worktree for it.
 3. Open that folder in your editor (unless `editor = none`). An editor that isn't installed is a warning, not a failure — the worktree is still ready.
 
-Pass `--no-worktree` to skip the flow for a single command. `start release` is never run through the worktree flow.
+Pass `--no-worktree` to skip the flow for a single command.
+
+`start release` is included, with one difference: the release branch is created
+and tagged in your current checkout (the version script must run on a
+checked-out branch), then your checkout returns to `develop` and the release
+opens in its own worktree. Re-running `start release` while a worktree already
+holds the release just prints its path.
 
 As with `--no-checkout`, an active worktree flow relaxes the branch-type check for `release-fix` and `hotfix-fix` — the target release/hotfix branch is discovered automatically, so you can run them from any branch.
 
