@@ -628,6 +628,7 @@ fn protected_hotfix_completes_after_all_landed() {
         "is_ancestor:mc3:origin/release/1.2.0",
         "branch_sha:hotfix/1.1.1",
         "current_branch",
+        "is_linked_worktree",
         "worktree_of:main",
         "checkout:main",
         "local_branch_exists:hotfix/1.1.1",
@@ -780,11 +781,60 @@ fn finish_hotfix_cleanup_detaches_when_main_is_held_by_another_worktree() {
 
     let calls = git.calls();
     assert!(!calls.contains(&"checkout:main".to_string()), "must not check out a branch held by another worktree; calls: {calls:?}");
-    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").take(4).collect();
+    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").take(5).collect();
     assert_eq!(cleanup, vec![
         "current_branch",
+        "is_linked_worktree",
         "worktree_of:main",
         "detach_head",
         "local_branch_exists:hotfix/1.0.1",
     ]);
+}
+
+#[test]
+fn finish_hotfix_in_its_own_worktree_removes_the_worktree_last() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.current_branch = "hotfix/1.0.1".to_string();
+    git.linked_worktree = true;
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "main".to_string()));
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "develop".to_string()));
+    git.existing_tags.insert("v1.0.1".to_string());
+    git.existing_remote_tags.insert("v1.0.1".to_string());
+    git.pushed_branches.insert("main".to_string());
+    git.pushed_branches.insert("develop".to_string());
+
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").collect();
+    assert_eq!(cleanup, vec![
+        "current_branch",
+        "is_linked_worktree",
+        "detach_head",
+        "local_branch_exists:hotfix/1.0.1",
+        "delete_branch_local:hotfix/1.0.1",
+        "remote_branch_exists:hotfix/1.0.1",
+        "delete_branch_remote:hotfix/1.0.1",
+        "remove_current_worktree",
+    ]);
+}
+
+#[test]
+fn finish_hotfix_keeping_the_branch_keeps_the_worktree() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.current_branch = "hotfix/1.0.1".to_string();
+    git.linked_worktree = true;
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "main".to_string()));
+    git.ancestors.insert(("hotfix/1.0.1".to_string(), "develop".to_string()));
+    git.existing_tags.insert("v1.0.1".to_string());
+    git.existing_remote_tags.insert("v1.0.1".to_string());
+    git.pushed_branches.insert("main".to_string());
+    git.pushed_branches.insert("develop".to_string());
+    let cfg = RepoConfig { keep_release_branches: true, ..RepoConfig::default() };
+
+    finish_hotfix(&git, &MockHosting::new(), &cfg, 1, 0, 1, "main", None).unwrap();
+
+    assert!(!git.calls().iter().any(|c| c == "remove_current_worktree" || c == "detach_head"),
+        "a kept branch keeps its worktree; calls: {:?}", git.calls());
 }

@@ -740,6 +740,7 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "current_branch",
+        "is_linked_worktree",
         "worktree_of:main",
         "checkout:main",
         "local_branch_exists:release/1.1.0",
@@ -1057,6 +1058,7 @@ fn protected_finish_completes_after_develop_merge() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "current_branch",
+        "is_linked_worktree",
         "worktree_of:main",
         "checkout:main",
         "local_branch_exists:release/1.1.0",
@@ -1375,6 +1377,22 @@ fn finish_release_cleanup_detaches_when_main_is_held_by_another_worktree() {
 
     let calls = git.calls();
     assert!(!calls.contains(&"checkout:main".to_string()), "calls: {calls:?}");
-    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").take(3).collect();
-    assert_eq!(cleanup, vec!["current_branch", "worktree_of:main", "detach_head"]);
+    let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").take(4).collect();
+    assert_eq!(cleanup, vec!["current_branch", "is_linked_worktree", "worktree_of:main", "detach_head"]);
+}
+
+#[test]
+fn finish_release_in_its_own_worktree_removes_the_worktree_last() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1"]);
+    git.rev_list_count_result = 0;
+    git.current_branch = "release/1.1.0".to_string();
+    git.linked_worktree = true;
+
+    finish_release(&git, &MockHosting::new(), &RepoConfig::default(), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert_eq!(calls.last().map(String::as_str), Some("remove_current_worktree"), "calls: {calls:?}");
+    let detach = calls.iter().position(|c| c == "detach_head").expect("detach before delete");
+    let del = calls.iter().position(|c| c == "delete_branch_local:release/1.1.0").unwrap();
+    assert!(detach < del, "calls: {calls:?}");
 }

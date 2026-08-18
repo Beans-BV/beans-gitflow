@@ -78,7 +78,10 @@ fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, m
     } else if cfg.keep_release_branches {
         println!("Keeping {hotfix_branch} (keep-release-branches=true).");
     } else {
-        delete_source_branch(git, hotfix_branch, main_branch)?;
+        if let Some(path) = delete_source_branch(git, hotfix_branch, main_branch)? {
+            println!("Removed worktree: {}", path.display());
+            println!("You can close this editor window now.");
+        }
     }
 
     if release_branches.is_empty() {

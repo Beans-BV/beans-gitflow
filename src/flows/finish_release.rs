@@ -332,7 +332,10 @@ fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str,
     } else if cfg.keep_release_branches {
         println!("Keeping {release_branch} (keep-release-branches=true).");
     } else {
-        delete_source_branch(git, release_branch, main_branch)?;
+        if let Some(path) = delete_source_branch(git, release_branch, main_branch)? {
+            println!("Removed worktree: {}", path.display());
+            println!("You can close this editor window now.");
+        }
     }
 
     println!("Release {release_version} complete.");
