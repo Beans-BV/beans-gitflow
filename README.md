@@ -122,6 +122,19 @@ gitGraph
 
 Run `bflow` in any git repository. The tool detects your current branch and shows the appropriate menu.
 
+### Initialising a repository
+
+bflow keeps its repo-wide policy in a committed `.bflow/config`. A repository
+without that file is **not initialised**: interactive `bflow` offers a
+three-question setup (landing mode, whether to keep release branches, bump
+strategy) and writes the file; subcommands refuse with `run 'bflow init'`.
+Run `bflow init` yourself at any time, then commit `.bflow/config` so every
+clone and CI job shares the same policy.
+
+```bash
+bflow init    # one-time per repository; then commit .bflow/config
+```
+
 ### Uncommitted Changes
 
 When you run `bflow start` with uncommitted changes (staged, unstaged, or untracked files), bflow automatically stashes your changes, creates the new branch, and restores them on the new branch. No flags or prompts needed — your work-in-progress follows you.
@@ -480,7 +493,7 @@ bflow already prevents the related "two open hotfixes" or "two open releases" ca
 
 ## Landing Modes & Version Script
 
-Two related, opt-in features for teams whose `main`/`develop` reject direct pushes, or who keep the version number inside their own repo files (`Cargo.toml`, `package.json`, ...). Both are off by default — a repo with neither behaves exactly as it does today.
+Two related, opt-in features for teams whose `main`/`develop` reject direct pushes, or who keep the version number inside their own repo files (`Cargo.toml`, `package.json`, ...). The config file itself is required — see [Initialising a repository](#initialising-a-repository); with the defaults it selects, a repo behaves exactly as before.
 
 ### `.bflow/config`
 
