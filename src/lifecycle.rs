@@ -73,7 +73,7 @@ pub fn run(
     // Optional worktree flow: when enabled (and not opted out) for an eligible start,
     // treat it like --no-checkout so the current working tree is left untouched and the
     // new branch is free to be checked out in its own worktree.
-    let worktree_active = wt_config.enabled && !action.no_worktree() && action.worktree_eligible();
+    let worktree_active = wt_config.enabled && !action.no_worktree() && action.is_start();
 
     let no_checkout = action.no_checkout() || worktree_active;
     // Protected finishes never merge locally — there is nothing to resume — so
@@ -285,7 +285,7 @@ fn run_flow(
         Action::StartWorkBranch { prefix, name, from, no_checkout, .. } => {
             start::start_work_branch(git, prefix, name, from, *no_checkout, worktree)?;
         }
-        Action::StartRelease(release_type) => {
+        Action::StartRelease { release_type, .. } => {
             start::start_release(git, prompter, hosting, script, repo_cfg, *release_type, main_branch)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {

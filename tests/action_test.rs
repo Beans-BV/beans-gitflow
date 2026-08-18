@@ -4,7 +4,7 @@ use bflow::action::{validate_branch_name, Action};
 fn start_actions_return_true() {
     let actions = vec![
         Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false, no_worktree: false },
-        Action::StartRelease(None),
+        Action::StartRelease { release_type: None, no_worktree: false },
         Action::StartReleaseFix { name: "x".into(), no_checkout: false, no_worktree: false },
         Action::StartHotfixFix { name: "x".into(), no_checkout: false, no_worktree: false },
     ];
@@ -68,7 +68,7 @@ fn no_checkout_returns_true_for_start_hotfix_fix() {
 #[test]
 fn no_checkout_returns_false_for_non_start_actions() {
     let actions: Vec<Action> = vec![
-        Action::StartRelease(None),
+        Action::StartRelease { release_type: None, no_worktree: false },
         Action::FinishWorkBranch { breaking: None, base: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
@@ -79,32 +79,6 @@ fn no_checkout_returns_false_for_non_start_actions() {
     ];
     for action in actions {
         assert!(!action.no_checkout(), "Expected no_checkout() == false for {:?}", action);
-    }
-}
-
-#[test]
-fn worktree_eligible_true_for_named_work_branch_starts() {
-    let actions = vec![
-        Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false, no_worktree: false },
-        Action::StartReleaseFix { name: "x".into(), no_checkout: false, no_worktree: false },
-        Action::StartHotfixFix { name: "x".into(), no_checkout: false, no_worktree: false },
-    ];
-    for action in actions {
-        assert!(action.worktree_eligible(), "Expected worktree_eligible() == true for {:?}", action);
-    }
-}
-
-#[test]
-fn worktree_eligible_false_for_start_release_and_finishes() {
-    let actions: Vec<Action> = vec![
-        Action::StartRelease(None),
-        Action::FinishWorkBranch { breaking: None, base: None },
-        Action::FinishRelease,
-        Action::FinishHotfix,
-        Action::BumpVersion,
-    ];
-    for action in actions {
-        assert!(!action.worktree_eligible(), "Expected worktree_eligible() == false for {:?}", action);
     }
 }
 
@@ -134,4 +108,10 @@ fn an_empty_branch_name_is_rejected_with_its_own_message() {
     // Distinct from the special-character message: an empty name is what you get
     // from an accidental `--name ""`, and the fix is different.
     assert_eq!(validate_branch_name(""), Err("Name cannot be empty".to_string()));
+}
+
+#[test]
+fn start_release_no_worktree_is_read_from_the_action() {
+    assert!(Action::StartRelease { release_type: None, no_worktree: true }.no_worktree());
+    assert!(!Action::StartRelease { release_type: None, no_worktree: false }.no_worktree());
 }

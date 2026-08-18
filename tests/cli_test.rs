@@ -191,26 +191,26 @@ fn finish_on_other_branch_errors() {
 
 #[test]
 fn start_release_returns_start_release_action() {
-    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: false } };
+    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: false, no_worktree: false } };
     let branch_type = BranchType::Develop;
     let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
-    assert!(matches!(action, Action::StartRelease(None)));
+    assert!(matches!(action, Action::StartRelease { release_type: None, .. }));
 }
 
 #[test]
 fn start_release_major_flag() {
-    let cmd = Commands::Start { kind: StartKind::Release { major: true, minor: false } };
+    let cmd = Commands::Start { kind: StartKind::Release { major: true, minor: false, no_worktree: false } };
     let branch_type = BranchType::Develop;
     let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
-    assert!(matches!(action, Action::StartRelease(Some(ReleaseType::Major))));
+    assert!(matches!(action, Action::StartRelease { release_type: Some(ReleaseType::Major), .. }));
 }
 
 #[test]
 fn start_release_minor_flag() {
-    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: true } };
+    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: true, no_worktree: false } };
     let branch_type = BranchType::Develop;
     let action = resolve_action(cmd, &branch_type, false, "main").unwrap();
-    assert!(matches!(action, Action::StartRelease(Some(ReleaseType::Minor))));
+    assert!(matches!(action, Action::StartRelease { release_type: Some(ReleaseType::Minor), .. }));
 }
 
 #[test]
@@ -472,6 +472,9 @@ fn the_flag_surface_parses_what_it_promises() {
     assert!(matches!(parse(&["finish", "--abort"]).unwrap(),
         Commands::Finish { abort: true, .. }));
 
+    assert!(matches!(parse(&["start", "release", "--minor", "--no-worktree"]).unwrap(),
+        Commands::Start { kind: StartKind::Release { no_worktree: true, minor: true, .. } }));
+
     // `--local` is `global = true`, so it parses either side of the subcommand.
     assert!(matches!(parse(&["worktree", "--local", "enable"]).unwrap(),
         Commands::Worktree { local: true, .. }));
@@ -491,4 +494,11 @@ fn incompatible_flag_combinations_are_rejected_by_clap_not_by_the_flow() {
     ] {
         assert!(parse(&args).is_err(), "`bflow {}` must be rejected", args.join(" "));
     }
+}
+
+#[test]
+fn start_release_no_worktree_reaches_the_action() {
+    let cmd = Commands::Start { kind: StartKind::Release { major: false, minor: true, no_worktree: true } };
+    let action = resolve_action(cmd, &BranchType::Develop, false, "main").unwrap();
+    assert!(matches!(action, Action::StartRelease { release_type: Some(ReleaseType::Minor), no_worktree: true }), "{action:?}");
 }

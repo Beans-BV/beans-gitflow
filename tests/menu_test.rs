@@ -49,7 +49,7 @@ fn the_last_develop_entry_is_start_release_and_needs_no_name() {
 
     let action = show_menu(&prompter, &BranchType::Develop, "develop", "main").unwrap();
 
-    assert!(matches!(action, Action::StartRelease(None)), "{action:?}");
+    assert!(matches!(action, Action::StartRelease { release_type: None, no_worktree: false }), "{action:?}");
     assert_eq!(prompter.calls().len(), 1, "start release asks for nothing else");
 }
 

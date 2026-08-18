@@ -8,7 +8,7 @@ use crate::flows::start::ReleaseType;
 #[derive(Debug, PartialEq)]
 pub enum Action {
     StartWorkBranch { prefix: String, name: String, from: String, no_checkout: bool, no_worktree: bool },
-    StartRelease(Option<ReleaseType>),
+    StartRelease { release_type: Option<ReleaseType>, no_worktree: bool },
     StartReleaseFix { name: String, no_checkout: bool, no_worktree: bool },
     StartHotfixFix { name: String, no_checkout: bool, no_worktree: bool },
     FinishWorkBranch { breaking: Option<bool>, base: Option<String> },
@@ -27,7 +27,7 @@ impl Action {
         matches!(
             self,
             Action::StartWorkBranch { .. }
-                | Action::StartRelease(_)
+                | Action::StartRelease { .. }
                 | Action::StartReleaseFix { .. }
                 | Action::StartHotfixFix { .. }
         )
@@ -42,20 +42,10 @@ impl Action {
         }
     }
 
-    /// Whether this action is a named-work-branch start eligible for the worktree
-    /// flow. Deliberately excludes `StartRelease`, unlike `is_start`.
-    pub fn worktree_eligible(&self) -> bool {
-        matches!(
-            self,
-            Action::StartWorkBranch { .. }
-                | Action::StartReleaseFix { .. }
-                | Action::StartHotfixFix { .. }
-        )
-    }
-
     pub fn no_worktree(&self) -> bool {
         match self {
             Action::StartWorkBranch { no_worktree, .. } => *no_worktree,
+            Action::StartRelease { no_worktree, .. } => *no_worktree,
             Action::StartReleaseFix { no_worktree, .. } => *no_worktree,
             Action::StartHotfixFix { no_worktree, .. } => *no_worktree,
             _ => false,
