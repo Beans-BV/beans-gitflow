@@ -729,3 +729,37 @@ fn no_subcommand_falls_through_to_the_interactive_menu() {
     assert!(matches!(action, Action::StartRelease { release_type: None, .. }), "{action:?}");
     assert_eq!(prompter.calls().len(), 1);
 }
+
+#[test]
+fn a_worktree_mode_start_release_still_stashes_a_dirty_tree() {
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
+    git.current_branch = "develop".to_string();
+    git.tags = vec!["v2.4.0".to_string()];
+    git.working_tree_clean = false;
+
+    run_with_worktree(&git, Some(Commands::Start {
+        kind: StartKind::Release { major: false, minor: true, no_worktree: false },
+    })).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.iter().any(|c| c.starts_with("stash_push_with_message:")),
+        "the release is created in the current tree, so a dirty tree must be stashed first; calls: {calls:?}");
+    assert!(calls.contains(&"create_branch:release/2.5.0:develop".to_string()), "calls: {calls:?}");
+}
+
+#[test]
+fn a_worktree_mode_start_release_with_no_worktree_stays_in_the_current_tree() {
+    let mut git = MockGit::with_tmp_git_dir("bflow-lifecycle-test");
+    git.current_branch = "develop".to_string();
+    git.tags = vec!["v2.4.0".to_string()];
+
+    run_with_worktree(&git, Some(Commands::Start {
+        kind: StartKind::Release { major: false, minor: true, no_worktree: true },
+    })).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("add_worktree:")), "--no-worktree must opt out; calls: {calls:?}");
+    assert!(calls.contains(&"create_branch:release/2.5.0:develop".to_string()), "calls: {calls:?}");
+    let after_tag: Vec<&String> = calls.iter().skip_while(|c| *c != "push_tag:v2.5.0-rc.1").skip(1).collect();
+    assert!(!after_tag.contains(&&"checkout:develop".to_string()), "no hand-off checkout without a worktree; calls: {calls:?}");
+}
