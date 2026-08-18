@@ -70,12 +70,16 @@ pub fn run(
     println!("Fetching latest...");
     git.fetch()?;
 
-    // Optional worktree flow: when enabled (and not opted out) for an eligible start,
-    // treat it like --no-checkout so the current working tree is left untouched and the
-    // new branch is free to be checked out in its own worktree.
+    // Optional worktree flow: when enabled (and not opted out) for a start, treat
+    // it like --no-checkout so the current working tree is left untouched and the
+    // new branch is free to be checked out in its own worktree. A release is the
+    // exception: it is created in the current tree (the version script needs the
+    // branch checked out) and only then handed to a worktree, so it keeps the
+    // normal stash protection instead of the no-checkout shortcut.
     let worktree_active = wt_config.enabled && !action.no_worktree() && action.is_start();
 
-    let no_checkout = action.no_checkout() || worktree_active;
+    let no_checkout = action.no_checkout()
+        || (worktree_active && !matches!(action, Action::StartRelease { .. }));
     // Protected finishes never merge locally — there is nothing to resume — so
     // only free-mode finishes get a FinishState. Stale-state edge: a state file
     // left over from before a free→protected mode switch still resumes here
