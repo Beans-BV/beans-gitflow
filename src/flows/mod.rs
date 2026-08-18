@@ -3,7 +3,7 @@ pub mod finish_work;
 pub mod finish_release;
 pub mod finish_hotfix;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
@@ -228,17 +228,28 @@ pub(crate) fn delete_branch_guarded(git: &dyn Git, branch: &str) -> Result<(), S
 /// Delete the finished source branch locally and remotely, both idempotent.
 /// Moves HEAD off the branch first when it is still there — a resume that
 /// skipped the develop merge leaves it there, and git refuses to delete the
-/// checked-out branch: onto the mainline (always safe, the work is merged
-/// there) when no worktree holds it, otherwise by detaching, since git also
-/// refuses to check out a branch held by another worktree.
-pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &str) -> Result<(), String> {
-    if git.current_branch()? == branch {
-        match git.worktree_of(main_branch)? {
-            None => git.checkout(main_branch)?,
-            Some(_) => git.detach_head()?,
-        }
+/// checked-out branch. Inside the branch's own linked worktree that means
+/// detaching and, once the branch is gone, removing the worktree — the last
+/// git call of the flow, since the process cwd disappears with it. Elsewhere
+/// HEAD moves onto the mainline (always safe, the work is merged there) when
+/// no worktree holds it, or detaches, since git also refuses to check out a
+/// branch held by another worktree. Returns the removed worktree path, if any.
+pub(crate) fn delete_source_branch(git: &dyn Git, branch: &str, main_branch: &str) -> Result<Option<PathBuf>, String> {
+    if git.current_branch()? != branch {
+        delete_branch_guarded(git, branch)?;
+        return Ok(None);
     }
-    delete_branch_guarded(git, branch)
+    if git.is_linked_worktree()? {
+        git.detach_head()?;
+        delete_branch_guarded(git, branch)?;
+        return git.remove_current_worktree().map(Some);
+    }
+    match git.worktree_of(main_branch)? {
+        None => git.checkout(main_branch)?,
+        Some(_) => git.detach_head()?,
+    }
+    delete_branch_guarded(git, branch)?;
+    Ok(None)
 }
 
 /// Fail with the catalog error unless the tree is clean. Callers run this
