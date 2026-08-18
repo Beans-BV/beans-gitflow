@@ -77,14 +77,35 @@ pub fn parse(contents: &str) -> Result<RepoConfig, String> {
     Ok(config)
 }
 
+pub const NOT_INITIALISED: &str =
+    "bflow is not initialised for this repository. Run 'bflow init' (interactive) and commit .bflow/config.";
+
+fn config_path(repo_root: &Path) -> std::path::PathBuf {
+    repo_root.join(".bflow").join("config")
+}
+
+pub fn exists(repo_root: &Path) -> bool {
+    config_path(repo_root).exists()
+}
+
 pub fn load(repo_root: &Path) -> Result<RepoConfig, String> {
-    let path = repo_root.join(".bflow").join("config");
+    let path = config_path(repo_root);
     if !path.exists() {
-        return Ok(RepoConfig::default());
+        return Err(NOT_INITIALISED.to_string());
     }
     let contents = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
     parse(&contents)
+}
+
+pub fn write(repo_root: &Path, cfg: &RepoConfig) -> Result<(), String> {
+    let path = config_path(repo_root);
+    let dir = path.parent().expect("config path always has a parent");
+    fs::create_dir_all(dir).map_err(|e| format!("Failed to create {}: {e}", dir.display()))?;
+    let mode = match cfg.mode { Mode::Free => "free", Mode::Protected => "protected" };
+    let strategy = match cfg.bump_strategy { BumpStrategy::Rc => "rc", BumpStrategy::Patch => "patch" };
+    let contents = format!("mode={mode}\nkeep-release-branches={}\nbump-strategy={strategy}\n", cfg.keep_release_branches);
+    fs::write(&path, contents).map_err(|e| format!("Failed to write {}: {e}", path.display()))
 }
 
 #[cfg(test)]
@@ -209,10 +230,50 @@ keep-release-branches=true
     }
 
     #[test]
-    fn load_on_a_root_with_no_bflow_dir_yields_default() {
+    fn load_on_a_root_with_no_bflow_dir_is_not_initialised() {
         let dir = tmp_dir();
-        let config = load(&dir).unwrap();
-        assert_eq!(config, RepoConfig::default());
+        assert!(!exists(&dir));
+        assert_eq!(load(&dir).unwrap_err(), NOT_INITIALISED);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_then_load_round_trips_every_key() {
+        let dir = tmp_dir();
+        let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: true, bump_strategy: BumpStrategy::Patch };
+        write(&dir, &cfg).unwrap();
+        assert!(exists(&dir));
+        assert_eq!(fs::read_to_string(dir.join(".bflow").join("config")).unwrap(),
+            "mode=protected\nkeep-release-branches=true\nbump-strategy=patch\n");
+        assert_eq!(load(&dir).unwrap(), cfg);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_serialises_the_defaults() {
+        let dir = tmp_dir();
+        write(&dir, &RepoConfig::default()).unwrap();
+        assert_eq!(fs::read_to_string(dir.join(".bflow").join("config")).unwrap(),
+            "mode=free\nkeep-release-branches=false\nbump-strategy=rc\n");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_fails_when_the_root_is_not_a_directory() {
+        let dir = tmp_dir();
+        let not_a_dir = dir.join("file");
+        fs::write(&not_a_dir, "x").unwrap();
+        let err = write(&not_a_dir, &RepoConfig::default()).unwrap_err();
+        assert!(err.starts_with("Failed to create"), "got: {err}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_fails_when_config_is_a_directory() {
+        let dir = tmp_dir();
+        fs::create_dir_all(dir.join(".bflow").join("config")).unwrap();
+        let err = load(&dir).unwrap_err();
+        assert!(err.starts_with("Failed to read"), "got: {err}");
         fs::remove_dir_all(&dir).ok();
     }
 }
