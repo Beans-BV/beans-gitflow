@@ -373,6 +373,11 @@ fn every_primitive_issues_its_documented_git_command() {
         ("git config --global bflow.worktree.editor code", Box::new(|g| { g.set_config("bflow.worktree.editor", "code", true).ok(); })),
         ("git config bflow.worktree.editor code", Box::new(|g| { g.set_config("bflow.worktree.editor", "code", false).ok(); })),
         ("git worktree add /repos/app-feature-x feature/x", Box::new(|g| { g.add_worktree(Path::new("/repos/app-feature-x"), "feature/x").ok(); })),
+        // -C runs the same primitives in the tree that already holds the target
+        // branch; the flags must stay identical to the current-tree variants.
+        ("git -C /repos/app status --porcelain", Box::new(|g| { g.is_working_tree_clean_at(Path::new("/repos/app")).ok(); })),
+        ("git -C /repos/app merge origin/develop --ff-only", Box::new(|g| { g.ff_merge_at(Path::new("/repos/app"), "origin/develop").ok(); })),
+        ("git -C /repos/app merge hotfix/1.0.1 --no-ff -m chore: merge", Box::new(|g| { g.merge_at(Path::new("/repos/app"), "hotfix/1.0.1", "chore: merge").ok(); })),
         ("git rev-parse --git-dir --git-common-dir", Box::new(|g| { g.is_linked_worktree().ok(); })),
         ("git rev-parse HEAD", Box::new(|g| { g.head_sha().ok(); })),
         ("git checkout --detach", Box::new(|g| { g.detach_head().ok(); })),
@@ -433,4 +438,22 @@ fn a_repo_with_no_interrupted_operation_is_not_mid_merge() {
     let runner = MockCommandRunner::ok(dir.to_str().unwrap());
 
     assert!(!GitCli::new(&runner).is_mid_merge().unwrap());
+}
+
+#[test]
+fn worktree_of_names_the_tree_that_has_the_branch_checked_out() {
+    let runner = MockCommandRunner::ok(
+        "worktree /repos/app\nHEAD abc\nbranch refs/heads/develop\n\n\
+         worktree /repos/app-feature-x\nHEAD def\nbranch refs/heads/feature/x\n");
+
+    assert_eq!(git(&runner).worktree_of("feature/x").unwrap(), Some(PathBuf::from("/repos/app-feature-x")));
+}
+
+#[test]
+fn worktree_of_is_none_when_no_tree_holds_the_branch() {
+    let runner = MockCommandRunner::ok(
+        "worktree /repos/app\nHEAD abc\nbranch refs/heads/develop\n\n\
+         worktree /repos/app-fix\nHEAD def\ndetached\n");
+
+    assert_eq!(git(&runner).worktree_of("main").unwrap(), None);
 }

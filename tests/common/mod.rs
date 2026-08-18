@@ -87,6 +87,8 @@ pub struct MockGit {
     pub head_sha: String,
     /// Whether the current checkout is a linked worktree.
     pub linked_worktree: bool,
+    /// Branch -> root of the working tree that has it checked out (`worktree_of`).
+    pub worktrees: HashMap<String, PathBuf>,
     /// Commit SHA each annotated tag resolves to via `tag_commit_sha`. A tag
     /// missing here fails, modeling "tag doesn't exist" (flows only call this
     /// after `tag_exists`).
@@ -140,6 +142,7 @@ impl MockGit {
             worktree_root: PathBuf::from("/repos/beans-gitflow"),
             head_sha: "headsha".to_string(),
             linked_worktree: false,
+            worktrees: HashMap::new(),
             tag_commits: HashMap::new(),
             branch_shas: HashMap::new(),
             working_tree_clean_seq: RefCell::new(VecDeque::new()),
@@ -406,6 +409,22 @@ impl Git for MockGit {
         Ok(())
     }
 
+    fn worktree_of(&self, branch: &str) -> Result<Option<PathBuf>, String> {
+        self.calls.borrow_mut().push(format!("worktree_of:{branch}"));
+        Ok(self.worktrees.get(branch).cloned())
+    }
+    fn is_working_tree_clean_at(&self, path: &Path) -> Result<bool, String> {
+        self.calls.borrow_mut().push(format!("is_working_tree_clean_at:{}", path.display()));
+        Ok(self.working_tree_clean)
+    }
+    fn ff_merge_at(&self, path: &Path, branch: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("ff_merge_at:{}:{branch}", path.display()));
+        Ok(())
+    }
+    fn merge_at(&self, path: &Path, branch: &str, message: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("merge_at:{}:{branch}:{message}", path.display()));
+        Ok(())
+    }
     fn is_linked_worktree(&self) -> Result<bool, String> {
         self.calls.borrow_mut().push("is_linked_worktree".to_string());
         Ok(self.linked_worktree)

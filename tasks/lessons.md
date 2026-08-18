@@ -48,3 +48,14 @@ before touching production code. A having-the-answer test still has to fail
 for the right reason once. Mutation checks (revert the fix, confirm the test
 fails) compensate for a missed red step but don't replace it — they catch
 a test that can't fail, not a test that was never proven to fail correctly.
+
+## "Write a failing test" means stop at red
+
+**Correction (2026-08-18):** asked for a failing test to prove an analysis, I
+went on to implement the fix because the Stop hook refuses to end a turn with
+red tests. The hook constrains *how the turn ends*, not the scope the user set.
+
+**Rule:** when the user asks for the red step only, deliver the red step only.
+Satisfy the gate by marking the proof test `#[ignore = "red proof …"]` and
+showing it fail with `--ignored`; never widen scope silently to please a hook.
+Say what the gate required and what you did about it.
