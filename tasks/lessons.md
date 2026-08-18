@@ -59,3 +59,13 @@ red tests. The hook constrains *how the turn ends*, not the scope the user set.
 Satisfy the gate by marking the proof test `#[ignore = "red proof …"]` and
 showing it fail with `--ignored`; never widen scope silently to please a hook.
 Say what the gate required and what you did about it.
+
+## `.claude/skills/bflow/SKILL.md` is upper-case in git
+
+**Correction (2026-08-18):** on this case-insensitive filesystem `git add
+.claude/skills/bflow/skill.md` silently stages nothing — git tracks the file
+as `SKILL.md`. Four docs commits in a row "included" skill edits that never
+landed until `git status` showed the file still modified.
+
+**Rule:** always `git add` the path exactly as `git ls-files` prints it, and
+read `git status --short` before claiming a commit contains a file.
