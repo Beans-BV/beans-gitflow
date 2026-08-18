@@ -370,6 +370,10 @@ worktree holds the target, it is checked out in the current tree as before.
 Cleanup follows the same rule: if the finish ends while still standing on the
 release/hotfix branch and `main` is held by another worktree, bflow detaches
 HEAD instead of checking `main` out, then deletes the branch.
+When the finish runs inside the release/hotfix branch's own worktree and deletes
+the branch, it removes that worktree too and tells you the editor window can be
+closed. With `keep-release-branches=true` (or when bflow keeps the branch as a
+safety guard) the worktree stays with it.
 
 ## Workflows
 
