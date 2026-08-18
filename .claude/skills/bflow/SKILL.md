@@ -28,7 +28,7 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
-bflow start release [--major | --minor] # from develop, prompts if no flag given
+bflow start release [--major | --minor] [--no-worktree] # from develop, prompts if no flag given
 bflow start release-fix --name <name> [--no-checkout] [--no-worktree]
 bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]  # from the mainline or a hotfix branch
 ```
@@ -44,7 +44,9 @@ resolved branch.
 
 #### Worktree integration (optional)
 
-When `bflow.worktree.enabled=true` (git config), `start` (work branches + release-fix/hotfix-fix, not `release`) creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent, `~` expanded). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command. Like `--no-checkout`, active worktree mode relaxes the branch-type check for `release-fix`/`hotfix-fix` (target branch is discovered automatically).
+When `bflow.worktree.enabled=true` (git config), every `start` creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout (`start release` creates and tags in the current checkout first, returns it to `develop`, then opens the release worktree; a release already held by a worktree is only announced). Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent, `~` expanded). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command. Like `--no-checkout`, active worktree mode relaxes the branch-type check for `release-fix`/`hotfix-fix` (target branch is discovered automatically).
+
+`finish` (release/hotfix) works from any worktree: a merge target checked out in another worktree is merged there in place (`git -C`); that tree must be clean or bflow refuses, naming the path.
 
 Configure it with the `bflow worktree` command (writes global git config; `--local` for one repo):
 
@@ -67,8 +69,8 @@ bflow finish --abort       # discard an in-progress release/hotfix finish
   - PR target: detected from branch topology; a single candidate is used directly, multiple candidates show a menu. `--base <branch>` sets the target explicitly and skips both — **AI agents/CI must pass `--base` (plus `--breaking`) so finish never needs a TTY** (e.g. `bflow finish --base develop --breaking=false`). The branch must exist on origin (push or fetch first) and differ from the current branch. Not valid on release/hotfix/release-fix/hotfix-fix (fixed target).
   - **PR already merged** → re-running `bflow finish` completes the finish instead of opening a new PR: deletes remote + local branch and, when the branch is in its own worktree, removes the worktree (close the editor window afterwards). Only when the local tip equals the merged commit — new commits since the merge get a fresh PR instead. Applies to work branches and release-fix/hotfix-fix.
 - **Release-fix / hotfix-fix** → creates PR to parent release/hotfix branch, title `fix: {name}` (dashes → spaces, e.g. `null-crash` → `fix: null crash`)
-- **Release** → merges to main + develop, tags, cleans up
-- **Hotfix** → merges to main + develop + every open `release/*`, tags, cleans up. If a release branch already exists, the hotfix is propagated into it so the upcoming release ships the fix; the operator must then run `bflow bump` to cut a new RC for staging validation.
+- **Release** → merges to main + develop, tags, cleans up (removes its own worktree when run inside one)
+- **Hotfix** → merges to main + develop + every open `release/*`, tags, cleans up (removes its own worktree when run inside one). If a release branch already exists, the hotfix is propagated into it so the upcoming release ships the fix; the operator must then run `bflow bump` to cut a new RC for staging validation.
 
 ### Resuming after a merge conflict
 
@@ -92,6 +94,14 @@ PR bodies resolve from `.github/pr-templates/bflow-<key>.md`, most-specific firs
 
 Opt-in: with no `.github/pr-templates/`, behavior is unchanged.
 
+### Initialise a repository
+
+```bash
+bflow init   # one-time; writes .bflow/config via three questions — commit the file
+```
+
+A repo without `.bflow/config` is **not initialised**: the interactive menu offers the wizard, subcommands fail with `run 'bflow init'`.
+
 ### Release-only commands
 
 ```bash
@@ -101,7 +111,7 @@ bflow sync # merge release into develop (on release/* only)
 
 ### Landing modes & version script
 
-`.bflow/config` (committed file, not git config — repo policy, not per-clone): `mode=free|protected` (default `free` = today's behavior), `keep-release-branches=true|false` (default `false`; skips deleting `release/*`/`hotfix/*` on finish, work branches unaffected), `bump-strategy=rc|patch` (default `rc`; see Tag Strategy).
+`.bflow/config` (committed file, not git config — repo policy, not per-clone; **required** — `bflow init` creates it, see above): `mode=free|protected` (default `free` = today's behavior), `keep-release-branches=true|false` (default `false`; skips deleting `release/*`/`hotfix/*` on finish, work branches unaffected), `bump-strategy=rc|patch` (default `rc`; see Tag Strategy).
 
 **`mode=protected`** — `main`/`develop` require PRs. `finish`/`bump`/`sync` open (or reuse) a PR for every landing instead of merging directly, print its URL, and **exit 0** — bflow never merges a PR. **Re-run the same command after a human merges it**; it resumes even if resolving a PR conflict (e.g. a version-file conflict landing into develop) added a commit to the source branch — an already-landed leg stays landed. One PR per run, in order (main → develop → each open release branch for hotfixes); only the last landing deletes the branch — unless its tip isn't part of any landed PR, in which case bflow keeps it, warns why, and prints the manual delete command (a guard, not a failure — the run still completed). Nothing is stored on disk to resume — progress is re-derived from PR/tag state each run. Don't add new, unrelated work to a release branch once its `main` PR has merged (the clean tag is already placed) — ship fixes as a hotfix instead.
 
@@ -180,6 +190,8 @@ Not available for `start release`.
 `bflow` without arguments is **interactive** and requires a TTY for its menu prompts. However, when all required arguments are provided (as shown in the Command Reference above), `bflow` runs **non-interactively** and is safe to use from AI agents, CI pipelines, and scripts.
 
 **Rule:** Always provide all required arguments so the command runs non-interactively. Never run bare `bflow` without arguments from a non-interactive context.
+
+**The repo must be initialised** (`.bflow/config` committed) — subcommands refuse otherwise; run `bflow init` once interactively.
 
 ## Prerequisites
 
