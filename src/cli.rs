@@ -32,6 +32,8 @@ pub enum Commands {
     Bump,
     /// Sync the current release branch into develop
     Sync,
+    /// Initialise this repository for bflow: writes .bflow/config (interactive)
+    Init,
     /// Configure the optional worktree flow (run with no subcommand for an interactive setup)
     Worktree {
         #[command(subcommand)]
@@ -234,6 +236,9 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
         }
         Commands::Worktree { .. } => {
             unreachable!("worktree configuration is dispatched in main() before resolve_action")
+        }
+        Commands::Init => {
+            unreachable!("init is dispatched in main() before resolve_action")
         }
     }
 }

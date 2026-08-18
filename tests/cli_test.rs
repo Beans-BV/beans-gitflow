@@ -502,3 +502,8 @@ fn start_release_no_worktree_reaches_the_action() {
     let action = resolve_action(cmd, &BranchType::Develop, false, "main").unwrap();
     assert!(matches!(action, Action::StartRelease { release_type: Some(ReleaseType::Minor), no_worktree: true }), "{action:?}");
 }
+
+#[test]
+fn init_parses_as_its_own_command() {
+    assert!(matches!(parse(&["init"]).unwrap(), Commands::Init));
+}
