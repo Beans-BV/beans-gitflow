@@ -353,6 +353,15 @@ Projects/beans/
 
 Wherever bflow runs — the main checkout or a linked worktree — it reads `.bflow/config`, the version script, and PR templates from **that** working tree, not the main one. A linked worktree can have a different branch checked out than the main tree, so this is what lets each worktree apply its own branch's mode, script, and templates instead of silently picking up whatever the main checkout happens to have.
 
+### Finishing from a worktree
+
+`bflow finish` on a release or hotfix branch can run from any worktree. For each
+merge target (`main`, `develop`, open `release/*`) bflow asks git where that
+branch is checked out. If another worktree holds it, the merge runs *in that
+worktree* (`git -C <path> merge …`), and that tree must be clean — bflow refuses
+and names the path otherwise, so it never merges over uncommitted work. If no
+worktree holds the target, it is checked out in the current tree as before.
+
 ## Workflows
 
 ### Feature / Fix / Chore / Docs / Refactor
