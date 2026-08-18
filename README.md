@@ -361,6 +361,9 @@ branch is checked out. If another worktree holds it, the merge runs *in that
 worktree* (`git -C <path> merge …`), and that tree must be clean — bflow refuses
 and names the path otherwise, so it never merges over uncommitted work. If no
 worktree holds the target, it is checked out in the current tree as before.
+Cleanup follows the same rule: if the finish ends while still standing on the
+release/hotfix branch and `main` is held by another worktree, bflow detaches
+HEAD instead of checking `main` out, then deletes the branch.
 
 ## Workflows
 
