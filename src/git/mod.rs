@@ -5,6 +5,10 @@ use std::process::Command;
 
 pub type Result<T> = std::result::Result<T, String>;
 
+fn utf8_path(path: &Path) -> Result<&str> {
+    path.to_str().ok_or_else(|| format!("Path is not valid UTF-8: {}", path.display()))
+}
+
 pub trait Git {
     fn current_branch(&self) -> Result<String>;
     fn fetch(&self) -> Result<()>;
@@ -65,6 +69,15 @@ pub trait Git {
     fn worktree_root(&self) -> Result<PathBuf>;
     /// Add a worktree at `path` checked out to the (already existing) `branch`.
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
+    /// Root of the working tree (main or linked) that has `branch` checked out,
+    /// `None` when no tree holds it. Git refuses to check out a branch that is
+    /// held by another tree, so flows merge into such a branch in place instead.
+    fn worktree_of(&self, branch: &str) -> Result<Option<PathBuf>>;
+    /// `is_working_tree_clean` / `ff_merge` / `merge`, run in the working tree
+    /// at `path` (`git -C`) instead of the current one.
+    fn is_working_tree_clean_at(&self, path: &Path) -> Result<bool>;
+    fn ff_merge_at(&self, path: &Path, branch: &str) -> Result<()>;
+    fn merge_at(&self, path: &Path, branch: &str, message: &str) -> Result<()>;
     /// Whether the current checkout is a linked worktree rather than the main
     /// working tree.
     fn is_linked_worktree(&self) -> Result<bool>;
@@ -355,6 +368,25 @@ impl Git for GitCli<'_> {
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;
         self.run(&["worktree", "add", path_str, branch]).map(|_| ())
+    }
+    fn worktree_of(&self, branch: &str) -> Result<Option<PathBuf>> {
+        let output = self.run(&["worktree", "list", "--porcelain"])?;
+        let wanted = format!("branch refs/heads/{branch}");
+        Ok(output
+            .split("\n\n")
+            .find(|entry| entry.lines().any(|l| l == wanted))
+            .and_then(|entry| entry.lines().find_map(|l| l.strip_prefix("worktree ")))
+            .map(PathBuf::from))
+    }
+    fn is_working_tree_clean_at(&self, path: &Path) -> Result<bool> {
+        let output = self.run(&["-C", utf8_path(path)?, "status", "--porcelain"])?;
+        Ok(output.is_empty())
+    }
+    fn ff_merge_at(&self, path: &Path, branch: &str) -> Result<()> {
+        self.run(&["-C", utf8_path(path)?, "merge", branch, "--ff-only"]).map(|_| ())
+    }
+    fn merge_at(&self, path: &Path, branch: &str, message: &str) -> Result<()> {
+        self.run(&["-C", utf8_path(path)?, "merge", branch, "--no-ff", "-m", message]).map(|_| ())
     }
     fn is_linked_worktree(&self) -> Result<bool> {
         // One invocation for both paths so the two are in a consistent form:

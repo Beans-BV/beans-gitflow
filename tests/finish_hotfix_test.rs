@@ -23,6 +23,7 @@ fn finish_hotfix_full_sequence() {
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/1.0.1:main",
+        "worktree_of:main",
         "checkout:main",
         "ff_merge:origin/main",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into main",
@@ -33,6 +34,7 @@ fn finish_hotfix_full_sequence() {
         "remote_tag_exists:v1.0.1",
         "push_tag:v1.0.1",
         "is_ancestor:hotfix/1.0.1:develop",
+        "worktree_of:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into develop",
@@ -57,6 +59,7 @@ fn finish_hotfix_targets_master_when_that_is_the_mainline() {
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/2.3.4:master",
+        "worktree_of:master",
         "checkout:master",
         "ff_merge:origin/master",
         "merge:hotfix/2.3.4:chore: merge hotfix 2.3.4 into master",
@@ -67,6 +70,7 @@ fn finish_hotfix_targets_master_when_that_is_the_mainline() {
         "remote_tag_exists:v2.3.4",
         "push_tag:v2.3.4",
         "is_ancestor:hotfix/2.3.4:develop",
+        "worktree_of:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
         "merge:hotfix/2.3.4:chore: merge hotfix 2.3.4 into develop",
@@ -91,6 +95,7 @@ fn finish_hotfix_propagates_to_open_release_branch() {
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/1.0.1:main",
+        "worktree_of:main",
         "checkout:main",
         "ff_merge:origin/main",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into main",
@@ -101,6 +106,7 @@ fn finish_hotfix_propagates_to_open_release_branch() {
         "remote_tag_exists:v1.0.1",
         "push_tag:v1.0.1",
         "is_ancestor:hotfix/1.0.1:develop",
+        "worktree_of:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into develop",
@@ -109,6 +115,7 @@ fn finish_hotfix_propagates_to_open_release_branch() {
         "list_branches_matching:release/*",
         "tag_exists:v1.2.0",
         "is_ancestor:hotfix/1.0.1:release/1.2.0",
+        "worktree_of:release/1.2.0",
         "checkout:release/1.2.0",
         "ff_merge:origin/release/1.2.0",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into release/1.2.0",
@@ -165,12 +172,14 @@ fn finish_hotfix_propagates_to_multiple_release_branches_in_sorted_order() {
         "tag_exists:v2.0.0",
         "tag_exists:v1.5.0",
         "is_ancestor:hotfix/1.0.1:release/1.5.0",
+        "worktree_of:release/1.5.0",
         "checkout:release/1.5.0",
         "ff_merge:origin/release/1.5.0",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into release/1.5.0",
         "is_pushed:release/1.5.0",
         "push:release/1.5.0",
         "is_ancestor:hotfix/1.0.1:release/2.0.0",
+        "worktree_of:release/2.0.0",
         "checkout:release/2.0.0",
         "ff_merge:origin/release/2.0.0",
         "merge:hotfix/1.0.1:chore: merge hotfix 1.0.1 into release/2.0.0",
@@ -714,4 +723,41 @@ fn protected_hotfix_keeps_the_branch_when_its_tip_landed_nowhere() {
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "tip landed nowhere must not delete; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "tip landed nowhere must not delete; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c == "checkout:main"), "tip landed nowhere must not touch the branch at all; calls: {calls:?}");
+}
+
+#[test]
+fn finish_hotfix_merges_in_place_when_target_is_checked_out_in_another_worktree() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.current_branch = "hotfix/1.0.1".to_string();
+    git.worktree_root = std::path::PathBuf::from("/repos/beans-api-hotfix-1.0.1");
+    git.worktrees.insert("develop".to_string(), std::path::PathBuf::from("/repos/beans-api"));
+
+    let hosting = MockHosting::new();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.contains(&"checkout:develop".to_string()), "must not check out a branch held by another worktree; calls: {calls:?}");
+    let develop_leg: Vec<&String> = calls.iter().skip_while(|c| *c != "is_ancestor:hotfix/1.0.1:develop").take(5).collect();
+    assert_eq!(develop_leg, vec![
+        "is_ancestor:hotfix/1.0.1:develop",
+        "worktree_of:develop",
+        "is_working_tree_clean_at:/repos/beans-api",
+        "ff_merge_at:/repos/beans-api:origin/develop",
+        "merge_at:/repos/beans-api:hotfix/1.0.1:chore: merge hotfix 1.0.1 into develop",
+    ]);
+}
+
+#[test]
+fn finish_hotfix_refuses_to_merge_into_a_dirty_worktree_it_does_not_stand_in() {
+    let mut git = fresh_hotfix_mock(1, 0, 1);
+    git.current_branch = "hotfix/1.0.1".to_string();
+    git.worktrees.insert("develop".to_string(), std::path::PathBuf::from("/repos/beans-api"));
+    git.working_tree_clean = false;
+
+    let hosting = MockHosting::new();
+    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("/repos/beans-api") && err.contains("develop"), "got: {err}");
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("ff_merge_at") || c.starts_with("merge_at")), "must not touch a dirty tree; calls: {calls:?}");
 }

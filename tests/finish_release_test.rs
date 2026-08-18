@@ -574,6 +574,7 @@ fn finish_release_creates_clean_tag_from_rc() {
         "tags_on_branch:release/1.1.0",
         "is_ancestor:release/1.1.0:main",
         "rev_list_count:v1.1.0-rc.2:release/1.1.0",
+        "worktree_of:main",
         "checkout:main",
         "ff_merge:origin/main",
         "merge:release/1.1.0:chore: merge release 1.1.0 into main",
@@ -584,6 +585,7 @@ fn finish_release_creates_clean_tag_from_rc() {
         "remote_tag_exists:v1.1.0",
         "push_tag:v1.1.0",
         "is_ancestor:release/1.1.0:develop",
+        "worktree_of:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
         "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
@@ -610,6 +612,7 @@ fn finish_release_targets_master_when_that_is_the_mainline() {
         "tags_on_branch:release/1.1.0",
         "is_ancestor:release/1.1.0:master",
         "rev_list_count:v1.1.0-rc.1:release/1.1.0",
+        "worktree_of:master",
         "checkout:master",
         "ff_merge:origin/master",
         "merge:release/1.1.0:chore: merge release 1.1.0 into master",
@@ -620,6 +623,7 @@ fn finish_release_targets_master_when_that_is_the_mainline() {
         "remote_tag_exists:v1.1.0",
         "push_tag:v1.1.0",
         "is_ancestor:release/1.1.0:develop",
+        "worktree_of:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
         "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
@@ -646,6 +650,7 @@ fn finish_release_patch_mode_merges_without_tagging() {
         "tags_on_branch:release/1.1.0",
         "is_ancestor:release/1.1.0:main",
         "rev_list_count:v1.1.1:release/1.1.0",
+        "worktree_of:main",
         "checkout:main",
         "ff_merge:origin/main",
         "merge:release/1.1.0:chore: merge release 1.1.0 into main",
@@ -654,6 +659,7 @@ fn finish_release_patch_mode_merges_without_tagging() {
         "remote_tag_exists:v1.1.1",
         "push_tag:v1.1.1",
         "is_ancestor:release/1.1.0:develop",
+        "worktree_of:develop",
         "checkout:develop",
         "ff_merge:origin/develop",
         "merge:release/1.1.0:chore: merge release 1.1.0 into develop",
@@ -1311,4 +1317,41 @@ fn protected_finish_errors_when_local_and_origin_diverged() {
 
     assert!(err.contains("have diverged"), "got: {err}");
     assert!(err.contains("git pull --rebase"), "got: {err}");
+}
+
+#[test]
+fn finish_release_merges_into_main_in_place_when_main_lives_in_another_worktree() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1", "v1.1.0-rc.2"]);
+    git.rev_list_count_result = 0;
+    git.current_branch = "release/1.1.0".to_string();
+    git.worktrees.insert("main".to_string(), std::path::PathBuf::from("/repos/beans-api-main"));
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &RepoConfig::default(), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    let before_tag: Vec<&String> = calls.iter().take_while(|c| *c != "tag_exists:v1.1.0").collect();
+    assert!(!before_tag.contains(&&"checkout:main".to_string()), "the main leg must not check out a branch held by another worktree; calls: {calls:?}");
+    let main_leg: Vec<&String> = calls.iter().skip_while(|c| *c != "worktree_of:main").take(4).collect();
+    assert_eq!(main_leg, vec![
+        "worktree_of:main",
+        "is_working_tree_clean_at:/repos/beans-api-main",
+        "ff_merge_at:/repos/beans-api-main:origin/main",
+        "merge_at:/repos/beans-api-main:release/1.1.0:chore: merge release 1.1.0 into main",
+    ]);
+}
+
+#[test]
+fn finish_release_refuses_a_dirty_main_worktree_before_touching_it() {
+    let mut git = fresh_release_mock(1, 1, &["v1.1.0-rc.1", "v1.1.0-rc.2"]);
+    git.rev_list_count_result = 0;
+    git.current_branch = "release/1.1.0".to_string();
+    git.worktrees.insert("main".to_string(), std::path::PathBuf::from("/repos/beans-api-main"));
+    git.working_tree_clean = false;
+
+    let err = finish_release(&git, &MockHosting::new(), &RepoConfig::default(), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("/repos/beans-api-main"), "got: {err}");
+    assert!(err.contains("release/1.1.0"), "must carry the resume hint naming the source branch; got: {err}");
+    assert!(!git.calls().iter().any(|c| c.starts_with("merge_at") || c.starts_with("ff_merge_at")), "calls: {:?}", git.calls());
 }

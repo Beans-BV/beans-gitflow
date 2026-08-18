@@ -19,17 +19,41 @@ use crate::version_script::VersionScript;
 // flows themselves are deliberately NOT unified: the RC gate, release
 // propagation, and messaging genuinely differ.
 
-/// Merge `source` into `target` (checkout, ff-sync to origin, no-ff merge),
-/// skipped entirely when `source` is already an ancestor of `target`.
+/// Merge `source` into `target` (ff-sync to origin, then no-ff merge), skipped
+/// entirely when `source` is already an ancestor of `target`.
 pub(crate) fn merge_into(git: &dyn Git, source: &str, target: &str, message: &str, conflict_help: &str) -> Result<(), String> {
     if git.is_ancestor(source, target)? {
         println!("↷ skipped: merge into {target} (already merged)");
         return Ok(());
     }
     println!("Merging into {target}...");
-    git.checkout(target)?;
-    git.ff_merge(&format!("origin/{target}"))?;
-    git.merge(source, message).map_err(|e| format!("{e}\n{conflict_help}"))
+    merge_where_checked_out(git, source, target, message).map_err(|e| format!("{e}\n{conflict_help}"))
+}
+
+/// The merge itself, run in whichever working tree already has `target`
+/// checked out — git refuses to check out a branch held by another worktree —
+/// and here, after a checkout, when no tree holds it. Refuses to touch another
+/// tree that has uncommitted changes.
+pub(crate) fn merge_where_checked_out(git: &dyn Git, source: &str, target: &str, message: &str) -> Result<(), String> {
+    let upstream = format!("origin/{target}");
+    match git.worktree_of(target)? {
+        Some(path) => {
+            if !git.is_working_tree_clean_at(&path)? {
+                return Err(format!(
+                    "'{target}' is checked out in {} and that working tree is not clean.\n\
+                     Commit or stash the changes there, then re-run.",
+                    path.display()
+                ));
+            }
+            git.ff_merge_at(&path, &upstream)?;
+            git.merge_at(&path, source, message)
+        }
+        None => {
+            git.checkout(target)?;
+            git.ff_merge(&upstream)?;
+            git.merge(source, message)
+        }
+    }
 }
 
 /// Push `branch` unless origin already has its HEAD.

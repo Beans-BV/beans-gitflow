@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, leg_landed,
+    announce_pending_landing, delete_branch_guarded, delete_source_branch, landed_pr, leg_landed, merge_where_checked_out,
     merge_into, open_landing_pr, push_if_needed, push_tag_if_missing, report_commits_past_landing, require_clean_tree,
     resume_hint, run_version_script, tag_at_if_missing, tag_if_missing, tip_landed_somewhere,
 };
@@ -297,9 +297,7 @@ pub fn finish_release(
             return Err(past_staged_tag_error(&release_branch, main_branch, &latest_staged_tag, commits_past, cfg.bump_strategy));
         }
         println!("Merging into {main_branch}...");
-        git.checkout(main_branch)?;
-        git.ff_merge(&format!("origin/{main_branch}"))?;
-        git.merge(&release_branch, &format!("chore: merge release {release} into {main_branch}"))
+        merge_where_checked_out(git, &release_branch, main_branch, &format!("chore: merge release {release} into {main_branch}"))
             .map_err(|e| format!("{e}\n{}", resume_hint(&release_branch)))?;
     } else {
         println!("↷ skipped: merge into {main_branch} (already merged)");
