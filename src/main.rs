@@ -12,7 +12,7 @@ use bflow::hosting::{HostingPlatform, SystemCli};
 use bflow::lifecycle;
 use bflow::menu::MenuPrompter;
 use bflow::editor::CommandEditor;
-use bflow::repo_config;
+use bflow::init;
 use bflow::version_script::{self, ScriptCli, VersionScript};
 use bflow::worktree::{self, WorktreeConfig};
 
@@ -55,7 +55,10 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     // command, not just release/hotfix ones. Accepted — it surfaces the
     // misconfiguration immediately rather than on whichever command hits it first.
     let root = git.worktree_root()?;
-    let repo_cfg = repo_config::load(&root)?;
+    if let Some(Commands::Init) = command {
+        return init::run(&MenuPrompter, &root);
+    }
+    let repo_cfg = init::ensure(&MenuPrompter, &root, command.is_none())?;
     let script_path = version_script::resolve(&root)?;
     let script = script_path.map(|path| ScriptCli::new(path, root.clone()));
 
