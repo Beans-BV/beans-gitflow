@@ -123,6 +123,9 @@ pub enum StartKind {
         major: bool,
         #[arg(long, conflicts_with = "major")]
         minor: bool,
+        /// Skip the worktree flow for this command (no effect unless bflow.worktree.enabled)
+        #[arg(long)]
+        no_worktree: bool,
     },
     /// Start a release fix branch (must be on a release branch)
     ReleaseFix {
@@ -173,11 +176,11 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
             StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout, opts.no_worktree),
             StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout, opts.no_worktree),
             StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout, opts.no_worktree),
-            StartKind::Release { major, minor } => {
+            StartKind::Release { major, minor, no_worktree } => {
                 let release_type = if major { Some(ReleaseType::Major) }
                     else if minor { Some(ReleaseType::Minor) }
                     else { None };
-                Ok(Action::StartRelease(release_type))
+                Ok(Action::StartRelease { release_type, no_worktree })
             }
             StartKind::ReleaseFix { name, opts } => {
                 validate_branch_name(&name)?;

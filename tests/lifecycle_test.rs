@@ -383,7 +383,7 @@ fn start_release_dispatches_to_the_release_flow() {
     git.tags = vec!["v2.4.0".to_string()];
 
     run_lifecycle(&git, Some(Commands::Start {
-        kind: StartKind::Release { major: true, minor: false },
+        kind: StartKind::Release { major: true, minor: false, no_worktree: false },
     })).unwrap();
 
     let calls = git.calls();
@@ -726,6 +726,6 @@ fn no_subcommand_falls_through_to_the_interactive_menu() {
 
     let action = resolve_action_with_state(None, &prompter, &BranchType::Develop, "develop", None, false, "main").unwrap();
 
-    assert!(matches!(action, Action::StartRelease(None)), "{action:?}");
+    assert!(matches!(action, Action::StartRelease { release_type: None, .. }), "{action:?}");
     assert_eq!(prompter.calls().len(), 1);
 }

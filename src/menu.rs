@@ -278,7 +278,7 @@ pub fn show_menu(prompter: &dyn Prompter, branch_type: &BranchType, current_bran
                     let name = prompter.prompt_name(&format!("Name for {kind} branch"))?;
                     Ok(Action::StartWorkBranch { prefix: kind.to_string(), name, from: "develop".to_string(), no_checkout: false, no_worktree: false })
                 }
-                None => Ok(Action::StartRelease(None)),
+                None => Ok(Action::StartRelease { release_type: None, no_worktree: false }),
             }
         }
         BranchType::Feature { .. } | BranchType::Fix { .. } | BranchType::Chore { .. }
