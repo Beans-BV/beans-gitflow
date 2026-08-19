@@ -523,6 +523,29 @@ impl HostingPlatform for MockHosting {
     }
 }
 
+pub struct MockWorktreeSetup {
+    pub calls: RefCell<Vec<String>>,
+    /// Commands that fail with `Err("boom")`.
+    pub fail: HashSet<String>,
+}
+
+impl MockWorktreeSetup {
+    pub fn new() -> Self {
+        Self { calls: RefCell::new(Vec::new()), fail: HashSet::new() }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl bflow::worktree_setup::WorktreeSetup for MockWorktreeSetup {
+    fn run_command(&self, worktree: &Path, main_root: &Path, command: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("run:{}:{}:{command}", worktree.display(), main_root.display()));
+        if self.fail.contains(command) { Err("boom".to_string()) } else { Ok(()) }
+    }
+}
+
 pub struct MockEditor {
     pub calls: RefCell<Vec<String>>,
     /// When true, `open` returns an error (simulates editor not on PATH).

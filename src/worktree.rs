@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::editor::Editor;
+use crate::worktree_setup::{SetupCommands, WorktreeSetup};
 use crate::git::{Git, Result};
 use crate::prompt::Prompter;
 
@@ -96,11 +97,19 @@ impl WorktreeConfig {
     }
 }
 
-/// Bundle of resolved config + editor passed into the start flows when the worktree
-/// flow is active.
-pub struct WorktreeContext<'a> {
+/// Everything the worktree flow needs from the composition root: config,
+/// editor, the setup-command runner and the repo's resolved setup commands.
+pub struct WorktreeEnv<'a> {
     pub config: &'a WorktreeConfig,
     pub editor: &'a dyn Editor,
+    pub setup: &'a dyn WorktreeSetup,
+    pub commands: Option<&'a SetupCommands>,
+}
+
+/// Per-run handle passed into the start flows when the worktree flow is active.
+pub struct WorktreeContext<'a> {
+    pub env: &'a WorktreeEnv<'a>,
+    pub prompter: &'a dyn Prompter,
 }
 
 /// Expand a leading `~` / `~/` to the user's home directory. The shell never
@@ -144,7 +153,9 @@ pub fn worktree_path(repo_root: &Path, repo_name: &str, base_path: Option<&str>,
 ///
 /// `branch` must already exist. Worktree creation is fatal on error; editor-open
 /// failures are downgraded to a warning since the branch and worktree already exist.
-pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig, branch: &str) -> Result<()> {
+pub fn open_worktree(git: &dyn Git, ctx: &WorktreeContext<'_>, branch: &str) -> Result<()> {
+    let config = ctx.env.config;
+    let editor = ctx.env.editor;
     let repo_root = git.repo_root()?;
     let repo_name = repo_root
         .file_name()
@@ -160,6 +171,10 @@ pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig
     println!("Creating worktree: {}", path.display());
     git.add_worktree(&path, branch)?;
 
+    if let Some(cmds) = ctx.env.commands {
+        run_setup(ctx, &repo_root, &path, cmds);
+    }
+
     if !editor_disabled(&config.editor) {
         let editor_cmd = config.editor.trim();
         println!("Opening in editor: {editor_cmd}");
@@ -169,6 +184,43 @@ pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig
     }
 
     Ok(())
+}
+
+/// Run the repo's `worktrees.json` commands inside the new worktree, per the
+/// configured mode. Never fails the start: a failing command is reported and
+/// the rest still run (worktree-cli's policy), and a prompt that cannot be
+/// shown skips with the config remedy — the branch is already pushed by now.
+fn run_setup(ctx: &WorktreeContext<'_>, main_root: &Path, worktree: &Path, cmds: &SetupCommands) {
+    let run = match ctx.env.config.setup {
+        SetupMode::Off => false,
+        SetupMode::Trust => true,
+        SetupMode::Ask => {
+            let question = format!("Run {} setup command(s) from {}?", cmds.commands.len(), cmds.file.display());
+            match ctx.prompter.select(&question, &["Run", "Skip"]) {
+                Ok(0) => true,
+                Ok(_) => false,
+                Err(e) => {
+                    eprintln!(
+                        "Setup commands skipped ({e}). Run them yourself in {}, or set 'bflow worktree setup trust' for non-interactive runs.",
+                        worktree.display()
+                    );
+                    false
+                }
+            }
+        }
+    };
+    if !run {
+        return;
+    }
+    let mut ok = 0;
+    for command in &cmds.commands {
+        println!("Running: {command}");
+        match ctx.env.setup.run_command(worktree, main_root, command) {
+            Ok(()) => ok += 1,
+            Err(e) => eprintln!("Setup command failed: {command} — {e}"),
+        }
+    }
+    println!("Setup commands completed ({ok}/{} succeeded).", cmds.commands.len());
 }
 
 // ---------------------------------------------------------------------------
