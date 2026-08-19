@@ -116,7 +116,6 @@ fn run_worktree_config(git: &GitCli<'_>, action: Option<WorktreeAction>, local: 
         Some(WorktreeAction::Disable) => worktree::set_enabled(git, false, local),
         Some(WorktreeAction::Editor { value }) => worktree::set_editor(git, &value, local),
         Some(WorktreeAction::Path { value }) => worktree::set_path(git, &value, local),
-        Some(WorktreeAction::Setup { value }) => worktree::set_setup_mode(git, &value, local),
         Some(WorktreeAction::Status) => worktree::show_status(git),
     }
 }

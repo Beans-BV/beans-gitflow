@@ -313,7 +313,6 @@ Or set options directly (handy for scripts and dotfiles):
 bflow worktree enable                 # turn the flow on
 bflow worktree editor cursor          # code (default) | cursor | windsurf | zed | pycharm | none | any command
 bflow worktree path ~/worktrees       # where worktree folders go (default: the repo's parent)
-bflow worktree setup ask|trust|off    # what to do with worktrees.json setup commands (default: ask)
 bflow worktree status                 # show the current settings
 bflow worktree disable                # turn it off
 ```
@@ -357,17 +356,16 @@ holds the release just prints its path.
 
 ### Setup commands (`worktrees.json`)
 
-After creating a worktree, bflow runs the repo's setup commands — the same
-files Cursor and [worktree-cli](https://github.com/johnlindquist/worktree-cli)
+With the worktree flow enabled, bflow looks for the repo's setup commands
+after creating a worktree and runs them **before opening the editor** — the
+same files Cursor and [worktree-cli](https://github.com/johnlindquist/worktree-cli)
 use: `.cursor/worktrees.json` (a JSON array of commands) or `worktrees.json`
-at the repo root (`{"setup-worktree": [...]}`); the first non-empty one wins.
-Each entry is a shell command run inside the new worktree with
-`$ROOT_WORKTREE_PATH` pointing at your main checkout; a failing command is
-reported and the rest still run. By default bflow shows the commands and asks
-first; `bflow worktree setup trust` runs them without asking (a per-developer
-git config choice), `bflow worktree setup off` ignores the file.
-Non-interactive runs must pick `trust` or `off` — a prompt that cannot be
-shown skips the commands with a warning and never fails the start.
+at the repo root (`{"setup-worktree": [...]}`); the first non-empty one wins,
+no file means nothing runs. Each entry is a shell command run inside the new
+worktree with `$ROOT_WORKTREE_PATH` pointing at your main checkout; a failing
+command is reported and the rest still run, and the start never fails because
+of a setup command. Nothing is asked — the file is repo content you committed,
+so enabling worktrees is the opt-in.
 
 ```json
 {

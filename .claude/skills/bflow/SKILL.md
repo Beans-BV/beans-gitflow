@@ -44,7 +44,7 @@ resolved branch.
 
 #### Worktree integration (optional)
 
-When `bflow.worktree.enabled=true` (git config), every `start` creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout (`start release` creates and tags in the current checkout first, returns it to `develop`, then opens the release worktree; a release already held by a worktree is only announced). After creating a worktree bflow runs `.cursor/worktrees.json` / `worktrees.json` setup commands (Cursor / worktree-cli format: each entry a shell command in the new worktree, `$ROOT_WORKTREE_PATH` = main checkout, failures reported and the rest still run) — `bflow worktree setup ask|trust|off`; non-interactive runs need `trust` or `off`, otherwise the commands are skipped with a warning. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent, `~` expanded). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command. Like `--no-checkout`, active worktree mode relaxes the branch-type check for `release-fix`/`hotfix-fix` (target branch is discovered automatically).
+When `bflow.worktree.enabled=true` (git config), every `start` creates the branch in a native git worktree and opens it in an editor instead of switching the current checkout (`start release` creates and tags in the current checkout first, returns it to `develop`, then opens the release worktree; a release already held by a worktree is only announced). After creating a worktree and before opening the editor, bflow runs the repo's `.cursor/worktrees.json` / `worktrees.json` setup commands if present (Cursor / worktree-cli format: each entry a shell command in the new worktree, `$ROOT_WORKTREE_PATH` = main checkout, failures reported and the rest still run, never fails the start). No prompt, no config — the committed file is the opt-in. Config keys: `bflow.worktree.enabled` (bool, default false), `bflow.worktree.editor` (default `code`; `none` skips opening), `bflow.worktree.path` (base dir, default repo's parent, `~` expanded). Folder name: `<repo-name>-<branch-with-slashes-as-dashes>`. `--no-worktree` skips it for one command. Like `--no-checkout`, active worktree mode relaxes the branch-type check for `release-fix`/`hotfix-fix` (target branch is discovered automatically).
 
 `finish` (release/hotfix) works from any worktree: a merge target checked out in another worktree is merged there in place (`git -C`); that tree must be clean or bflow refuses, naming the path.
 
@@ -55,7 +55,6 @@ bflow worktree                     # interactive setup (enable / editor / locati
 bflow worktree enable | disable
 bflow worktree editor <cmd>        # code | cursor | windsurf | zed | pycharm | none | any command
 bflow worktree path <dir>
-bflow worktree setup ask|trust|off # worktrees.json setup commands after creating a worktree (default ask; agents: trust or off)
 bflow worktree status
 ```
 

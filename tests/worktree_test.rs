@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use common::{MockEditor, MockGit, MockPrompter};
 use bflow::worktree::{
-    worktree_path, SetupMode, WorktreeConfig, EDITOR_PRESETS,
-    set_enabled, set_editor, set_path, set_setup_mode, use_default_path, show_status, wizard,
+    worktree_path, WorktreeConfig, EDITOR_PRESETS,
+    set_enabled, set_editor, set_path, use_default_path, show_status, wizard,
 };
 
 /// `worktree_path` reads HOME/USERPROFILE, and one test below removes them.
@@ -154,7 +154,7 @@ fn use_default_path_unsets_the_key() {
 }
 
 #[test]
-fn show_status_reads_the_four_keys() {
+fn show_status_reads_the_three_keys() {
     let mut git = MockGit::new();
     git.config.insert("bflow.worktree.enabled".to_string(), "true".to_string());
     show_status(&git).unwrap();
@@ -162,30 +162,8 @@ fn show_status_reads_the_four_keys() {
     assert!(calls.iter().any(|c| c == "get_config:bflow.worktree.enabled"));
     assert!(calls.iter().any(|c| c == "get_config:bflow.worktree.editor"));
     assert!(calls.iter().any(|c| c == "get_config:bflow.worktree.path"));
-    assert!(calls.iter().any(|c| c == "get_config:bflow.worktree.setup"));
 }
 
-#[test]
-fn config_reads_setup_mode_and_defaults_to_ask() {
-    let git = MockGit::new();
-    assert_eq!(WorktreeConfig::load(&git).unwrap().setup, SetupMode::Ask);
-    let mut git = MockGit::new();
-    git.config.insert("bflow.worktree.setup".into(), " Trust ".into());
-    assert_eq!(WorktreeConfig::load(&git).unwrap().setup, SetupMode::Trust);
-    git.config.insert("bflow.worktree.setup".into(), "off".into());
-    assert_eq!(WorktreeConfig::load(&git).unwrap().setup, SetupMode::Off);
-    git.config.insert("bflow.worktree.setup".into(), "maybe".into());
-    assert_eq!(WorktreeConfig::load(&git).unwrap_err(), "Invalid bflow.worktree.setup 'maybe'. Use 'ask', 'trust' or 'off'.");
-}
-
-#[test]
-fn set_setup_mode_writes_the_key() {
-    let git = MockGit::new();
-    set_setup_mode(&git, "trust", false).unwrap();
-    assert_eq!(git.calls(), vec!["set_config:global:bflow.worktree.setup:trust"]);
-    assert!(set_setup_mode(&git, "nah", false).is_err());
-    assert_eq!(git.calls().len(), 1, "an invalid mode writes nothing");
-}
 
 #[test]
 fn editor_presets_map_friendly_names_to_commands() {
@@ -211,7 +189,6 @@ fn show_status_flags_a_disabled_editor_and_a_custom_path() {
         "get_config:bflow.worktree.enabled",
         "get_config:bflow.worktree.editor",
         "get_config:bflow.worktree.path",
-        "get_config:bflow.worktree.setup",
     ], "status is read-only — it must never write config");
 }
 
@@ -256,7 +233,7 @@ fn an_unusable_worktree_base_directory_is_a_hard_error() {
         enabled: true,
         editor: "code".to_string(),
         // The parent of the computed worktree path is a regular file.
-        base_path: Some(blocker.join("nested").to_string_lossy().to_string()), setup: SetupMode::Ask,
+        base_path: Some(blocker.join("nested").to_string_lossy().to_string()),
     };
 
     let env = bflow::worktree::WorktreeEnv { config: &config, editor: &MockEditor::new(), setup: &common::MockWorktreeSetup::new(), commands: None };
@@ -288,8 +265,8 @@ fn wizard_disable_short_circuits_before_the_editor_and_path_prompts() {
 #[test]
 fn wizard_enable_with_a_preset_editor_and_the_default_location() {
     let git = MockGit::new();
-    // enable, first editor preset, default location, ask before setup commands
-    let prompter = MockPrompter::scripted(&[0, 0, 0, 0]);
+    // enable, first editor preset, default location
+    let prompter = MockPrompter::scripted(&[0, 0, 0]);
 
     wizard(&git, &prompter, false).unwrap();
 
@@ -298,7 +275,6 @@ fn wizard_enable_with_a_preset_editor_and_the_default_location() {
         format!("set_config:global:bflow.worktree.editor:{}", EDITOR_PRESETS[0].1),
         // "use default" unsets the key rather than writing a value.
         "unset_config:global:bflow.worktree.path".to_string(),
-        "set_config:global:bflow.worktree.setup:ask".to_string(),
     ]);
 }
 
@@ -306,7 +282,7 @@ fn wizard_enable_with_a_preset_editor_and_the_default_location() {
 fn wizard_none_editor_entry_sits_after_the_presets() {
     let git = MockGit::new();
     let none_idx = EDITOR_PRESETS.len();
-    let prompter = MockPrompter::scripted(&[0, none_idx, 0, 0]);
+    let prompter = MockPrompter::scripted(&[0, none_idx, 0]);
 
     wizard(&git, &prompter, false).unwrap();
 
@@ -318,7 +294,7 @@ fn wizard_none_editor_entry_sits_after_the_presets() {
 fn wizard_custom_editor_and_custom_path_are_read_as_free_text() {
     let git = MockGit::new();
     let custom_idx = EDITOR_PRESETS.len() + 1;
-    let prompter = MockPrompter::scripted(&[0, custom_idx, 1, 1])
+    let prompter = MockPrompter::scripted(&[0, custom_idx, 1])
         .with_lines(&["my-editor --wait", "~/worktrees"]);
 
     wizard(&git, &prompter, true).unwrap();
@@ -328,7 +304,6 @@ fn wizard_custom_editor_and_custom_path_are_read_as_free_text() {
         "set_config:local:bflow.worktree.enabled:true",
         "set_config:local:bflow.worktree.editor:my-editor --wait",
         "set_config:local:bflow.worktree.path:~/worktrees",
-        "set_config:local:bflow.worktree.setup:trust",
     ]);
     assert_eq!(prompter.calls(), vec![
         "select:Worktree flow:[Enable — open each new branch in its own worktree + editor, Disable]",
@@ -338,16 +313,5 @@ fn wizard_custom_editor_and_custom_path_are_read_as_free_text() {
         "prompt_line:Editor command (e.g. code, cursor)",
         "select:Worktree location:[Default — next to the repository, Custom directory…]",
         "prompt_line:Worktree base directory (e.g. ~/worktrees)",
-        "select:Setup commands from worktrees.json:[Ask each time (default), Trust — run without asking, Off]",
     ]);
-}
-
-#[test]
-fn show_status_handles_every_setup_mode() {
-    for mode in ["ask", "trust", "off"] {
-        let mut git = MockGit::new();
-        git.config.insert("bflow.worktree.setup".to_string(), mode.to_string());
-        show_status(&git).unwrap();
-        assert!(git.calls().contains(&"get_config:bflow.worktree.setup".to_string()));
-    }
 }

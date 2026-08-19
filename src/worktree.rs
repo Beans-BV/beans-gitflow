@@ -21,7 +21,6 @@ pub const EDITOR_PRESETS: &[(&str, &str)] = &[
 const KEY_ENABLED: &str = "bflow.worktree.enabled";
 const KEY_EDITOR: &str = "bflow.worktree.editor";
 const KEY_PATH: &str = "bflow.worktree.path";
-const KEY_SETUP: &str = "bflow.worktree.setup";
 
 fn scope_label(local: bool) -> &'static str {
     if local { "local (this repo)" } else { "global (all repos)" }
@@ -33,33 +32,6 @@ fn editor_disabled(editor: &str) -> bool {
     editor.is_empty() || editor.eq_ignore_ascii_case("none")
 }
 
-/// What to do with `worktrees.json` setup commands after creating a worktree.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SetupMode {
-    Ask,
-    Trust,
-    Off,
-}
-
-impl SetupMode {
-    pub fn parse(value: &str) -> Result<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "ask" => Ok(Self::Ask),
-            "trust" => Ok(Self::Trust),
-            "off" => Ok(Self::Off),
-            other => Err(format!("Invalid bflow.worktree.setup '{other}'. Use 'ask', 'trust' or 'off'.")),
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Ask => "ask",
-            Self::Trust => "trust",
-            Self::Off => "off",
-        }
-    }
-}
-
 /// User configuration for the optional worktree flow, read from `bflow.worktree.*`
 /// git config keys.
 #[derive(Debug)]
@@ -67,12 +39,11 @@ pub struct WorktreeConfig {
     pub enabled: bool,
     pub editor: String,
     pub base_path: Option<String>,
-    pub setup: SetupMode,
 }
 
 impl WorktreeConfig {
     /// Load the `bflow.worktree.*` keys. Absent keys fall back to defaults
-    /// (disabled, editor `code`, no custom base path, setup `ask`). Values are trimmed —
+    /// (disabled, editor `code`, no custom base path). Values are trimmed —
     /// stray whitespace in git config would otherwise break `Command::new`
     /// (e.g. editor `"code "`) or produce oddly named directories.
     pub fn load(git: &dyn Git) -> Result<Self> {
@@ -89,11 +60,7 @@ impl WorktreeConfig {
             .get_config(KEY_PATH)?
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
-        let setup = match git.get_config(KEY_SETUP)?.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
-            Some(value) => SetupMode::parse(&value)?,
-            None => SetupMode::Ask,
-        };
-        Ok(Self { enabled, editor, base_path, setup })
+        Ok(Self { enabled, editor, base_path })
     }
 }
 
@@ -186,32 +153,11 @@ pub fn open_worktree(git: &dyn Git, ctx: &WorktreeContext<'_>, branch: &str) -> 
     Ok(())
 }
 
-/// Run the repo's `worktrees.json` commands inside the new worktree, per the
-/// configured mode. Never fails the start: a failing command is reported and
-/// the rest still run (worktree-cli's policy), and a prompt that cannot be
-/// shown skips with the config remedy — the branch is already pushed by now.
+/// Run the repo's `worktrees.json` commands inside the new worktree. Never
+/// fails the start: a failing command is reported and the rest still run
+/// (worktree-cli's policy) — the branch is already pushed by now.
 fn run_setup(ctx: &WorktreeContext<'_>, main_root: &Path, worktree: &Path, cmds: &SetupCommands) {
-    let run = match ctx.env.config.setup {
-        SetupMode::Off => false,
-        SetupMode::Trust => true,
-        SetupMode::Ask => {
-            let question = format!("Run {} setup command(s) from {}?", cmds.commands.len(), cmds.file.display());
-            match ctx.prompter.select(&question, &["Run", "Skip"]) {
-                Ok(0) => true,
-                Ok(_) => false,
-                Err(e) => {
-                    eprintln!(
-                        "Setup commands skipped ({e}). Run them yourself in {}, or set 'bflow worktree setup trust' for non-interactive runs.",
-                        worktree.display()
-                    );
-                    false
-                }
-            }
-        }
-    };
-    if !run {
-        return;
-    }
+    println!("Running {} setup command(s) from {}", cmds.commands.len(), cmds.file.display());
     let mut ok = 0;
     for command in &cmds.commands {
         println!("Running: {command}");
@@ -252,14 +198,6 @@ pub fn set_path(git: &dyn Git, value: &str, local: bool) -> Result<()> {
     Ok(())
 }
 
-/// Set what happens with `worktrees.json` setup commands (ask | trust | off).
-pub fn set_setup_mode(git: &dyn Git, value: &str, local: bool) -> Result<()> {
-    let mode = SetupMode::parse(value)?;
-    git.set_config(KEY_SETUP, mode.as_str(), !local)?;
-    println!("Worktree setup commands set to '{}' — saved to {} git config.", mode.as_str(), scope_label(local));
-    Ok(())
-}
-
 /// Clear a custom base directory, reverting to the default (the repo's parent).
 pub fn use_default_path(git: &dyn Git, local: bool) -> Result<()> {
     git.unset_config(KEY_PATH, !local)?;
@@ -281,19 +219,13 @@ pub fn show_status(git: &dyn Git) -> Result<()> {
         Some(p) => println!("  path    : {p}"),
         None => println!("  path    : (default — the repository's parent directory)"),
     }
-    let setup_note = match cfg.setup {
-        SetupMode::Ask => "confirm worktrees.json commands each time",
-        SetupMode::Trust => "run worktrees.json commands without asking",
-        SetupMode::Off => "ignore worktrees.json",
-    };
-    println!("  setup   : {} ({setup_note})", cfg.setup.as_str());
     if !cfg.enabled {
         println!("\nIt's off. Turn it on with 'bflow worktree enable' or 'bflow worktree'.");
     }
     Ok(())
 }
 
-/// Interactive setup: prompts for enable, editor, location and setup mode, then saves them.
+/// Interactive setup: prompts for enable, editor, and location, then saves them.
 pub fn wizard(git: &dyn Git, prompter: &dyn Prompter, local: bool) -> Result<()> {
     println!("Configure the worktree flow — writing to {} git config.\n", scope_label(local));
 
@@ -333,10 +265,6 @@ pub fn wizard(git: &dyn Git, prompter: &dyn Prompter, local: bool) -> Result<()>
         let path = prompter.prompt_line("Worktree base directory (e.g. ~/worktrees)")?;
         set_path(git, &path, local)?;
     }
-
-    let setup_items = ["Ask each time (default)", "Trust — run without asking", "Off"];
-    let mode = [SetupMode::Ask, SetupMode::Trust, SetupMode::Off][prompter.select("Setup commands from worktrees.json", &setup_items)?];
-    set_setup_mode(git, mode.as_str(), local)?;
 
     println!("\nDone. Your next 'bflow start' opens work in a worktree.");
     Ok(())

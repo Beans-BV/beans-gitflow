@@ -1,4 +1,4 @@
-use bflow::cli::{Commands, StartKind, StartOptions, WorktreeAction, resolve_action};
+use bflow::cli::{Commands, StartKind, StartOptions, resolve_action};
 use bflow::flows::start::ReleaseType;
 use bflow::git::branch::BranchType;
 use bflow::action::Action;
@@ -480,8 +480,6 @@ fn the_flag_surface_parses_what_it_promises() {
         Commands::Worktree { local: true, .. }));
     assert!(matches!(parse(&["worktree", "enable", "--local"]).unwrap(),
         Commands::Worktree { local: true, .. }));
-    assert!(matches!(parse(&["worktree", "setup", "trust"]).unwrap(),
-        Commands::Worktree { action: Some(WorktreeAction::Setup { .. }), .. }));
 }
 
 #[test]

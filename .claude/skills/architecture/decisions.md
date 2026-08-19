@@ -16,7 +16,7 @@ Catalog of deliberate choices — each entry: the choice, why, and the rejected 
 | `Git` | `GitCli`; `MockGit` in tests | Built once in `main.rs` |
 | `HostingPlatform` | `GitHub` (`gh`), `AzureDevOps` (`az`); `MockHosting` | Auto-detected from origin remote URL (`hosting/detect.rs`) |
 | `Editor` | `CommandEditor` (any command); `MockEditor` | `bflow.worktree.editor` git config |
-| `WorktreeSetup` | `ShellSetup` (`sh -c` / `cmd /C`, cwd = new worktree, `ROOT_WORKTREE_PATH`, inherited stdio); `MockWorktreeSetup` | `worktrees.json` / `.cursor/worktrees.json`, mode `bflow.worktree.setup` |
+| `WorktreeSetup` | `ShellSetup` (`sh -c` / `cmd /C`, cwd = new worktree, `ROOT_WORKTREE_PATH`, inherited stdio); `MockWorktreeSetup` | `worktrees.json` / `.cursor/worktrees.json` (committed; present = run, no prompt) |
 | `Prompter` | `MenuPrompter` (select + the two text readers); `MockPrompter` (scripted) | Built once in `main.rs` |
 | `VersionScript` | `ScriptCli` (spawns `.bflow/set-version.{sh,cmd}`); `MockVersionScript` | Resolved once (`version_script::resolve`) in `main.rs`; `None` when no script file is present |
 | `CommandRunner` (`git/mod.rs`) | `SystemRunner`; `MockCommandRunner` | Injected into `GitCli` in `main.rs` |

@@ -58,10 +58,6 @@ pub enum WorktreeAction {
     Path {
         value: String,
     },
-    /// Set what happens with worktrees.json setup commands: ask | trust | off
-    Setup {
-        value: String,
-    },
     /// Show the current worktree configuration
     Status,
 }
