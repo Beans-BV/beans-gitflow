@@ -37,7 +37,7 @@ fn materialize_branch(
     git.push(branch)?;
     println!("Branch '{branch}' created and pushed.");
     if let Some(ctx) = worktree {
-        open_worktree(git, ctx.editor, ctx.config, branch)?;
+        open_worktree(git, &ctx, branch)?;
     }
     Ok(())
 }
@@ -72,7 +72,7 @@ pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn Hosti
     if let Some(ctx) = worktree {
         match git.worktree_of(&branch)? {
             Some(path) => println!("Release branch {branch} is already open at {}", path.display()),
-            None => open_worktree(git, ctx.editor, ctx.config, &branch)?,
+            None => open_worktree(git, &ctx, &branch)?,
         }
     }
     Ok(())

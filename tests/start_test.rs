@@ -4,7 +4,9 @@ use common::{MockEditor, MockGit, MockHosting, MockPrompter, MockVersionScript};
 use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
 use bflow::repo_config::{BumpStrategy, Mode, RepoConfig};
 use bflow::version::SemVer;
-use bflow::worktree::{SetupMode, WorktreeConfig, WorktreeContext};
+use bflow::worktree::{open_worktree, SetupMode, WorktreeConfig, WorktreeContext, WorktreeEnv};
+use bflow::worktree_setup::SetupCommands;
+use common::MockWorktreeSetup;
 
 fn patch_cfg() -> RepoConfig {
     RepoConfig { bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
@@ -560,7 +562,10 @@ fn start_work_branch_worktree_active_forces_no_checkout_and_opens() {
     let git = MockGit::new(); // repo_root default "/repos/beans-gitflow"
     let config = test_worktree_config("code");
     let editor = MockEditor::new();
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     // Pass no_checkout=false: worktree mode must still force the no-checkout path.
     start_work_branch(&git, "feature", "login-page", "develop", false, Some(ctx)).unwrap();
@@ -582,7 +587,10 @@ fn start_work_branch_worktree_editor_failure_is_not_fatal() {
     let config = test_worktree_config("code");
     let mut editor = MockEditor::new();
     editor.fail = true;
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     let result = start_work_branch(&git, "feature", "login-page", "develop", false, Some(ctx));
     assert!(result.is_ok(), "editor failure should be a warning, not fatal");
@@ -594,7 +602,10 @@ fn start_work_branch_worktree_editor_none_skips_open() {
     let git = MockGit::new();
     let config = test_worktree_config("none");
     let editor = MockEditor::new();
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     start_work_branch(&git, "feature", "login-page", "develop", false, Some(ctx)).unwrap();
 
@@ -608,7 +619,10 @@ fn start_release_fix_worktree_active_discovers_and_opens() {
     git.branches_matching = vec!["release/1.2.0".to_string()];
     let config = test_worktree_config("code");
     let editor = MockEditor::new();
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     // worktree mode forces the no-checkout discovery path even from develop.
     start_release_fix(&git, &MockHosting::new(), &RepoConfig::default(), "main", "broken-login", false, Some(ctx)).unwrap();
@@ -1206,7 +1220,7 @@ fn start_hotfix_fix_worktree_active_discovers_and_opens() {
     let editor = MockEditor::new();
     let config = test_worktree_config("code");
 
-    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "npe", false, Some(WorktreeContext { config: &config, editor: &editor }), "main", None).unwrap();
+    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "npe", false, Some(WorktreeContext { env: &WorktreeEnv { config: &config, editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, prompter: &MockPrompter::new() }), "main", None).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"create_branch_no_checkout:hotfix-fix/2.5.1/npe:hotfix/2.5.1".to_string()),
@@ -1329,7 +1343,10 @@ fn start_release_worktree_mode_creates_here_then_opens_a_worktree() {
     git.tags = vec!["v1.0.0".to_string()];
     let config = test_worktree_config("code");
     let editor = MockEditor::new();
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &RepoConfig::default(), Some(ReleaseType::Minor), "main", Some(ctx)).unwrap();
 
@@ -1356,7 +1373,10 @@ fn start_release_worktree_mode_opens_a_worktree_for_an_existing_release() {
     git.branches_matching = vec!["release/1.1.0".to_string()];
     let config = test_worktree_config("code");
     let editor = MockEditor::new();
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &RepoConfig::default(), None, "main", Some(ctx)).unwrap();
 
@@ -1372,11 +1392,122 @@ fn start_release_worktree_mode_points_at_the_worktree_that_already_holds_the_rel
     git.worktrees.insert("release/1.1.0".to_string(), std::path::PathBuf::from("/repos/beans-gitflow-release-1.1.0"));
     let config = test_worktree_config("code");
     let editor = MockEditor::new();
-    let ctx = WorktreeContext { config: &config, editor: &editor };
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
 
     start_release(&git, &MockPrompter::new(), &MockHosting::new(), None, &RepoConfig::default(), None, "main", Some(ctx)).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("add_worktree:") || c.starts_with("checkout:")), "nothing to create or switch; calls: {calls:?}");
     assert!(editor.calls().is_empty(), "the existing worktree is announced, not re-opened");
+}
+
+// --- worktrees.json setup commands ---
+
+fn setup_cmds() -> SetupCommands {
+    SetupCommands { file: "worktrees.json".into(), commands: vec!["fvm use".into(), "dart pub get".into()] }
+}
+
+fn worktree_for(branch: &str) -> String {
+    std::env::temp_dir().join(format!("beans-gitflow-{}", branch.replace('/', "-"))).display().to_string()
+}
+
+#[test]
+fn open_worktree_runs_setup_commands_after_creation_when_trusted() {
+    let git = MockGit::new();
+    let mut config = test_worktree_config("code");
+    config.setup = SetupMode::Trust;
+    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::new());
+    let cmds = setup_cmds();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
+
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
+
+    let wt = worktree_for("feature/x");
+    assert!(prompter.calls().is_empty(), "trust never asks");
+    assert_eq!(setup.calls(), vec![
+        format!("run:{wt}:/repos/beans-gitflow:fvm use"),
+        format!("run:{wt}:/repos/beans-gitflow:dart pub get"),
+    ]);
+    assert_eq!(editor.calls(), vec![format!("open:{wt}")]);
+    assert_eq!(git.calls().last().unwrap(), &format!("add_worktree:{wt}:feature/x"), "commands run after the worktree exists");
+}
+
+#[test]
+fn open_worktree_asks_before_running_and_runs_on_yes() {
+    let git = MockGit::new();
+    let config = test_worktree_config("code");
+    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::scripted(&[0]));
+    let cmds = setup_cmds();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
+
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
+
+    assert_eq!(prompter.calls(), vec!["select:Run 2 setup command(s) from worktrees.json?:[Run, Skip]"]);
+    assert_eq!(setup.calls().len(), 2, "calls: {:?}", setup.calls());
+}
+
+#[test]
+fn open_worktree_asks_and_skips_on_no() {
+    let git = MockGit::new();
+    let config = test_worktree_config("code");
+    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::scripted(&[1]));
+    let cmds = setup_cmds();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
+
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
+
+    assert_eq!(prompter.calls().len(), 1);
+    assert!(setup.calls().is_empty(), "skip must run nothing; calls: {:?}", setup.calls());
+    assert_eq!(editor.calls().len(), 1, "the editor still opens");
+}
+
+#[test]
+fn open_worktree_skips_with_a_warning_when_the_prompt_cannot_be_shown() {
+    let git = MockGit::new();
+    let config = test_worktree_config("code");
+    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::aborting());
+    let cmds = setup_cmds();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
+
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
+
+    assert_eq!(prompter.calls().len(), 1, "the prompt was attempted");
+    assert!(setup.calls().is_empty(), "an unanswerable prompt never runs commands; calls: {:?}", setup.calls());
+    assert_eq!(editor.calls().len(), 1, "the start still completes");
+}
+
+#[test]
+fn open_worktree_continues_after_a_failing_command() {
+    let git = MockGit::new();
+    let mut config = test_worktree_config("code");
+    config.setup = SetupMode::Trust;
+    let (editor, mut setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::new());
+    setup.fail.insert("fvm use".to_string());
+    let cmds = setup_cmds();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
+
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
+
+    assert_eq!(setup.calls().len(), 2, "a failing command does not stop the rest; calls: {:?}", setup.calls());
+    assert_eq!(editor.calls().len(), 1);
+}
+
+#[test]
+fn open_worktree_runs_nothing_when_mode_is_off_or_no_file() {
+    let git = MockGit::new();
+    let mut off = test_worktree_config("code");
+    off.setup = SetupMode::Off;
+    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::new());
+    let cmds = setup_cmds();
+    let env = WorktreeEnv { config: &off, editor: &editor, setup: &setup, commands: Some(&cmds) };
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
+    assert!(prompter.calls().is_empty() && setup.calls().is_empty(), "off ignores the file");
+
+    let ask = test_worktree_config("code");
+    let env = WorktreeEnv { config: &ask, editor: &editor, setup: &setup, commands: None };
+    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/y").unwrap();
+    assert!(prompter.calls().is_empty() && setup.calls().is_empty(), "no file, nothing to ask");
 }

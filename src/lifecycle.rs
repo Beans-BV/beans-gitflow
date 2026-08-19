@@ -7,7 +7,6 @@
 
 use crate::action::Action;
 use crate::cli::{resolve_action, Commands};
-use crate::editor::Editor;
 use crate::flows::{finish_hotfix, finish_release, finish_work, start};
 use crate::git::branch::BranchType;
 use crate::git::Git;
@@ -18,21 +17,21 @@ use crate::prompt::Prompter;
 use crate::repo_config::{Mode, RepoConfig};
 use crate::state::{current_timestamp, FinishKind, FinishState};
 use crate::version_script::VersionScript;
-use crate::worktree::{WorktreeConfig, WorktreeContext};
+use crate::worktree::{WorktreeContext, WorktreeEnv};
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     git: &dyn Git,
     hosting: &dyn HostingPlatform,
     prompter: &dyn Prompter,
-    editor: &dyn Editor,
-    wt_config: &WorktreeConfig,
+    worktree_env: &WorktreeEnv<'_>,
     repo_cfg: &RepoConfig,
     script: Option<&dyn VersionScript>,
     command: Option<Commands>,
 ) -> Result<(), String> {
     let branch_name = git.current_branch()?;
     let git_dir = git.git_dir()?;
+    let wt_config = worktree_env.config;
 
     // One-time upgrade of any pre-2.4 global state file into the per-branch folder.
     FinishState::migrate_legacy(&git_dir)?;
@@ -120,7 +119,7 @@ pub fn run(
         }.save(&git_dir)?;
     }
 
-    let worktree = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
+    let worktree = if worktree_active { Some(WorktreeContext { env: worktree_env, prompter }) } else { None };
 
     let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch, repo_cfg, script);
 

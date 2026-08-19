@@ -259,7 +259,8 @@ fn an_unusable_worktree_base_directory_is_a_hard_error() {
         base_path: Some(blocker.join("nested").to_string_lossy().to_string()), setup: SetupMode::Ask,
     };
 
-    let err = open_worktree(&git, &MockEditor::new(), &config, "feature/x").unwrap_err();
+    let env = bflow::worktree::WorktreeEnv { config: &config, editor: &MockEditor::new(), setup: &common::MockWorktreeSetup::new(), commands: None };
+    let err = open_worktree(&git, &bflow::worktree::WorktreeContext { env: &env, prompter: &MockPrompter::new() }, "feature/x").unwrap_err();
 
     std::fs::remove_file(&blocker).ok();
     assert!(err.contains("failed to create worktree base directory"), "got: {err}");

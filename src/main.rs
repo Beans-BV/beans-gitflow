@@ -14,7 +14,8 @@ use bflow::menu::MenuPrompter;
 use bflow::editor::CommandEditor;
 use bflow::init;
 use bflow::version_script::{self, ScriptCli, VersionScript};
-use bflow::worktree::{self, WorktreeConfig};
+use bflow::worktree::{self, WorktreeConfig, WorktreeEnv};
+use bflow::worktree_setup::{self, ShellSetup};
 
 #[derive(Parser)]
 #[command(name = "bflow", version, about = "Beans GitFlow - customized gitflow workflow CLI")]
@@ -65,14 +66,20 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     let hosting = create_hosting(&git)?;
     let wt_config = WorktreeConfig::load(&git)?;
     let editor = CommandEditor::new(wt_config.editor.clone());
+    let setup_commands = worktree_setup::load(&root)?;
+    let worktree_env = WorktreeEnv {
+        config: &wt_config,
+        editor: &editor,
+        setup: &ShellSetup,
+        commands: setup_commands.as_ref(),
+    };
     let prompter = MenuPrompter;
 
     lifecycle::run(
         &git,
         &*hosting,
         &prompter,
-        &editor,
-        &wt_config,
+        &worktree_env,
         &repo_cfg,
         script.as_ref().map(|s| s as &dyn VersionScript),
         command,

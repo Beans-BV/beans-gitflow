@@ -9,7 +9,8 @@ use bflow::git::branch::BranchType;
 use bflow::lifecycle::{resolve_action_with_state, run};
 use bflow::repo_config::{Mode, RepoConfig};
 use bflow::state::{FinishKind, FinishState};
-use bflow::worktree::{SetupMode, WorktreeConfig};
+use bflow::worktree::{SetupMode, WorktreeConfig, WorktreeEnv};
+use common::MockWorktreeSetup;
 
 // The lifecycle (reject → stash → write-state → dispatch → clear/pop) used to
 // live in main.rs, where tests/ could not link it — the system's most
@@ -42,7 +43,7 @@ fn run_lifecycle(git: &MockGit, command: Option<Commands>) -> Result<(), String>
     let hosting = MockHosting::new();
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
-    run(git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, command)
+    run(git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, command)
 }
 
 // --- State-before-mutation ordering ---
@@ -108,7 +109,7 @@ fn protected_finish_writes_no_state_file() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    let result = run(&git, &hosting, &prompter, &editor, &wt_config(), &protected_cfg(), None, finish_cmd());
+    let result = run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &protected_cfg(), None, finish_cmd());
 
     assert!(result.is_ok(), "a pending landing is not a failure: {result:?}");
     assert!(!state_path(&git.git_dir).exists(),
@@ -130,7 +131,7 @@ fn protected_finish_rejects_dirty_tree() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    let err = run(&git, &hosting, &prompter, &editor, &wt_config(), &protected_cfg(), None, finish_cmd()).unwrap_err();
+    let err = run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &protected_cfg(), None, finish_cmd()).unwrap_err();
 
     assert_eq!(err, "Working tree is not clean. Commit your changes before finishing.");
     let calls = git.calls();
@@ -341,7 +342,7 @@ fn enabled_wt_config() -> WorktreeConfig {
 }
 
 fn run_with_worktree(git: &MockGit, command: Option<Commands>) -> Result<(), String> {
-    run(git, &MockHosting::new(), &MockPrompter::new(), &MockEditor::new(), &enabled_wt_config(), &RepoConfig::default(), None, command)
+    run(git, &MockHosting::new(), &MockPrompter::new(), &WorktreeEnv { config: &enabled_wt_config(), editor: &MockEditor::new(), setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, command)
 }
 
 #[test]
@@ -437,7 +438,7 @@ fn finish_release_fix_dispatches_and_targets_its_release_branch() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:release-fix/2.5.0/db-index:release/2.5.0:")),
         "a release fix PRs back into its own release branch; calls: {:?}", hosting.calls());
@@ -451,7 +452,7 @@ fn finish_release_chore_dispatches_and_targets_its_release_branch() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:release-chore/2.5.0/set-version:release/2.5.0:")),
         "a release chore PRs back into its own release branch; calls: {:?}", hosting.calls());
@@ -465,7 +466,7 @@ fn finish_hotfix_fix_dispatches_and_targets_its_hotfix_branch() {
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:hotfix-fix/2.5.1/npe:hotfix/2.5.1:")),
         "a hotfix fix PRs back into its own hotfix branch; calls: {:?}", hosting.calls());
@@ -680,7 +681,7 @@ fn finish_work_branch_dispatches_with_its_resolved_pr_template() {
     let prompter = MockPrompter::scripted(&[0]); // "no" to breaking changes
     let editor = MockEditor::new();
 
-    run(&git, &hosting, &prompter, &editor, &wt_config(), &RepoConfig::default(), None, finish_cmd()).unwrap();
+    run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, finish_cmd()).unwrap();
 
     assert!(hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr:feature/login:develop:feat: login")),
         "calls: {:?}", hosting.calls());
