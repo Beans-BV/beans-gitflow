@@ -16,3 +16,4 @@ pub(crate) mod test_support;
 pub mod version;
 pub mod version_script;
 pub mod worktree;
+pub mod worktree_setup;
