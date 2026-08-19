@@ -4,7 +4,7 @@ use common::{MockEditor, MockGit, MockHosting, MockPrompter, MockVersionScript};
 use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
 use bflow::repo_config::{BumpStrategy, Mode, RepoConfig};
 use bflow::version::SemVer;
-use bflow::worktree::{WorktreeConfig, WorktreeContext};
+use bflow::worktree::{SetupMode, WorktreeConfig, WorktreeContext};
 
 fn patch_cfg() -> RepoConfig {
     RepoConfig { bump_strategy: BumpStrategy::Patch, ..RepoConfig::default() }
@@ -25,6 +25,7 @@ fn test_worktree_config(editor: &str) -> WorktreeConfig {
         enabled: true,
         editor: editor.to_string(),
         base_path: Some(base.to_string_lossy().to_string()),
+        setup: SetupMode::Ask,
     }
 }
 
