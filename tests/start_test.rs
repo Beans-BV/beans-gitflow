@@ -4,7 +4,7 @@ use common::{MockEditor, MockGit, MockHosting, MockPrompter, MockVersionScript};
 use bflow::flows::start::{start_work_branch, start_release, start_release_fix, start_hotfix_fix, ReleaseType, detect_breaking_changes};
 use bflow::repo_config::{BumpStrategy, Mode, RepoConfig};
 use bflow::version::SemVer;
-use bflow::worktree::{open_worktree, SetupMode, WorktreeConfig, WorktreeContext, WorktreeEnv};
+use bflow::worktree::{open_worktree, WorktreeConfig, WorktreeContext, WorktreeEnv};
 use bflow::worktree_setup::SetupCommands;
 use common::MockWorktreeSetup;
 
@@ -27,7 +27,6 @@ fn test_worktree_config(editor: &str) -> WorktreeConfig {
         enabled: true,
         editor: editor.to_string(),
         base_path: Some(base.to_string_lossy().to_string()),
-        setup: SetupMode::Ask,
     }
 }
 
@@ -1415,10 +1414,9 @@ fn worktree_for(branch: &str) -> String {
 }
 
 #[test]
-fn open_worktree_runs_setup_commands_after_creation_when_trusted() {
+fn open_worktree_runs_setup_commands_after_creation_and_before_the_editor() {
     let git = MockGit::new();
-    let mut config = test_worktree_config("code");
-    config.setup = SetupMode::Trust;
+    let config = test_worktree_config("code");
     let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::new());
     let cmds = setup_cmds();
     let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
@@ -1426,7 +1424,7 @@ fn open_worktree_runs_setup_commands_after_creation_when_trusted() {
     open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
 
     let wt = worktree_for("feature/x");
-    assert!(prompter.calls().is_empty(), "trust never asks");
+    assert!(prompter.calls().is_empty(), "setup commands run without asking");
     assert_eq!(setup.calls(), vec![
         format!("run:{wt}:/repos/beans-gitflow:fvm use"),
         format!("run:{wt}:/repos/beans-gitflow:dart pub get"),
@@ -1436,54 +1434,9 @@ fn open_worktree_runs_setup_commands_after_creation_when_trusted() {
 }
 
 #[test]
-fn open_worktree_asks_before_running_and_runs_on_yes() {
-    let git = MockGit::new();
-    let config = test_worktree_config("code");
-    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::scripted(&[0]));
-    let cmds = setup_cmds();
-    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
-
-    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
-
-    assert_eq!(prompter.calls(), vec!["select:Run 2 setup command(s) from worktrees.json?:[Run, Skip]"]);
-    assert_eq!(setup.calls().len(), 2, "calls: {:?}", setup.calls());
-}
-
-#[test]
-fn open_worktree_asks_and_skips_on_no() {
-    let git = MockGit::new();
-    let config = test_worktree_config("code");
-    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::scripted(&[1]));
-    let cmds = setup_cmds();
-    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
-
-    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
-
-    assert_eq!(prompter.calls().len(), 1);
-    assert!(setup.calls().is_empty(), "skip must run nothing; calls: {:?}", setup.calls());
-    assert_eq!(editor.calls().len(), 1, "the editor still opens");
-}
-
-#[test]
-fn open_worktree_skips_with_a_warning_when_the_prompt_cannot_be_shown() {
-    let git = MockGit::new();
-    let config = test_worktree_config("code");
-    let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::aborting());
-    let cmds = setup_cmds();
-    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: Some(&cmds) };
-
-    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
-
-    assert_eq!(prompter.calls().len(), 1, "the prompt was attempted");
-    assert!(setup.calls().is_empty(), "an unanswerable prompt never runs commands; calls: {:?}", setup.calls());
-    assert_eq!(editor.calls().len(), 1, "the start still completes");
-}
-
-#[test]
 fn open_worktree_continues_after_a_failing_command() {
     let git = MockGit::new();
-    let mut config = test_worktree_config("code");
-    config.setup = SetupMode::Trust;
+    let config = test_worktree_config("code");
     let (editor, mut setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::new());
     setup.fail.insert("fvm use".to_string());
     let cmds = setup_cmds();
@@ -1496,18 +1449,14 @@ fn open_worktree_continues_after_a_failing_command() {
 }
 
 #[test]
-fn open_worktree_runs_nothing_when_mode_is_off_or_no_file() {
+fn open_worktree_runs_nothing_without_a_setup_file() {
     let git = MockGit::new();
-    let mut off = test_worktree_config("code");
-    off.setup = SetupMode::Off;
+    let config = test_worktree_config("code");
     let (editor, setup, prompter) = (MockEditor::new(), MockWorktreeSetup::new(), MockPrompter::new());
-    let cmds = setup_cmds();
-    let env = WorktreeEnv { config: &off, editor: &editor, setup: &setup, commands: Some(&cmds) };
-    open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/x").unwrap();
-    assert!(prompter.calls().is_empty() && setup.calls().is_empty(), "off ignores the file");
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
 
-    let ask = test_worktree_config("code");
-    let env = WorktreeEnv { config: &ask, editor: &editor, setup: &setup, commands: None };
     open_worktree(&git, &WorktreeContext { env: &env, prompter: &prompter }, "feature/y").unwrap();
-    assert!(prompter.calls().is_empty() && setup.calls().is_empty(), "no file, nothing to ask");
+
+    assert!(setup.calls().is_empty());
+    assert_eq!(editor.calls().len(), 1);
 }
