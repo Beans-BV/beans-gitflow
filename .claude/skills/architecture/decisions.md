@@ -16,6 +16,7 @@ Catalog of deliberate choices — each entry: the choice, why, and the rejected 
 | `Git` | `GitCli`; `MockGit` in tests | Built once in `main.rs` |
 | `HostingPlatform` | `GitHub` (`gh`), `AzureDevOps` (`az`); `MockHosting` | Auto-detected from origin remote URL (`hosting/detect.rs`) |
 | `Editor` | `CommandEditor` (any command); `MockEditor` | `bflow.worktree.editor` git config |
+| `WorktreeSetup` | `ShellSetup` (`sh -c` / `cmd /C`, cwd = new worktree, `ROOT_WORKTREE_PATH`, inherited stdio); `MockWorktreeSetup` | `worktrees.json` / `.cursor/worktrees.json`, mode `bflow.worktree.setup` |
 | `Prompter` | `MenuPrompter` (select + the two text readers); `MockPrompter` (scripted) | Built once in `main.rs` |
 | `VersionScript` | `ScriptCli` (spawns `.bflow/set-version.{sh,cmd}`); `MockVersionScript` | Resolved once (`version_script::resolve`) in `main.rs`; `None` when no script file is present |
 | `CommandRunner` (`git/mod.rs`) | `SystemRunner`; `MockCommandRunner` | Injected into `GitCli` in `main.rs` |
@@ -31,7 +32,7 @@ User-configurable without code changes: the worktree flow (`bflow.worktree.*` gi
 
 ## Dependency Budget
 
-- **Exactly two direct dependencies (`clap`, `crossterm`), zero dev-dependencies** (`Cargo.toml`). Everything else is hand-rolled on purpose: the dependency graph stays reviewable in one screen. Rejected: `serde` (state file is a hand-rolled versioned `key=value` format), `anyhow`/`thiserror` (see Error Model), `mockall` (hand-written mocks), `tempfile` (hand-rolled `tmp_dir()` in `state.rs` tests), `dirs` (manual `HOME`/`USERPROFILE` tilde expansion in `worktree.rs`), `regex` (slice-pattern URL parsing in `detect.rs`), `open`/`webbrowser` (15-line cfg dispatch in `hosting/mod.rs`).
+- **Exactly two direct dependencies (`clap`, `crossterm`), zero dev-dependencies** (`Cargo.toml`). Everything else is hand-rolled on purpose: the dependency graph stays reviewable in one screen. Rejected: `serde` (state file is a hand-rolled versioned `key=value` format), `anyhow`/`thiserror` (see Error Model), `mockall` (hand-written mocks), `tempfile` (hand-rolled `tmp_dir()` in `state.rs` tests), `dirs` (manual `HOME`/`USERPROFILE` tilde expansion in `worktree.rs`), `regex` (slice-pattern URL parsing in `detect.rs`), `open`/`webbrowser` (15-line cfg dispatch in `hosting/mod.rs`), `serde_json` (hand-rolled subset parser in `worktree_setup.rs` — two fixed shapes plus skip-any-value for `worktrees.json`).
 - **Shell out to `git`/`gh`/`az` CLIs instead of linking `git2`/`octocrab`/REST clients.** Inherits the user's existing auth (SSH agent, credential helpers, `gh auth`, `az` PAT), hooks, config, and signing; no HTTP/TLS stack; tiny binary. Rejected: libgit2 (own credential callbacks, cross-compile pain) and per-provider REST clients (token storage, API version churn).
 
 ## Error Model
