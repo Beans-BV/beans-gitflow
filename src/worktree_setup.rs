@@ -324,8 +324,8 @@ mod tests {
 
     #[test]
     fn parse_unescapes_strings() {
-        let json = r#"["cp \"$ROOT_WORKTREE_PATH/a b\" .", "a\\b", "tab\there", "slash\/", "nl\n", "cr\r", "bs\b", "ff\f", "A\u00e9", "Aé€"]"#;
-        assert_eq!(parse(json).unwrap(), vec!["cp \"$ROOT_WORKTREE_PATH/a b\" .", "a\\b", "tab\there", "slash/", "nl\n", "cr\r", "bs\u{8}", "ff\u{c}", "Aé", "Aé€"]);
+        let json = r#"["cp \"$ROOT_WORKTREE_PATH/a b\" .", "a\\b", "tab\there", "slash\/", "nl\n", "cr\r", "bs\b", "ff\f", "A\u00e9", "Aé€😀"]"#;
+        assert_eq!(parse(json).unwrap(), vec!["cp \"$ROOT_WORKTREE_PATH/a b\" .", "a\\b", "tab\there", "slash/", "nl\n", "cr\r", "bs\u{8}", "ff\u{c}", "Aé", "Aé€😀"]);
     }
 
     #[test]
@@ -351,6 +351,8 @@ mod tests {
         assert!(parse(r#"{"k": [1 2]}"#).is_err());
         assert!(parse(r#"{"k": {"a": 1 "b": 2}}"#).is_err());
         assert!(parse(r#"{"k": ?}"#).is_err());
+        assert!(parse(r#"["a" "b"]"#).unwrap_err().contains("expected ',' or ']'"));
+        assert!(parse(r#"{"k": tru}"#).unwrap_err().contains("expected 'true'"));
         assert!(parse(r#"{"k": {}, "setup-worktree": [], "x": [[], {}, ""]}"#).is_ok());
         assert!(parse(r#"{}"#).is_ok());
         assert!(parse("").is_err());
