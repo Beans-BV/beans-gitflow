@@ -9,14 +9,14 @@ use bflow::git::branch::BranchType;
 use bflow::lifecycle::{resolve_action_with_state, run};
 use bflow::repo_config::{Mode, RepoConfig};
 use bflow::state::{FinishKind, FinishState};
-use bflow::worktree::WorktreeConfig;
+use bflow::worktree::{SetupMode, WorktreeConfig};
 
 // The lifecycle (reject → stash → write-state → dispatch → clear/pop) used to
 // live in main.rs, where tests/ could not link it — the system's most
 // safety-critical ordering was enforced by a comment. These tests pin it.
 
 fn wt_config() -> WorktreeConfig {
-    WorktreeConfig { enabled: false, editor: "code".to_string(), base_path: None }
+    WorktreeConfig { enabled: false, editor: "code".to_string(), base_path: None , setup: SetupMode::Ask}
 }
 
 fn finish_cmd() -> Option<Commands> {
@@ -336,7 +336,7 @@ fn enabled_wt_config() -> WorktreeConfig {
     WorktreeConfig {
         enabled: true,
         editor: "none".to_string(),
-        base_path: Some(std::env::temp_dir().to_string_lossy().to_string()),
+        base_path: Some(std::env::temp_dir().to_string_lossy().to_string()), setup: SetupMode::Ask,
     }
 }
 
