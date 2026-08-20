@@ -554,10 +554,19 @@ One consequence to plan for: under `patch` every tag is a clean `vX.Y.Z` — the
 Use `mode=protected` when `main`/`develop` require pull requests (branch protection, required reviews). In this mode:
 
 - **bflow never merges a PR.** Every landing that would otherwise be a direct push instead opens (or reuses) a PR and prints its URL.
+- **Every landing PR's head is a throwaway `finish/*` branch** cut from the source — `finish/release-1.2.0-into-main`, `finish/hotfix-1.1.1-into-release-1.2.0`, and so on. The release/hotfix branch itself is never a PR head, so nothing (a conflict resolution, the platform's auto-delete-head-branches setting) can ever touch it. bflow creates, refreshes, and deletes these branches itself; a landing that predates newer source commits is re-opened with a refreshed finish branch, so no commit can silently miss a target.
 - `finish`, `bump`, and `sync` **exit 0** with the PR pending — nothing is left half-done, there's just a human step in between. Re-run the same command after the PR is merged; it continues from there.
-- Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch — unless `keep-release-branches=true`, or its tip isn't part of any landed PR, in which case bflow keeps the branch and tells you how to remove it yourself.
+- Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch (and every `finish/*` branch, orphans included) — unless `keep-release-branches=true`, or its tip provably landed nowhere, in which case bflow keeps the branch and tells you how to remove it yourself.
 - Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
-- **A landing PR can conflict on the version file** — e.g. release→develop, or hotfix→a release branch — because both sides changed their version since diverging. That's expected: resolve it like any PR conflict (the web editor or a local checkout) and merge. The resolution commit lands on the source branch itself, which is fine — `bflow finish` continues from whichever leg hasn't landed yet, and a leg that already landed stays landed. See [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut).
+- **A landing PR can conflict on the version file** — e.g. release→develop, or hotfix→a release branch — because both sides changed their version since diverging. That's expected, and the finish branch is where it gets resolved: use the platform's conflict editor (it commits to the finish branch), or locally
+
+  ```bash
+  git switch finish/release-1.2.0-into-develop
+  git merge origin/develop     # resolve, commit, push — never rebase the finish branch
+  ```
+
+  then merge the PR and re-run. The release/hotfix branch is never touched by a resolution. GitHub's web editor only handles simple conflicts, and Azure DevOps has no native one — the local recipe always works. See [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut).
+- **Upgrading with a landing in flight?** An open landing PR whose head is the release/hotfix branch itself (opened by an older bflow) is a hard error naming it: merge it and re-run, or close/abandon it and re-run — bflow then reopens it from a finish branch. Already-merged old-style legs are recognized as landed.
 - That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead. If you do, bflow says so rather than letting it pass unnoticed:
 
 ```
