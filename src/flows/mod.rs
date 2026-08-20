@@ -91,32 +91,6 @@ pub(crate) fn push_tag_if_missing(git: &dyn Git, tag: &str) -> Result<(), String
 // platform the same way `finish_work.rs::try_cleanup_merged` derives it, but
 // keyed by a specific (source, target) pair rather than "any merge".
 
-/// Whether `source` has already landed into `target` via a merged PR. `None`
-/// also covers "the PR merged, but source moved on since": new commits after
-/// the merge are new work, so the caller re-enters its own gate rather than
-/// trusting a stale merge (compares `branch_sha`, not `head_sha`, so this
-/// reads the named branch regardless of what HEAD currently is).
-pub(crate) fn landed_pr(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
-    let Some(pr) = hosting.merged_pr_to(source, target)? else {
-        return Ok(None);
-    };
-    if git.branch_sha(source)? != pr.head_sha {
-        println!("PR {} was merged, but {source} has new commits since — opening a new PR.", pr.url);
-        return Ok(None);
-    }
-    Ok(Some(pr))
-}
-
-/// Reconcile `source` with its remote, then open (or reuse) its landing PR
-/// into `target`. Protected-mode source branches are typically already
-/// pushed from an earlier run, so this generalizes `finish_work.rs`'s
-/// unconditional push to a branch that may be missing on the remote, ahead,
-/// behind, or diverged.
-pub(crate) fn open_landing_pr(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>) -> Result<String, String> {
-    reconcile_with_origin(git, source)?;
-    hosting.create_or_get_pr(source, target, title, template.and_then(|p| p.to_str()))
-}
-
 /// Bring `branch` and its origin counterpart in line: push a missing or ahead
 /// branch, refuse behind/diverged states with the fixing command.
 pub(crate) fn reconcile_with_origin(git: &dyn Git, branch: &str) -> Result<(), String> {
@@ -218,10 +192,8 @@ pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) ->
         if remote {
             git.ff_merge(&origin_finish)?;
         }
-        if !git.is_ancestor(source, &finish)? {
-            git.merge(source, &format!("chore: refresh {finish} with {source}"))
-                .map_err(|e| format!("{e}\n{}", finish_conflict_hint(&finish, source, target)))?;
-        }
+        git.merge(source, &format!("chore: refresh {finish} with {source}"))
+            .map_err(|e| format!("{e}\n{}", finish_conflict_hint(&finish, source, target)))?;
         git.checkout(&prior)?;
     }
     git.push(&finish)?;

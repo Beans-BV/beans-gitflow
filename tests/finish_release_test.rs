@@ -1590,3 +1590,55 @@ fn protected_sync_lands_via_the_develop_finish_branch() {
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
     ]);
 }
+
+#[test]
+fn ensure_refreshes_a_local_leftover_finish_branch_without_a_remote() {
+    // A crashed earlier run left a local finish branch that was never pushed;
+    // the release has moved since. The leftover is refreshed by merging the
+    // release in (no origin to ff-sync from), then pushed.
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.existing_local_branches.insert("finish/release-1.1.0-into-develop".to_string());
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    let tail: Vec<&String> = calls.iter().skip_while(|c| *c != "checkout:finish/release-1.1.0-into-develop").collect();
+    assert_eq!(tail, vec![
+        "checkout:finish/release-1.1.0-into-develop",
+        "merge:release/1.1.0:chore: refresh finish/release-1.1.0-into-develop with release/1.1.0",
+        "checkout:develop",
+        "push:finish/release-1.1.0-into-develop",
+    ], "no origin to ff-sync from; calls: {calls:?}");
+    assert!(!calls.contains(&"ff_merge:origin/finish/release-1.1.0-into-develop".to_string()), "calls: {calls:?}");
+}
+
+#[test]
+fn ensure_pushes_a_local_finish_that_contains_the_tip_but_never_reached_origin() {
+    // Crashed between refresh and push: the local finish already contains the
+    // tip and origin is strictly behind — nothing to refresh, just push.
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.existing_local_branches.insert("finish/release-1.1.0-into-develop".to_string());
+    git.existing_remote_branches.insert("finish/release-1.1.0-into-develop".to_string());
+    git.ancestors.insert(("release/1.1.0".to_string(), "finish/release-1.1.0-into-develop".to_string()));
+    git.ancestors.insert(("origin/finish/release-1.1.0-into-develop".to_string(), "finish/release-1.1.0-into-develop".to_string()));
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("checkout:finish/")), "nothing to refresh; calls: {calls:?}");
+    assert!(calls.contains(&"push:finish/release-1.1.0-into-develop".to_string()), "the push must be retried; calls: {calls:?}");
+}
