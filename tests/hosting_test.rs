@@ -271,3 +271,42 @@ fn a_missing_ado_extension_names_the_install_command() {
     assert!(err.contains("az extension add --name azure-devops"), "got: {err}");
     assert_eq!(runner.calls().len(), 1, "the repo probe must not run without the extension");
 }
+
+// --- open_pr_to (legacy-PR detection for finish-branch migration) ---
+
+#[test]
+fn gh_open_pr_to_filters_by_exact_head_base_and_open_state() {
+    let runner = MockCliRunner::scripted(&[Ok("https://github.com/o/r/pull/61")]);
+
+    let url = gh(&runner).open_pr_to("release/1.2.0", "develop").unwrap().unwrap();
+
+    assert_eq!(url, "https://github.com/o/r/pull/61");
+    assert_eq!(
+        runner.calls()[0],
+        "gh pr list --head release/1.2.0 --base develop --state open --limit 1 --json url --jq .[0].url // empty"
+    );
+}
+
+#[test]
+fn gh_open_pr_to_empty_result_is_none() {
+    let runner = MockCliRunner::scripted(&[Ok("")]);
+    assert_eq!(gh(&runner).open_pr_to("release/1.2.0", "develop").unwrap(), None);
+}
+
+#[test]
+fn az_open_pr_to_lists_active_prs_and_synthesizes_the_url() {
+    let runner = MockCliRunner::scripted(&[Ok("61")]);
+
+    let url = ado(&runner).open_pr_to("release/1.2.0", "develop").unwrap().unwrap();
+
+    assert!(url.ends_with("/pullrequest/61"), "got: {url}");
+    let call = &runner.calls()[0];
+    assert!(call.contains("--source-branch release/1.2.0") && call.contains("--target-branch develop")
+        && call.contains("--status active") && call.contains("[0].pullRequestId"), "got: {call}");
+}
+
+#[test]
+fn az_open_pr_to_empty_result_is_none() {
+    let runner = MockCliRunner::scripted(&[Ok("")]);
+    assert_eq!(ado(&runner).open_pr_to("release/1.2.0", "develop").unwrap(), None);
+}

@@ -76,6 +76,14 @@ impl HostingPlatform for GitHub<'_> {
         parse_landed_pr(&line)
     }
 
+    fn open_pr_to(&self, head: &str, base: &str) -> Result<Option<String>> {
+        let url = self
+            .run_gh(&["pr", "list", "--head", head, "--base", base, "--state", "open", "--limit", "1", "--json", "url", "--jq", ".[0].url // empty"])
+            .map_err(|e| format!("Could not check for an open PR: {e}\n{AUTH_REMEDY}"))?;
+        let url = url.trim();
+        Ok(if url.is_empty() { None } else { Some(url.to_string()) })
+    }
+
     fn check_auth(&self) -> Result<()> {
         self.run_gh(&["auth", "status"]).map(|_| ())
     }
