@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
 use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
-use crate::version::SemVer;
+use crate::version::{finish_branch_name, SemVer};
 use crate::version_script::VersionScript;
 
 // --- Idempotent finish steps -----------------------------------------------
@@ -113,19 +113,162 @@ pub(crate) fn landed_pr(git: &dyn Git, hosting: &dyn HostingPlatform, source: &s
 /// unconditional push to a branch that may be missing on the remote, ahead,
 /// behind, or diverged.
 pub(crate) fn open_landing_pr(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>) -> Result<String, String> {
-    let origin = format!("origin/{source}");
-    if !git.remote_branch_exists(source)? {
-        git.push(source)?;
-    } else if !git.is_pushed(source)? {
-        if git.is_ancestor(&origin, source)? {
-            git.push(source)?;
-        } else if git.is_ancestor(source, &origin)? {
-            return Err(format!("Local {source} is behind origin/{source}. Run 'git pull --ff-only', then re-run."));
+    reconcile_with_origin(git, source)?;
+    hosting.create_or_get_pr(source, target, title, template.and_then(|p| p.to_str()))
+}
+
+/// Bring `branch` and its origin counterpart in line: push a missing or ahead
+/// branch, refuse behind/diverged states with the fixing command.
+pub(crate) fn reconcile_with_origin(git: &dyn Git, branch: &str) -> Result<(), String> {
+    let origin = format!("origin/{branch}");
+    if !git.remote_branch_exists(branch)? {
+        git.push(branch)?;
+    } else if !git.is_pushed(branch)? {
+        if git.is_ancestor(&origin, branch)? {
+            git.push(branch)?;
+        } else if git.is_ancestor(branch, &origin)? {
+            return Err(format!("Local {branch} is behind origin/{branch}. Run 'git pull --ff-only', then re-run."));
         } else {
-            return Err(format!("Local {source} and origin/{source} have diverged. Reconcile them (e.g. 'git pull --rebase'), then re-run."));
+            return Err(format!("Local {branch} and origin/{branch} have diverged. Reconcile them (e.g. 'git pull --rebase'), then re-run."));
         }
     }
-    hosting.create_or_get_pr(source, target, title, template.and_then(|p| p.to_str()))
+    Ok(())
+}
+
+/// The migration guard for finish-branch landings: an open PR whose head is
+/// the source branch itself comes from an older bflow and must be dealt with
+/// by a human — bflow never merges or closes PRs.
+pub(crate) fn refuse_open_legacy_pr(hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<(), String> {
+    match hosting.open_pr_to(source, target)? {
+        Some(url) => Err(format!(
+            "A landing PR from {source} into {target} is still open from an older bflow: {url}\n\
+             Either merge it and re-run 'bflow finish', or close/abandon it and re-run — bflow will then reopen it from a finish/* branch."
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Lenient leg lookup (the mainline leg, whose tag is already published once
+/// landed): landed once stays landed. Checks the finish-branch head first,
+/// then the legacy head — drop the fallback once every pre-finish-branch
+/// landing has migrated.
+pub(crate) fn finish_leg_landed(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
+    let finish = finish_branch_name(source, target);
+    if let Some(pr) = leg_landed(git, hosting, &finish, target)? {
+        return Ok(Some(pr));
+    }
+    leg_landed(git, hosting, source, target)
+}
+
+/// Strict leg lookup (develop and release legs): landed only while the merged
+/// landing still contains the current source tip. A landing that predates new
+/// source commits (a mid-release sync, an earlier finish attempt) re-opens
+/// with a refreshed finish branch instead of silently dropping the commits.
+pub(crate) fn finish_leg_landed_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
+    let Some(pr) = finish_leg_landed(git, hosting, source, target)? else {
+        return Ok(None);
+    };
+    if landing_contains_tip(git, source, target, &pr)? {
+        Ok(Some(pr))
+    } else {
+        println!("The merged {target} landing predates the latest {source} commits — opening a fresh PR.");
+        Ok(None)
+    }
+}
+
+/// Whether the landed PR's content includes the current source tip: head
+/// equality (no conflicts were resolved), else ancestry via the finish refs —
+/// origin first, since a remote-side resolution never moves the local ref.
+fn landing_contains_tip(git: &dyn Git, source: &str, target: &str, pr: &LandedPr) -> Result<bool, String> {
+    if git.branch_sha(source)? == pr.head_sha {
+        return Ok(true);
+    }
+    let finish = finish_branch_name(source, target);
+    if git.remote_branch_exists(&finish)? && git.is_ancestor(source, &format!("origin/{finish}"))? {
+        return Ok(true);
+    }
+    Ok(git.local_branch_exists(&finish)? && git.is_ancestor(source, &finish)?)
+}
+
+/// Make the leg's finish branch exist and contain the source tip, pushed.
+/// `origin/{finish}` is the truth: it may carry conflict resolutions the local
+/// ref never sees. A finish branch is only ever appended to — a moved source
+/// is merged in, never force-pushed over someone's resolution.
+pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) -> Result<String, String> {
+    reconcile_with_origin(git, source)?;
+    let finish = finish_branch_name(source, target);
+    let origin_finish = format!("origin/{finish}");
+    let remote = git.remote_branch_exists(&finish)?;
+    if remote && git.is_ancestor(source, &origin_finish)? {
+        return Ok(finish);
+    }
+    if !git.local_branch_exists(&finish)? {
+        if remote {
+            git.create_branch_no_checkout(&finish, &origin_finish)?;
+        } else {
+            git.create_branch_no_checkout(&finish, source)?;
+            git.push(&finish)?;
+            return Ok(finish);
+        }
+    }
+    if !git.is_ancestor(source, &finish)? || (remote && !git.is_ancestor(&origin_finish, &finish)?) {
+        println!("Refreshing {finish} with {source}...");
+        let prior = git.current_branch()?;
+        git.checkout(&finish)?;
+        if remote {
+            git.ff_merge(&origin_finish)?;
+        }
+        if !git.is_ancestor(source, &finish)? {
+            git.merge(source, &format!("chore: refresh {finish} with {source}"))
+                .map_err(|e| format!("{e}\n{}", finish_conflict_hint(&finish, source, target)))?;
+        }
+        git.checkout(&prior)?;
+    }
+    git.push(&finish)?;
+    Ok(finish)
+}
+
+/// How to resolve a conflicted landing without ever touching the source branch.
+pub(crate) fn finish_conflict_hint(finish: &str, source: &str, target: &str) -> String {
+    format!(
+        "Conflicts? Merge {target} into {finish} (never rebase it) — {source} is never touched:\n  \
+         git switch {finish} && git merge origin/{target}\n  \
+         then resolve, commit, push, merge the PR, and re-run."
+    )
+}
+
+/// Outcome of driving one strict protected landing leg.
+pub(crate) enum LegState {
+    Landed(LandedPr),
+    ContentPresent,
+    Pending { url: String, finish: String },
+}
+
+/// Drive one strict landing leg: refuse legacy PRs, recognize a landing that
+/// still contains the tip, skip a target that already has the content, else
+/// open (or reuse) the PR from the leg's finish branch.
+pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>) -> Result<LegState, String> {
+    refuse_open_legacy_pr(hosting, source, target)?;
+    if let Some(pr) = finish_leg_landed_strict(git, hosting, source, target)? {
+        return Ok(LegState::Landed(pr));
+    }
+    if git.is_ancestor(source, &format!("origin/{target}"))? {
+        println!("↷ skipped: landing into {target} (already contains {source})");
+        return Ok(LegState::ContentPresent);
+    }
+    let finish = ensure_finish_branch(git, source, target)?;
+    let url = hosting.create_or_get_pr(&finish, target, title, template.and_then(|p| p.to_str()))?;
+    Ok(LegState::Pending { url, finish })
+}
+
+/// Delete every finish branch of `source` — machinery, never kept, found by
+/// pattern so a leg whose target vanished mid-finish leaves no orphan.
+pub(crate) fn cleanup_finish_branches(git: &dyn Git, source: &str) -> Result<(), String> {
+    let pattern = format!("finish/{}-into-*", source.replace('/', "-"));
+    for branch in git.list_branches_matching(&pattern)? {
+        delete_branch_guarded(git, &branch)?;
+    }
+    Ok(())
 }
 
 /// Whether `source` has landed into `target` at least once: its most recent
@@ -145,13 +288,26 @@ pub(crate) fn leg_landed(git: &dyn Git, hosting: &dyn HostingPlatform, source: &
     }
 }
 
-/// Whether `source`'s tip is the head of one of the PRs that landed. Squash
-/// merges leave no ancestry between source and target, so this is the only
-/// reliable "the tip went somewhere" test, and it is what keeps cleanup from
-/// deleting commits that never landed anywhere.
-pub(crate) fn tip_landed_somewhere(git: &dyn Git, source: &str, landed: &[LandedPr]) -> Result<bool, String> {
+/// Whether `source`'s tip went somewhere that landed. Squash merges leave no
+/// ancestry between source and target, so head equality is the primary test;
+/// a conflict-resolved landing has extra commits on its finish branch, whose
+/// refs (origin first — a remote-side resolution never moves the local ref)
+/// prove containment by ancestry. Nothing provable → false: cleanup keeps the
+/// branch rather than delete commits that may never have landed.
+pub(crate) fn tip_landed_somewhere(git: &dyn Git, source: &str, landed: &[LandedPr], finish_branches: &[String]) -> Result<bool, String> {
     let tip = git.branch_sha(source)?;
-    Ok(landed.iter().any(|pr| pr.head_sha == tip))
+    if landed.iter().any(|pr| pr.head_sha == tip) {
+        return Ok(true);
+    }
+    for finish in finish_branches {
+        if git.remote_branch_exists(finish)? && git.is_ancestor(source, &format!("origin/{finish}"))? {
+            return Ok(true);
+        }
+        if git.local_branch_exists(finish)? && git.is_ancestor(source, finish)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Report commits pushed to `source` after its `target` landing merged. They

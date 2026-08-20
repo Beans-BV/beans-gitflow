@@ -520,8 +520,10 @@ fn sync_protected_opens_develop_pr_and_stops() {
     sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
 
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:develop",
+        "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:release/1.1.0:develop:chore: sync release 1.1.0 with develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
     ]);
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:develop"), "must not merge locally; calls: {calls:?}");
@@ -533,15 +535,20 @@ fn sync_protected_opens_develop_pr_and_stops() {
 fn sync_protected_already_landed_is_a_noop() {
     let mut git = MockGit::new();
     git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/develop".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("relsha", "mc1"));
 
     sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
 
-    assert_eq!(git.calls(), vec!["branch_sha:release/1.1.0"],
-        "already-landed sync must make no mutating git calls beyond the landed-check read");
-    assert_eq!(hosting.calls(), vec!["merged_pr_to:release/1.1.0:develop"]);
+    assert_eq!(git.calls(), vec!["is_ancestor:mc1:origin/develop", "branch_sha:release/1.1.0"],
+        "already-landed sync must make no mutating git calls beyond the landed-check reads");
+    assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:develop",
+        "merged_pr_to:finish/release-1.1.0-into-develop:develop",
+        "merged_pr_to:release/1.1.0:develop",
+    ]);
 }
 
 #[test]
@@ -551,14 +558,17 @@ fn sync_protected_stale_merged_pr_reopens_new_pr() {
     git.existing_remote_branches.insert("release/1.1.0".to_string());
     git.pushed_branches.insert("release/1.1.0".to_string());
 
+    git.ancestors.insert(("mc1".to_string(), "origin/develop".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("stale", "mc1"));
 
     sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
 
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:develop",
+        "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:release/1.1.0:develop:chore: sync release 1.1.0 with develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
     ]);
 }
 
@@ -704,10 +714,16 @@ fn protected_patch_finish_opens_main_pr_without_any_tag_machinery() {
         "rev_list_count:v1.1.0:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "is_pushed:release/1.1.0",
+        "remote_branch_exists:finish/release-1.1.0-into-main",
+        "local_branch_exists:finish/release-1.1.0-into-main",
+        "create_branch_no_checkout:finish/release-1.1.0-into-main:release/1.1.0",
+        "push:finish/release-1.1.0-into-main",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:main",
+        "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
-        "create_or_get_pr:release/1.1.0:main:chore: merge release 1.1.0 into main",
+        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main",
     ]);
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("tag_exists")),
@@ -739,6 +755,7 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "branch_sha:release/1.1.0",
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
+        "branch_sha:release/1.1.0",
         "current_branch",
         "is_linked_worktree",
         "worktree_of:main",
@@ -747,6 +764,7 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "delete_branch_local:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
+        "list_branches_matching:finish/release-1.1.0-into-*",
     ]);
     let calls = git.calls();
     // The final tag was cut at bump — finish never creates one, but it does
@@ -947,33 +965,6 @@ fn landed(head_sha: &str, merge_commit_sha: &str) -> bflow::hosting::LandedPr {
 }
 
 #[test]
-fn protected_finish_opens_main_pr_and_stops() {
-    let mut git = MockGit::new();
-    git.tags_on_branch = vec!["v1.1.0-rc.2".to_string()];
-    git.existing_remote_branches.insert("release/1.1.0".to_string());
-    git.pushed_branches.insert("release/1.1.0".to_string());
-
-    let hosting = MockHosting::new();
-    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
-
-    assert_eq!(git.calls(), vec![
-        "tag_exists:v1.1.0",
-        "tags_on_branch:release/1.1.0",
-        "rev_list_count:v1.1.0-rc.2:release/1.1.0",
-        "remote_branch_exists:release/1.1.0",
-        "is_pushed:release/1.1.0",
-    ]);
-    assert_eq!(hosting.calls(), vec![
-        "merged_pr_to:release/1.1.0:main",
-        "create_or_get_pr:release/1.1.0:main:chore: merge release 1.1.0 into main",
-    ]);
-    let calls = git.calls();
-    assert!(!calls.iter().any(|c| c == "checkout:main"), "must not merge locally; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c.starts_with("merge:")), "must not merge locally; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c.starts_with("create_tag")), "must not tag before main lands; calls: {calls:?}");
-}
-
-#[test]
 fn protected_finish_rc_gate_blocks_before_pr() {
     let mut git = MockGit::new();
     git.tags_on_branch = vec!["v1.1.0-rc.2".to_string()];
@@ -984,7 +975,11 @@ fn protected_finish_rc_gate_blocks_before_pr() {
 
     assert!(err.contains("v1.1.0-rc.2"), "got: {err}");
     assert!(err.contains("bflow bump"), "got: {err}");
-    assert_eq!(hosting.calls(), vec!["merged_pr_to:release/1.1.0:main"]);
+    assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:main",
+        "merged_pr_to:finish/release-1.1.0-into-main:main",
+        "merged_pr_to:release/1.1.0:main",
+    ]);
 }
 
 #[test]
@@ -1013,13 +1008,22 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
         "push_tag:v1.1.0",
         "branch_sha:release/1.1.0",
         "rev_list_count:old-head:release/1.1.0",
+        "is_ancestor:release/1.1.0:origin/develop",
         "remote_branch_exists:release/1.1.0",
         "is_pushed:release/1.1.0",
+        "remote_branch_exists:finish/release-1.1.0-into-develop",
+        "local_branch_exists:finish/release-1.1.0-into-develop",
+        "create_branch_no_checkout:finish/release-1.1.0-into-develop:release/1.1.0",
+        "push:finish/release-1.1.0-into-develop",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:main",
+        "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
+        "open_pr_to:release/1.1.0:develop",
+        "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:release/1.1.0:develop:chore: merge release 1.1.0 into develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop",
     ]);
     let calls = git.calls();
     // `tags_on_branch` is the gate's own first call and nothing else makes it,
@@ -1057,6 +1061,7 @@ fn protected_finish_completes_after_develop_merge() {
         "branch_sha:release/1.1.0",
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
+        "branch_sha:release/1.1.0",
         "current_branch",
         "is_linked_worktree",
         "worktree_of:main",
@@ -1065,6 +1070,7 @@ fn protected_finish_completes_after_develop_merge() {
         "delete_branch_local:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
+        "list_branches_matching:finish/release-1.1.0-into-*",
     ]);
 }
 
@@ -1210,14 +1216,20 @@ fn protected_finish_cleans_up_when_the_branch_moved_after_the_tag_landed() {
         "push_tag:v1.1.0",
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
+        "branch_sha:release/1.1.0",
         "current_branch",
         "local_branch_exists:release/1.1.0",
         "delete_branch_local:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
+        "list_branches_matching:finish/release-1.1.0-into-*",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:main",
+        "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
+        "open_pr_to:release/1.1.0:develop",
+        "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
     ]);
     let calls = git.calls();
@@ -1227,10 +1239,11 @@ fn protected_finish_cleans_up_when_the_branch_moved_after_the_tag_landed() {
 
 #[test]
 fn protected_finish_keeps_the_branch_when_its_tip_landed_nowhere() {
-    // Same landed world as the test above, except the branch's current tip
-    // matches neither the tag's commit nor any landed PR's head — commits
-    // sitting on the branch that never went anywhere. Cleanup must warn and
-    // leave the branch alone rather than risk losing them.
+    // Same landed world as the test above, except the branch's current tip is
+    // in neither the tag's commit nor the develop landing — commits that never
+    // went anywhere. The strict develop-leg check re-opens the leg with a
+    // refreshed finish branch instead of completing, so nothing is deleted and
+    // the commits reach develop through a fresh PR.
     let mut git = MockGit::new();
     git.existing_tags.insert("v1.1.0".to_string());
     git.tag_commits.insert("v1.1.0".to_string(), "old-tip-sha".to_string());
@@ -1238,18 +1251,21 @@ fn protected_finish_keeps_the_branch_when_its_tip_landed_nowhere() {
     git.branch_shas.insert("release/1.1.0".to_string(), "unrelated-tip-sha".to_string());
     git.existing_local_branches.insert("release/1.1.0".to_string());
     git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
     git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("new-tip-sha", "mc2"));
 
     let result = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None);
-    assert!(result.is_ok(), "the guard must not fail the run; got: {result:?}");
+    assert!(result.is_ok(), "re-opening the leg must not fail the run; got: {result:?}");
 
     let calls = git.calls();
-    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "tip landed nowhere must not delete; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "tip landed nowhere must not delete; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c == "checkout:main"), "tip landed nowhere must not touch the branch at all; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "unlanded commits must not be deleted; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "unlanded commits must not be deleted; calls: {calls:?}");
+    assert_eq!(hosting.calls().last().unwrap(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop",
+        "the develop leg must re-open with a finish-branch PR");
 }
 
 // --- Reconcile edges (exercised through run 1's main-PR step) ---
@@ -1268,10 +1284,16 @@ fn protected_finish_pushes_when_remote_branch_missing_before_opening_pr() {
         "rev_list_count:v1.1.0-rc.1:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "push:release/1.1.0",
+        "remote_branch_exists:finish/release-1.1.0-into-main",
+        "local_branch_exists:finish/release-1.1.0-into-main",
+        "create_branch_no_checkout:finish/release-1.1.0-into-main:release/1.1.0",
+        "push:finish/release-1.1.0-into-main",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:main",
+        "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
-        "create_or_get_pr:release/1.1.0:main:chore: merge release 1.1.0 into main",
+        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main",
     ]);
 }
 
@@ -1293,6 +1315,10 @@ fn protected_finish_pushes_when_local_ahead_of_origin() {
         "is_pushed:release/1.1.0",
         "is_ancestor:origin/release/1.1.0:release/1.1.0",
         "push:release/1.1.0",
+        "remote_branch_exists:finish/release-1.1.0-into-main",
+        "local_branch_exists:finish/release-1.1.0-into-main",
+        "create_branch_no_checkout:finish/release-1.1.0-into-main:release/1.1.0",
+        "push:finish/release-1.1.0-into-main",
     ]);
 }
 
@@ -1395,4 +1421,172 @@ fn finish_release_in_its_own_worktree_removes_the_worktree_last() {
     let detach = calls.iter().position(|c| c == "detach_head").expect("detach before delete");
     let del = calls.iter().position(|c| c == "delete_branch_local:release/1.1.0").unwrap();
     assert!(detach < del, "calls: {calls:?}");
+}
+
+// --- Protected landings via finish/* branches ---
+
+#[test]
+fn protected_release_opens_main_pr_from_the_finish_branch() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.2".to_string()];
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "tag_exists:v1.1.0",
+        "tags_on_branch:release/1.1.0",
+        "rev_list_count:v1.1.0-rc.2:release/1.1.0",
+        "remote_branch_exists:release/1.1.0",
+        "is_pushed:release/1.1.0",
+        "remote_branch_exists:finish/release-1.1.0-into-main",
+        "local_branch_exists:finish/release-1.1.0-into-main",
+        "create_branch_no_checkout:finish/release-1.1.0-into-main:release/1.1.0",
+        "push:finish/release-1.1.0-into-main",
+    ]);
+    assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:main",
+        "merged_pr_to:finish/release-1.1.0-into-main:main",
+        "merged_pr_to:release/1.1.0:main",
+        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main",
+    ]);
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("merge:")), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("create_tag")), "must not tag before main lands; calls: {calls:?}");
+}
+
+#[test]
+fn protected_release_refuses_an_open_legacy_pr() {
+    let mut git = MockGit::new();
+    git.tags_on_branch = vec!["v1.1.0-rc.2".to_string()];
+    let mut hosting = MockHosting::new();
+    hosting.open_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), "https://github.com/o/r/pull/9".to_string());
+
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap_err();
+
+    assert!(err.contains("pull/9") && err.contains("close/abandon"), "got: {err}");
+    assert!(git.calls().is_empty(), "must refuse before any git call; calls: {:?}", git.calls());
+    assert_eq!(hosting.calls(), vec!["open_pr_to:release/1.1.0:main"]);
+}
+
+#[test]
+fn protected_release_tags_the_finish_prs_merge_commit() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mcF".to_string(), "origin/main".to_string()));
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("finish/release-1.1.0-into-main".to_string(), "main".to_string()),
+        landed("finhead", "mcF"),
+    );
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"create_tag_at:v1.1.0:chore: release 1.1.0:mcF".to_string()),
+        "the tag is cut at the finish PR's merge commit; calls: {calls:?}");
+    assert_eq!(hosting.calls().last().unwrap(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop");
+}
+
+#[test]
+fn develop_leg_reopens_when_release_gained_commits_after_a_landed_sync() {
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.branch_shas.insert("release/1.1.0".to_string(), "newsha".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("finish/release-1.1.0-into-develop".to_string());
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("finish/release-1.1.0-into-develop".to_string(), "develop".to_string()),
+        landed("oldsha", "mc2"),
+    );
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"merge:release/1.1.0:chore: refresh finish/release-1.1.0-into-develop with release/1.1.0".to_string()),
+        "the finish branch must be refreshed with the new commits; calls: {calls:?}");
+    assert!(!calls.contains(&"delete_branch_local:release/1.1.0".to_string()),
+        "the finish must NOT complete while develop misses commits; calls: {calls:?}");
+    assert_eq!(hosting.calls().last().unwrap(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop");
+}
+
+#[test]
+fn ensure_reuses_a_remote_finish_that_gained_resolution_commits() {
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("finish/release-1.1.0-into-develop".to_string());
+    git.ancestors.insert(("release/1.1.0".to_string(), "origin/finish/release-1.1.0-into-develop".to_string()));
+
+    let hosting = MockHosting::new();
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(!calls.iter().any(|c| c.starts_with("push:finish/") || c.starts_with("create_branch_no_checkout:finish/") || c.starts_with("checkout:finish/")),
+        "a remote finish that already contains the tip is reused untouched; calls: {calls:?}");
+    assert_eq!(hosting.calls().last().unwrap(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop");
+}
+
+#[test]
+fn leg_skips_without_a_pr_when_target_already_contains_the_finish() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("release/1.1.0".to_string(), "origin/develop".to_string()));
+    git.branches_matching_by.insert("finish/release-1.1.0-into-*".to_string(),
+        vec!["finish/release-1.1.0-into-main".to_string()]);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("finish/release-1.1.0-into-main".to_string(), "main".to_string()),
+        landed("relsha", "mc1"),
+    );
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    assert!(!hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr")),
+        "develop already contains the release: no PR; calls: {:?}", hosting.calls());
+    let calls = git.calls();
+    assert!(calls.contains(&"delete_branch_local:release/1.1.0".to_string()), "calls: {calls:?}");
+    assert!(calls.contains(&"list_branches_matching:finish/release-1.1.0-into-*".to_string()), "calls: {calls:?}");
+    let guard_read = calls.iter().position(|c| c == "branch_sha:release/1.1.0").unwrap();
+    let finish_delete = calls.iter().position(|c| c == "local_branch_exists:finish/release-1.1.0-into-main").unwrap();
+    assert!(guard_read < finish_delete, "guard must run before finish branches are deleted; calls: {calls:?}");
+}
+
+#[test]
+fn protected_sync_lands_via_the_develop_finish_branch() {
+    let mut git = MockGit::new();
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+
+    let hosting = MockHosting::new();
+    sync_with_develop(&git, &hosting, &protected_cfg(false), 1, 1, None).unwrap();
+
+    assert_eq!(hosting.calls(), vec![
+        "open_pr_to:release/1.1.0:develop",
+        "merged_pr_to:finish/release-1.1.0-into-develop:develop",
+        "merged_pr_to:release/1.1.0:develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
+    ]);
 }
