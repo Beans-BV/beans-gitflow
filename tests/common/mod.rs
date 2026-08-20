@@ -473,6 +473,8 @@ impl Git for MockGit {
 
 pub struct MockHosting {
     pub calls: RefCell<Vec<String>>,
+    /// (head, base) -> url of an OPEN PR, for `open_pr_to`.
+    pub open_prs_to: HashMap<(String, String), String>,
     pub pr_url: String,
     /// What `merged_pr` reports (defaults to no merged PR).
     pub merged_pr: Option<bflow::hosting::MergedPr>,
@@ -484,6 +486,7 @@ impl MockHosting {
     pub fn new() -> Self {
         Self {
             calls: RefCell::new(Vec::new()),
+            open_prs_to: HashMap::new(),
             pr_url: "https://github.com/org/repo/pull/1".to_string(),
             merged_pr: None,
             merged_prs_to: HashMap::new(),
@@ -505,6 +508,11 @@ impl HostingPlatform for MockHosting {
     fn merged_pr(&self, head: &str) -> Result<Option<bflow::hosting::MergedPr>, String> {
         self.calls.borrow_mut().push(format!("merged_pr:{head}"));
         Ok(self.merged_pr.clone())
+    }
+
+    fn open_pr_to(&self, head: &str, base: &str) -> Result<Option<String>, String> {
+        self.calls.borrow_mut().push(format!("open_pr_to:{head}:{base}"));
+        Ok(self.open_prs_to.get(&(head.to_string(), base.to_string())).cloned())
     }
 
     fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<bflow::hosting::LandedPr>, String> {

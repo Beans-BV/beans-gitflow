@@ -205,6 +205,21 @@ impl HostingPlatform for AzureDevOps<'_> {
         self.parse_landed_pr_row(&row)
     }
 
+    fn open_pr_to(&self, head: &str, base: &str) -> Result<Option<String>> {
+        let mut args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
+        args.extend(self.repo_args());
+        args.extend([
+            "--source-branch".into(), head.into(),
+            "--target-branch".into(), base.into(),
+            "--status".into(), "active".into(),
+            "--query".into(), "[0].pullRequestId".into(),
+            "-o".into(), "tsv".into(),
+        ]);
+        let id = self.run_az(&args)?;
+        let id = id.trim();
+        Ok(if id.is_empty() { None } else { Some(self.pr_url(validate_pr_id(id)?)) })
+    }
+
     fn check_auth(&self) -> Result<()> {
         // Explicit extension check first: it also prevents az's interactive
         // dynamic-install prompt from firing inside a non-tty command later.

@@ -40,6 +40,10 @@ pub trait HostingPlatform {
     /// The newest `head`→`base` PR, if it is merged. An open or abandoned newer
     /// PR yields `None`.
     fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>>;
+    /// URL of the newest OPEN `head`→`base` PR, if any. Exists for the
+    /// finish-branch migration: an open landing PR from an older bflow (head =
+    /// the release/hotfix branch itself) must be surfaced, not duplicated.
+    fn open_pr_to(&self, head: &str, base: &str) -> Result<Option<String>>;
     fn open_url(&self, url: &str) -> Result<()> {
         open_in_browser(url)
     }
