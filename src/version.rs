@@ -105,3 +105,11 @@ impl fmt::Display for SemVer {
         Ok(())
     }
 }
+
+/// Head branch for one protected landing leg: `finish/<source>-into-<target>`
+/// with slashes flattened. Cut from the source, merged into exactly one
+/// target, deleted after landing — conflict resolution happens here so the
+/// release/hotfix branch itself is never touched.
+pub fn finish_branch_name(source: &str, target: &str) -> String {
+    format!("finish/{}-into-{}", source.replace('/', "-"), target.replace('/', "-"))
+}
