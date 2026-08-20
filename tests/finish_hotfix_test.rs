@@ -462,10 +462,16 @@ fn protected_hotfix_opens_main_pr_and_stops() {
         "tag_exists:v1.1.1",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
+        "remote_branch_exists:finish/hotfix-1.1.1-into-main",
+        "local_branch_exists:finish/hotfix-1.1.1-into-main",
+        "create_branch_no_checkout:finish/hotfix-1.1.1-into-main:hotfix/1.1.1",
+        "push:finish/hotfix-1.1.1-into-main",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:hotfix/1.1.1:main",
+        "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
-        "create_or_get_pr:hotfix/1.1.1:main:chore: merge hotfix 1.1.1 into main",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-main:main:chore: merge hotfix 1.1.1 into main",
     ]);
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:main"), "must not merge locally; calls: {calls:?}");
@@ -496,13 +502,22 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
         "remote_tag_exists:v1.1.1",
         "push_tag:v1.1.1",
         "branch_sha:hotfix/1.1.1",
+        "is_ancestor:hotfix/1.1.1:origin/develop",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
+        "remote_branch_exists:finish/hotfix-1.1.1-into-develop",
+        "local_branch_exists:finish/hotfix-1.1.1-into-develop",
+        "create_branch_no_checkout:finish/hotfix-1.1.1-into-develop:hotfix/1.1.1",
+        "push:finish/hotfix-1.1.1-into-develop",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:hotfix/1.1.1:main",
+        "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
+        "open_pr_to:hotfix/1.1.1:develop",
+        "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
         "merged_pr_to:hotfix/1.1.1:develop",
-        "create_or_get_pr:hotfix/1.1.1:develop:chore: merge hotfix 1.1.1 into develop",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-develop:develop:chore: merge hotfix 1.1.1 into develop",
     ]);
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("rev_list_count")), "hotfixes carry no RC gate; calls: {calls:?}");
@@ -535,17 +550,29 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
+        "branch_sha:hotfix/1.1.1",
         "list_branches_matching:release/*",
         "tag_exists:v1.3.0",
         "tag_exists:v1.2.0",
+        "is_ancestor:hotfix/1.1.1:origin/release/1.2.0",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
+        "remote_branch_exists:finish/hotfix-1.1.1-into-release-1.2.0",
+        "local_branch_exists:finish/hotfix-1.1.1-into-release-1.2.0",
+        "create_branch_no_checkout:finish/hotfix-1.1.1-into-release-1.2.0:hotfix/1.1.1",
+        "push:finish/hotfix-1.1.1-into-release-1.2.0",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:hotfix/1.1.1:main",
+        "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
+        "open_pr_to:hotfix/1.1.1:develop",
+        "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
         "merged_pr_to:hotfix/1.1.1:develop",
+        "open_pr_to:hotfix/1.1.1:release/1.2.0",
+        "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
-        "create_or_get_pr:hotfix/1.1.1:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
     ]);
 }
 
@@ -577,19 +604,34 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
+        "branch_sha:hotfix/1.1.1",
         "list_branches_matching:release/*",
         "tag_exists:v1.3.0",
         "tag_exists:v1.2.0",
         "is_ancestor:mc3:origin/release/1.2.0",
+        "branch_sha:hotfix/1.1.1",
+        "is_ancestor:hotfix/1.1.1:origin/release/1.3.0",
         "remote_branch_exists:hotfix/1.1.1",
         "is_pushed:hotfix/1.1.1",
+        "remote_branch_exists:finish/hotfix-1.1.1-into-release-1.3.0",
+        "local_branch_exists:finish/hotfix-1.1.1-into-release-1.3.0",
+        "create_branch_no_checkout:finish/hotfix-1.1.1-into-release-1.3.0:hotfix/1.1.1",
+        "push:finish/hotfix-1.1.1-into-release-1.3.0",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:hotfix/1.1.1:main",
+        "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
+        "open_pr_to:hotfix/1.1.1:develop",
+        "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
         "merged_pr_to:hotfix/1.1.1:develop",
+        "open_pr_to:hotfix/1.1.1:release/1.2.0",
+        "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
+        "open_pr_to:hotfix/1.1.1:release/1.3.0",
+        "merged_pr_to:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0",
         "merged_pr_to:hotfix/1.1.1:release/1.3.0",
-        "create_or_get_pr:hotfix/1.1.1:release/1.3.0:chore: merge hotfix 1.1.1 into release/1.3.0",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0:chore: merge hotfix 1.1.1 into release/1.3.0",
     ]);
 }
 
@@ -604,6 +646,7 @@ fn protected_hotfix_completes_after_all_landed() {
     git.existing_local_branches.insert("hotfix/1.1.1".to_string());
     git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
     git.branches_matching = vec!["release/1.2.0".to_string()];
+    git.branches_matching_by.insert("finish/hotfix-1.1.1-into-*".to_string(), vec![]);
     git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
     git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
     git.ancestors.insert(("mc3".to_string(), "origin/release/1.2.0".to_string()));
@@ -623,9 +666,11 @@ fn protected_hotfix_completes_after_all_landed() {
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
+        "branch_sha:hotfix/1.1.1",
         "list_branches_matching:release/*",
         "tag_exists:v1.2.0",
         "is_ancestor:mc3:origin/release/1.2.0",
+        "branch_sha:hotfix/1.1.1",
         "branch_sha:hotfix/1.1.1",
         "current_branch",
         "is_linked_worktree",
@@ -635,10 +680,17 @@ fn protected_hotfix_completes_after_all_landed() {
         "delete_branch_local:hotfix/1.1.1",
         "remote_branch_exists:hotfix/1.1.1",
         "delete_branch_remote:hotfix/1.1.1",
+        "list_branches_matching:finish/hotfix-1.1.1-into-*",
     ]);
     assert_eq!(hosting.calls(), vec![
+        "open_pr_to:hotfix/1.1.1:main",
+        "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
+        "open_pr_to:hotfix/1.1.1:develop",
+        "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
         "merged_pr_to:hotfix/1.1.1:develop",
+        "open_pr_to:hotfix/1.1.1:release/1.2.0",
+        "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
     ]);
 }
@@ -666,12 +718,12 @@ fn protected_hotfix_keeps_branch_when_configured() {
 }
 
 #[test]
-fn protected_hotfix_advances_to_the_release_leg_when_the_branch_moved() {
-    // Main and develop both landed (proven by tag/PR containment, not by a
-    // fresh merged_pr_to hit or a head-sha match — the branch tip has since
-    // moved). Hotfixes carry no RC gate, so landing must advance straight to
-    // the one still-open release branch instead of getting stuck re-opening
-    // a main PR.
+fn protected_hotfix_reopens_the_develop_leg_when_the_branch_moved() {
+    // Main landed (tag containment) and develop landed with an older head —
+    // the branch tip has since moved, so develop is MISSING the new commits.
+    // The strict develop-leg check must re-open that leg with a refreshed
+    // finish branch instead of advancing past it (the old lenient behaviour
+    // silently dropped the commits from develop).
     let mut git = MockGit::new();
     git.existing_tags.insert("v1.3.1".to_string());
     git.tag_commits.insert("v1.3.1".to_string(), "old-tip-sha".to_string());
@@ -689,23 +741,25 @@ fn protected_hotfix_advances_to_the_release_leg_when_the_branch_moved() {
 
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls, vec![
+        "open_pr_to:hotfix/1.3.1:main",
+        "merged_pr_to:finish/hotfix-1.3.1-into-main:main",
         "merged_pr_to:hotfix/1.3.1:main",
+        "open_pr_to:hotfix/1.3.1:develop",
+        "merged_pr_to:finish/hotfix-1.3.1-into-develop:develop",
         "merged_pr_to:hotfix/1.3.1:develop",
-        "merged_pr_to:hotfix/1.3.1:release/1.4.0",
-        "create_or_get_pr:hotfix/1.3.1:release/1.4.0:chore: merge hotfix 1.3.1 into release/1.4.0",
+        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop",
     ]);
-    assert_eq!(hosting_calls.iter().filter(|c| c.starts_with("create_or_get_pr")).count(), 1,
-        "expected exactly one create_or_get_pr call; calls: {hosting_calls:?}");
     assert!(!hosting_calls.iter().any(|c| c.starts_with("create_or_get_pr") && c.contains(":main:")),
         "must not reopen a main PR once main has landed; calls: {hosting_calls:?}");
+    assert!(!hosting_calls.iter().any(|c| c.contains(":release/1.4.0")),
+        "the release leg is not reached while develop misses commits; calls: {hosting_calls:?}");
 }
 
 #[test]
-fn protected_hotfix_keeps_the_branch_when_its_tip_landed_nowhere() {
-    // Every leg has landed, but the branch tip matches no landed PR head —
-    // commits sitting on the hotfix branch that never reached any target.
-    // Squash merges leave no ancestry to fall back on, so deleting here would
-    // lose them: warn and keep, exactly as the release path does.
+fn protected_hotfix_reopens_develop_instead_of_completing_when_the_tip_landed_nowhere() {
+    // The branch tip is in no landed PR — commits that never reached any
+    // target. The strict develop-leg check re-opens develop with a refreshed
+    // finish branch, so nothing is deleted and the commits actually land.
     let mut git = MockGit::new();
     git.existing_tags.insert("v1.3.1".to_string());
     git.tag_commits.insert("v1.3.1".to_string(), "old-tip-sha".to_string());
@@ -713,18 +767,21 @@ fn protected_hotfix_keeps_the_branch_when_its_tip_landed_nowhere() {
     git.branch_shas.insert("hotfix/1.3.1".to_string(), "unrelated-tip-sha".to_string());
     git.existing_local_branches.insert("hotfix/1.3.1".to_string());
     git.existing_remote_branches.insert("hotfix/1.3.1".to_string());
+    git.pushed_branches.insert("hotfix/1.3.1".to_string());
     git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.3.1".to_string(), "develop".to_string()), landed("old-develop-head", "mc2"));
 
     let result = finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None);
-    assert!(result.is_ok(), "the guard must not fail the run; got: {result:?}");
+    assert!(result.is_ok(), "re-opening the leg must not fail the run; got: {result:?}");
 
     let calls = git.calls();
-    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "tip landed nowhere must not delete; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "tip landed nowhere must not delete; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c == "checkout:main"), "tip landed nowhere must not touch the branch at all; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "unlanded commits must not be deleted; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "unlanded commits must not be deleted; calls: {calls:?}");
+    assert_eq!(hosting.calls().last().unwrap(),
+        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop",
+        "the develop leg must re-open with a finish-branch PR");
 }
 
 #[test]
@@ -837,4 +894,143 @@ fn finish_hotfix_keeping_the_branch_keeps_the_worktree() {
 
     assert!(!git.calls().iter().any(|c| c == "remove_current_worktree" || c == "detach_head"),
         "a kept branch keeps its worktree; calls: {:?}", git.calls());
+}
+
+// --- Protected landings via finish/* branches ---
+
+#[test]
+fn protected_hotfix_all_legs_use_finish_branches() {
+    let mut git = MockGit::new();
+    git.branch_shas.insert("hotfix/1.1.1".to_string(), "hfsha".to_string());
+    git.existing_tags.insert("v1.1.1".to_string());
+    git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.branches_matching_by.insert("release/*".to_string(), vec!["release/1.2.0".to_string()]);
+    git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
+    git.pushed_branches.insert("hotfix/1.1.1".to_string());
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+
+    assert_eq!(hosting.calls(), vec![
+        "open_pr_to:hotfix/1.1.1:main",
+        "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
+        "open_pr_to:hotfix/1.1.1:develop",
+        "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
+        "open_pr_to:hotfix/1.1.1:release/1.2.0",
+        "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
+        "merged_pr_to:hotfix/1.1.1:release/1.2.0",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
+    ]);
+}
+
+#[test]
+fn protected_hotfix_completes_after_conflict_resolutions_and_cleans_every_finish_branch() {
+    // Both legs' PRs carry conflict-resolution commits: their heads no longer
+    // equal the hotfix tip, and containment is proven via origin/finish
+    // ancestry. Cleanup must still delete the source — and every finish/*
+    // branch, including an orphan for a release that shipped mid-finish.
+    let mut git = MockGit::new();
+    git.current_branch = "hotfix/1.1.1".to_string();
+    git.branch_shas.insert("hotfix/1.1.1".to_string(), "hfsha".to_string());
+    git.existing_tags.insert("v1.1.1".to_string());
+    git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.existing_local_branches.insert("hotfix/1.1.1".to_string());
+    git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
+    git.existing_remote_branches.insert("finish/hotfix-1.1.1-into-main".to_string());
+    git.existing_remote_branches.insert("finish/hotfix-1.1.1-into-develop".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.ancestors.insert(("hotfix/1.1.1".to_string(), "origin/finish/hotfix-1.1.1-into-main".to_string()));
+    git.ancestors.insert(("hotfix/1.1.1".to_string(), "origin/finish/hotfix-1.1.1-into-develop".to_string()));
+    git.branches_matching_by.insert("release/*".to_string(), vec![]);
+    git.branches_matching_by.insert("finish/hotfix-1.1.1-into-*".to_string(), vec![
+        "finish/hotfix-1.1.1-into-develop".to_string(),
+        "finish/hotfix-1.1.1-into-main".to_string(),
+        "finish/hotfix-1.1.1-into-release-1.9.0".to_string(),
+    ]);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("res-main", "mc1"));
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("res-dev", "mc2"));
+
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"delete_branch_local:hotfix/1.1.1".to_string()),
+        "resolved conflicts must not block source deletion; calls: {calls:?}");
+    assert!(calls.contains(&"list_branches_matching:finish/hotfix-1.1.1-into-*".to_string()), "calls: {calls:?}");
+    for finish in ["finish/hotfix-1.1.1-into-develop", "finish/hotfix-1.1.1-into-main", "finish/hotfix-1.1.1-into-release-1.9.0"] {
+        assert!(calls.contains(&format!("local_branch_exists:{finish}")),
+            "every finish branch (orphans included) is cleaned; calls: {calls:?}");
+    }
+    let source_delete = calls.iter().position(|c| c == "delete_branch_local:hotfix/1.1.1").unwrap();
+    let finish_delete = calls.iter().position(|c| c == "local_branch_exists:finish/hotfix-1.1.1-into-develop").unwrap();
+    assert!(source_delete < finish_delete, "guard + source cleanup run before finish branches vanish; calls: {calls:?}");
+}
+
+#[test]
+fn protected_hotfix_falls_back_to_local_finish_refs_when_origin_pruned_them() {
+    // The platform auto-deleted the merged finish branches and fetch --prune
+    // removed origin/finish/*; only the local refs still prove the resolved
+    // landings contain the tip.
+    let mut git = MockGit::new();
+    git.current_branch = "hotfix/1.1.1".to_string();
+    git.branch_shas.insert("hotfix/1.1.1".to_string(), "hfsha".to_string());
+    git.existing_tags.insert("v1.1.1".to_string());
+    git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.existing_local_branches.insert("hotfix/1.1.1".to_string());
+    git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
+    git.existing_local_branches.insert("finish/hotfix-1.1.1-into-develop".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.ancestors.insert(("hotfix/1.1.1".to_string(), "finish/hotfix-1.1.1-into-develop".to_string()));
+    git.branches_matching_by.insert("release/*".to_string(), vec![]);
+    git.branches_matching_by.insert("finish/hotfix-1.1.1-into-*".to_string(), vec![
+        "finish/hotfix-1.1.1-into-develop".to_string(),
+    ]);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("res-main", "mc1"));
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("res-dev", "mc2"));
+
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-develop".to_string()),
+        "the local ref must prove containment when origin is pruned; calls: {calls:?}");
+    assert!(calls.contains(&"delete_branch_local:hotfix/1.1.1".to_string()), "calls: {calls:?}");
+}
+
+#[test]
+fn protected_hotfix_content_present_legs_complete_without_prs() {
+    // develop and the open release already contain the hotfix (manual merges,
+    // or landed PRs the platform lost track of): both legs skip PR machinery
+    // entirely and the finish still completes.
+    let mut git = MockGit::new();
+    git.current_branch = "hotfix/1.1.1".to_string();
+    git.branch_shas.insert("hotfix/1.1.1".to_string(), "hfsha".to_string());
+    git.existing_tags.insert("v1.1.1".to_string());
+    git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.existing_local_branches.insert("hotfix/1.1.1".to_string());
+    git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("hotfix/1.1.1".to_string(), "origin/develop".to_string()));
+    git.ancestors.insert(("hotfix/1.1.1".to_string(), "origin/release/1.2.0".to_string()));
+    git.branches_matching_by.insert("release/*".to_string(), vec!["release/1.2.0".to_string()]);
+    git.branches_matching_by.insert("finish/hotfix-1.1.1-into-*".to_string(), vec![]);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+
+    assert!(!hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr")),
+        "content-present legs need no PR; calls: {:?}", hosting.calls());
+    let calls = git.calls();
+    assert!(calls.contains(&"delete_branch_local:hotfix/1.1.1".to_string()), "calls: {calls:?}");
 }

@@ -1,14 +1,15 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, delete_source_branch, leg_landed, merge_into, open_landing_pr,
+    announce_pending_landing, cleanup_finish_branches, delete_source_branch, ensure_finish_branch,
+    finish_conflict_hint, finish_leg_landed, land_leg_strict, merge_into, refuse_open_legacy_pr, LegState,
     open_versioned_branches, push_if_needed, push_tag_if_missing, report_commits_past_landing, resume_hint, tag_at_if_missing,
     tag_if_missing, tip_landed_somewhere,
 };
 use crate::git::Git;
 use crate::hosting::{HostingPlatform, LandedPr};
 use crate::repo_config::{Mode, RepoConfig};
-use crate::version::SemVer;
+use crate::version::{finish_branch_name, SemVer};
 
 #[allow(clippy::too_many_arguments)]
 pub fn finish_hotfix(
@@ -108,7 +109,8 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
 
     let mut landed: Vec<LandedPr> = Vec::new();
 
-    let main_pr = leg_landed(git, hosting, &hotfix_branch, main_branch)?;
+    refuse_open_legacy_pr(hosting, &hotfix_branch, main_branch)?;
+    let main_pr = finish_leg_landed(git, hosting, &hotfix_branch, main_branch)?;
     if let Some(pr) = &main_pr {
         landed.push(pr.clone());
     }
@@ -126,8 +128,10 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
             }
             None => {
                 let title = format!("chore: merge hotfix {version} into {main_branch}");
-                let url = open_landing_pr(git, hosting, &hotfix_branch, main_branch, &title, template)?;
+                let finish = ensure_finish_branch(git, &hotfix_branch, main_branch)?;
+                let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
                 announce_pending_landing(&url);
+                println!("{}", finish_conflict_hint(&finish, &hotfix_branch, main_branch));
                 return Ok(());
             }
         }
@@ -137,12 +141,14 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
         report_commits_past_landing(git, &hotfix_branch, pr, main_branch, &tag)?;
     }
 
-    match leg_landed(git, hosting, &hotfix_branch, "develop")? {
-        Some(pr) => landed.push(pr),
-        None => {
-            let title = format!("chore: merge hotfix {version} into develop");
-            let url = open_landing_pr(git, hosting, &hotfix_branch, "develop", &title, template)?;
+    let mut content_landed = false;
+    let title = format!("chore: merge hotfix {version} into develop");
+    match land_leg_strict(git, hosting, &hotfix_branch, "develop", &title, template)? {
+        LegState::Landed(pr) => landed.push(pr),
+        LegState::ContentPresent => content_landed = true,
+        LegState::Pending { url, finish } => {
             announce_pending_landing(&url);
+            println!("{}", finish_conflict_hint(&finish, &hotfix_branch, "develop"));
             return Ok(());
         }
     }
@@ -151,17 +157,24 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
     release_branches.sort();
 
     for release in &release_branches {
-        match leg_landed(git, hosting, &hotfix_branch, release)? {
-            Some(pr) => landed.push(pr),
-            None => {
-                let title = format!("chore: merge hotfix {version} into {release}");
-                let url = open_landing_pr(git, hosting, &hotfix_branch, release, &title, template)?;
+        let title = format!("chore: merge hotfix {version} into {release}");
+        match land_leg_strict(git, hosting, &hotfix_branch, release, &title, template)? {
+            LegState::Landed(pr) => landed.push(pr),
+            LegState::ContentPresent => content_landed = true,
+            LegState::Pending { url, finish } => {
                 announce_pending_landing(&url);
+                println!("{}", finish_conflict_hint(&finish, &hotfix_branch, release));
                 return Ok(());
             }
         }
     }
 
-    let tip_landed = tip_landed_somewhere(git, &hotfix_branch, &landed, &[])?;
-    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)
+    let mut finish_names = vec![
+        finish_branch_name(&hotfix_branch, main_branch),
+        finish_branch_name(&hotfix_branch, "develop"),
+    ];
+    finish_names.extend(release_branches.iter().map(|r| finish_branch_name(&hotfix_branch, r)));
+    let tip_landed = content_landed || tip_landed_somewhere(git, &hotfix_branch, &landed, &finish_names)?;
+    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)?;
+    cleanup_finish_branches(git, &hotfix_branch)
 }
