@@ -23,6 +23,8 @@ pub struct MockGit {
     pub tags: Vec<String>,
     pub tags_on_branch: Vec<String>,
     pub branches_matching: Vec<String>,
+    /// Per-pattern results for `list_branches_matching`; misses fall back to `branches_matching`.
+    pub branches_matching_by: HashMap<String, Vec<String>>,
     pub remote_branches: Vec<String>,
     /// Per-(a, b) merge bases; falls back to `MERGE_BASE` when absent.
     pub merge_bases: HashMap<(String, String), String>,
@@ -110,6 +112,7 @@ impl MockGit {
             tags: Vec::new(),
             tags_on_branch: Vec::new(),
             branches_matching: Vec::new(),
+            branches_matching_by: HashMap::new(),
             remote_branches: Vec::new(),
             merge_bases: HashMap::new(),
             rev_list_count_result: 0,
@@ -234,6 +237,9 @@ impl Git for MockGit {
 
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>, String> {
         self.calls.borrow_mut().push(format!("list_branches_matching:{pattern}"));
+        if let Some(matches) = self.branches_matching_by.get(pattern) {
+            return Ok(matches.clone());
+        }
         // git's ref patterns: `release/*` can never match `release-fix/…`.
         let prefix = pattern.strip_suffix('*').unwrap_or(pattern);
         Ok(self.branches_matching.iter().filter(|b| b.starts_with(prefix)).cloned().collect())

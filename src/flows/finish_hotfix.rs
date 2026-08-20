@@ -162,6 +162,6 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
         }
     }
 
-    let tip_landed = tip_landed_somewhere(git, &hotfix_branch, &landed)?;
+    let tip_landed = tip_landed_somewhere(git, &hotfix_branch, &landed, &[])?;
     finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)
 }
