@@ -154,3 +154,9 @@ fn release_chore_is_not_a_work_branch() {
 fn release_chore_pr_template_keys() {
     assert_eq!(BranchType::parse("release-chore/1.1.0/set-version").pr_template_keys(), Some(("release-chore", "chore")));
 }
+
+#[test]
+fn finish_branches_parse_as_other() {
+    assert_eq!(BranchType::parse("finish/release-1.2.0-into-main"), BranchType::Other);
+    assert_eq!(BranchType::parse("finish/hotfix-1.1.1-into-release-1.2.0"), BranchType::Other);
+}

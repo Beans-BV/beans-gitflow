@@ -680,3 +680,20 @@ fn merged_pr_cleans_up_hotfix_fix_too() {
         "calls: {:?}", git.calls());
     assert_eq!(hosting.calls(), vec!["merged_pr:hotfix-fix/2.5.1/npe"], "no new PR may be created");
 }
+
+#[test]
+fn finish_branches_are_never_offered_as_pr_target() {
+    let mut git = MockGit::new();
+    git.current_branch = "feature/login".to_string();
+    git.remote_branches = vec!["finish/release-1.2.0-into-main".to_string(), "develop".to_string()];
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new(); // unscripted: any select would error
+    let branch_type = BranchType::Feature { name: "login".to_string() };
+
+    finish_work_branch(&git, &hosting, &prompter, &branch_type, Some(false), None, None).unwrap();
+
+    assert!(prompter.calls().is_empty(),
+        "finish/* is landing machinery and must be filtered; calls: {:?}", prompter.calls());
+    assert!(hosting.calls()[1].starts_with("create_or_get_pr:feature/login:develop:"),
+        "finish/* must never be a PR target, got: {}", hosting.calls()[1]);
+}

@@ -200,3 +200,13 @@ fn a_clean_release_outranks_its_own_release_candidates() {
     assert_eq!([rc.clone(), release.clone()].iter().max(), Some(&release));
     assert_eq!([release.clone(), rc.clone()].iter().max(), Some(&release));
 }
+
+#[test]
+fn finish_branch_names_flatten_slashes() {
+    use bflow::version::finish_branch_name;
+    assert_eq!(finish_branch_name("release/1.2.0", "main"), "finish/release-1.2.0-into-main");
+    assert_eq!(finish_branch_name("release/1.2.0", "develop"), "finish/release-1.2.0-into-develop");
+    assert_eq!(finish_branch_name("hotfix/1.1.1", "main"), "finish/hotfix-1.1.1-into-main");
+    assert_eq!(finish_branch_name("hotfix/1.1.1", "develop"), "finish/hotfix-1.1.1-into-develop");
+    assert_eq!(finish_branch_name("hotfix/1.1.1", "release/1.2.0"), "finish/hotfix-1.1.1-into-release-1.2.0");
+}
