@@ -49,6 +49,21 @@ pub fn load(worktree_root: &Path) -> Result<Option<SetupCommands>, String> {
     Ok(None)
 }
 
+/// The setup commands this run should use, plus a warning to print if the repo's
+/// file could not be used. A file bflow cannot parse is reported and ignored
+/// rather than fatal: setup commands never fail a start, so they must not fail
+/// every other command either — and with the worktree flow off the file is not
+/// read at all, because nothing in the run could act on it.
+pub fn resolve(worktree_root: &Path, worktree_enabled: bool) -> (Option<SetupCommands>, Option<String>) {
+    if !worktree_enabled {
+        return (None, None);
+    }
+    match load(worktree_root) {
+        Ok(commands) => (commands, None),
+        Err(e) => (None, Some(format!("{e}\n  Setup commands skipped."))),
+    }
+}
+
 /// Port: run one setup command inside a freshly created worktree.
 pub trait WorktreeSetup {
     fn run_command(&self, worktree: &Path, main_root: &Path, command: &str) -> Result<(), String>;
@@ -112,6 +127,17 @@ impl Cursor<'_> {
         }
     }
 
+    /// A loop body is only re-entered after a ',', so the closing bracket here is
+    /// a trailing comma. Say that instead of blaming whatever the comma promised:
+    /// `JSON.parse` — what the other tools reading this file use — rejects it too,
+    /// so the fix is to delete the comma, not to write a value after it.
+    fn reject_trailing_comma(&self, closer: u8) -> Result<(), String> {
+        if self.peek() == Some(closer) {
+            return Err(self.error(&format!("trailing comma before '{}'", closer as char)));
+        }
+        Ok(())
+    }
+
     fn object_setup_key(&mut self) -> Result<Vec<String>, String> {
         self.expect(b'{')?;
         let mut commands = Vec::new();
@@ -122,6 +148,7 @@ impl Cursor<'_> {
         }
         loop {
             self.skip_ws();
+            self.reject_trailing_comma(b'}')?;
             let key = self.string()?;
             self.skip_ws();
             self.expect(b':')?;
@@ -156,6 +183,7 @@ impl Cursor<'_> {
         }
         loop {
             self.skip_ws();
+            self.reject_trailing_comma(b']')?;
             if self.peek() != Some(b'"') {
                 return Err(self.error(&format!("{what} must contain only strings")));
             }
@@ -184,6 +212,7 @@ impl Cursor<'_> {
                 }
                 loop {
                     self.skip_ws();
+                    self.reject_trailing_comma(b']')?;
                     self.skip_value()?;
                     self.skip_ws();
                     match self.peek() {
@@ -205,6 +234,7 @@ impl Cursor<'_> {
                 }
                 loop {
                     self.skip_ws();
+                    self.reject_trailing_comma(b'}')?;
                     self.string()?;
                     self.skip_ws();
                     self.expect(b':')?;
@@ -384,6 +414,51 @@ mod tests {
 
         std::fs::write(dir.join(CURSOR_FILE), r#"["cursor"]"#).unwrap();
         assert_eq!(load(&dir).unwrap().unwrap(), SetupCommands { file: dir.join(CURSOR_FILE), commands: vec!["cursor".into()] });
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_names_a_trailing_comma_rather_than_blaming_what_follows_it() {
+        for json in [
+            r#"["a",]"#,
+            r#"{"setup-worktree": ["a",]}"#,
+            r#"{"setup-worktree": ["a"],}"#,
+            r#"{"other": [1,], "setup-worktree": []}"#,
+            r#"{"other": {"a": 1,}, "setup-worktree": []}"#,
+        ] {
+            let err = parse(json).unwrap_err();
+            assert!(err.contains("trailing comma"), "{json} got: {err}");
+        }
+    }
+
+    #[test]
+    fn resolve_ignores_the_file_when_the_worktree_flow_is_off() {
+        let dir = crate::test_support::tmp_dir("bflow-worktree-setup-test");
+        std::fs::write(dir.join(GENERIC_FILE), r#"{"setup-worktree": ["a",]}"#).unwrap();
+        assert_eq!(resolve(&dir, false), (None, None));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_yields_the_commands_when_the_file_parses() {
+        let dir = crate::test_support::tmp_dir("bflow-worktree-setup-test");
+        std::fs::write(dir.join(GENERIC_FILE), r#"{"setup-worktree": ["a"]}"#).unwrap();
+        let (commands, warning) = resolve(&dir, true);
+        assert_eq!(commands.unwrap().commands, vec!["a".to_string()]);
+        assert_eq!(warning, None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_warns_instead_of_failing_when_the_file_is_unparsable() {
+        let dir = crate::test_support::tmp_dir("bflow-worktree-setup-test");
+        std::fs::write(dir.join(GENERIC_FILE), r#"{"setup-worktree": ["a",]}"#).unwrap();
+        let (commands, warning) = resolve(&dir, true);
+        assert_eq!(commands, None);
+        let warning = warning.expect("a broken setup file must warn");
+        assert!(warning.contains("worktrees.json"), "got: {warning}");
+        assert!(warning.contains("trailing comma"), "got: {warning}");
+        assert!(warning.contains("Setup commands skipped"), "got: {warning}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
