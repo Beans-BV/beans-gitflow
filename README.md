@@ -365,7 +365,14 @@ no file means nothing runs. Each entry is a shell command run inside the new
 worktree with `$ROOT_WORKTREE_PATH` pointing at your main checkout; a failing
 command is reported and the rest still run, and the start never fails because
 of a setup command. Nothing is asked — the file is repo content you committed,
-so enabling worktrees is the opt-in.
+so enabling worktrees is the opt-in, and with the flow disabled the file is not
+read at all.
+
+The file must be strict JSON — the same dialect `JSON.parse` accepts, so what
+works here works for the other tools reading it. A file bflow cannot parse is
+reported as a warning naming the file and the byte offset (a trailing comma is
+called out as such), the setup commands are skipped, and the command you ran
+carries on: a typo in `worktrees.json` never blocks bflow.
 
 ```json
 {

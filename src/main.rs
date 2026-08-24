@@ -66,7 +66,10 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     let hosting = create_hosting(&git)?;
     let wt_config = WorktreeConfig::load(&git)?;
     let editor = CommandEditor::new(wt_config.editor.clone());
-    let setup_commands = worktree_setup::load(&root)?;
+    let (setup_commands, setup_warning) = worktree_setup::resolve(&root, wt_config.enabled);
+    if let Some(warning) = setup_warning {
+        eprintln!("Warning: {warning}");
+    }
     let worktree_env = WorktreeEnv {
         config: &wt_config,
         editor: &editor,
