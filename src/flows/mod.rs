@@ -193,7 +193,7 @@ pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) ->
             git.ff_merge(&origin_finish)?;
         }
         git.merge(source, &format!("chore: refresh {finish} with {source}"))
-            .map_err(|e| format!("{e}\n{}", finish_conflict_hint(&finish, source, target)))?;
+            .map_err(|e| format!("{e}\n{}", finish_conflict_hint(&finish, target)))?;
         git.checkout(&prior)?;
     }
     git.push(&finish)?;
@@ -201,10 +201,10 @@ pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) ->
 }
 
 /// How to resolve a conflicted landing without ever touching the source branch.
-pub(crate) fn finish_conflict_hint(finish: &str, source: &str, target: &str) -> String {
+pub(crate) fn finish_conflict_hint(finish: &str, target: &str) -> String {
     format!(
-        "Conflicts? Merge {target} into {finish} (never rebase it) — {source} is never touched:\n  \
-         git switch {finish} && git merge origin/{target}\n  \
+        "Conflicts? Merge `{target}` into `{finish}` (never rebase it):\n  \
+         `git switch {finish} && git merge origin/{target}`\n  \
          then resolve, commit, push, merge the PR, and re-run."
     )
 }
@@ -304,11 +304,24 @@ pub(crate) fn report_commits_past_landing(git: &dyn Git, source: &str, pr: &Land
     Ok(())
 }
 
+/// The full "stopping for a human" block a pending landing prints: PR title,
+/// URL, what happens next, and the conflict recipe — blank-line separated.
+/// `bold` styles only the title; resolved at the print site so this stays pure.
+pub(crate) fn pending_landing_message(title: &str, url: &str, rerun: &str, hint: &str, bold: bool) -> String {
+    let title = if bold { format!("\x1b[1m{title}\x1b[0m") } else { title.to_string() };
+    format!(
+        "\n{title}\n{url}\n\n\
+         Waiting for a human to merge this PR.\n\
+         Re-run '{rerun}' to continue after the merge.\n\n\
+         {hint}"
+    )
+}
+
 /// Announce a landing step that opened (or reused) a PR and is stopping for a
 /// human to merge it.
-pub(crate) fn announce_pending_landing(url: &str) {
-    println!("PR: {url}");
-    println!("Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.");
+pub(crate) fn announce_pending_landing(title: &str, url: &str, rerun: &str, hint: &str) {
+    use std::io::IsTerminal;
+    println!("{}", pending_landing_message(title, url, rerun, hint, std::io::stdout().is_terminal()));
 }
 
 /// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and
@@ -467,6 +480,45 @@ pub(crate) fn resume_hint(source_branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finish_conflict_hint_is_a_compact_recipe() {
+        let hint = finish_conflict_hint("finish/hotfix-2.11.6-into-main", "main");
+        assert_eq!(
+            hint,
+            "Conflicts? Merge `main` into `finish/hotfix-2.11.6-into-main` (never rebase it):\n  \
+             `git switch finish/hotfix-2.11.6-into-main && git merge origin/main`\n  \
+             then resolve, commit, push, merge the PR, and re-run."
+        );
+    }
+
+    #[test]
+    fn pending_landing_message_separates_title_url_wait_and_hint() {
+        let msg = pending_landing_message(
+            "chore: merge hotfix 2.11.6 into main",
+            "https://example.com/pull/473",
+            "bflow finish",
+            "Conflicts? ...",
+            false,
+        );
+        assert_eq!(
+            msg,
+            "\nchore: merge hotfix 2.11.6 into main\n\
+             https://example.com/pull/473\n\
+             \n\
+             Waiting for a human to merge this PR.\n\
+             Re-run 'bflow finish' to continue after the merge.\n\
+             \n\
+             Conflicts? ..."
+        );
+    }
+
+    #[test]
+    fn pending_landing_message_bolds_only_the_title_on_a_terminal() {
+        let msg = pending_landing_message("title", "url", "bflow sync", "hint", true);
+        assert!(msg.starts_with("\n\x1b[1mtitle\x1b[0m\nurl\n"), "got: {msg:?}");
+        assert_eq!(msg.matches('\x1b').count(), 2, "only the title is styled; got: {msg:?}");
+    }
 
     #[test]
     fn resume_hint_commits_before_switching_back() {

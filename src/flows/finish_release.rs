@@ -260,9 +260,7 @@ fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, rel
             Ok(())
         }
         LegState::Pending { url, finish } => {
-            println!("PR: {url}");
-            println!("Waiting for a human to merge this PR. Re-run 'bflow sync' after the merge.");
-            println!("{}", finish_conflict_hint(&finish, release_branch, "develop"));
+            announce_pending_landing(&title, &url, "bflow sync", &finish_conflict_hint(&finish, "develop"));
             Ok(())
         }
     }
@@ -406,8 +404,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                         let title = format!("chore: merge release {release} into {main_branch}");
                         let finish = ensure_finish_branch(git, &release_branch, main_branch)?;
                         let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
-                        announce_pending_landing(&url);
-                        println!("{}", finish_conflict_hint(&finish, &release_branch, main_branch));
+                        announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                         return Ok(());
                     }
                 }
@@ -435,8 +432,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                 let title = format!("chore: merge release {release} into {main_branch}");
                 let finish = ensure_finish_branch(git, &release_branch, main_branch)?;
                 let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
-                announce_pending_landing(&url);
-                println!("{}", finish_conflict_hint(&finish, &release_branch, main_branch));
+                announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                 return Ok(());
             }
         },
@@ -448,8 +444,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
-            announce_pending_landing(&url);
-            println!("{}", finish_conflict_hint(&finish, &release_branch, "develop"));
+            announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
             return Ok(());
         }
     }
