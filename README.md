@@ -587,15 +587,31 @@ A `bflow finish` loop on a release branch looks like this:
 
 ```
 $ bflow finish
-PR: https://github.com/org/repo/pull/42
-Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.
+
+chore: merge release 2.6.0 into main
+https://github.com/org/repo/pull/42
+
+Waiting for a human to merge this PR.
+Re-run 'bflow finish' to continue after the merge.
+
+Conflicts? Merge `main` into `finish/release-2.6.0-into-main` (never rebase it):
+  `git switch finish/release-2.6.0-into-main && git merge origin/main`
+  then resolve, commit, push, merge the PR, and re-run.
 
   ... a human merges pull/42 on GitHub ...
 
 $ bflow finish
 Tagging: v2.6.0
-PR: https://github.com/org/repo/pull/43
-Waiting for a human to merge this PR. Re-run 'bflow finish' to continue after the merge.
+
+chore: merge release 2.6.0 into develop
+https://github.com/org/repo/pull/43
+
+Waiting for a human to merge this PR.
+Re-run 'bflow finish' to continue after the merge.
+
+Conflicts? Merge `develop` into `finish/release-2.6.0-into-develop` (never rebase it):
+  `git switch finish/release-2.6.0-into-develop && git merge origin/develop`
+  then resolve, commit, push, merge the PR, and re-run.
 
   ... a human merges pull/43 ...
 
