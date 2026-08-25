@@ -459,6 +459,8 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
         finish_branch_name(&release_branch, "develop"),
     ];
     let tip_landed = content_landed || tip_landed_somewhere(git, &release_branch, &landed, &finish_names)?;
-    finish_release_cleanup(git, cfg, &release_branch, main_branch, &shipped_version, tip_landed)?;
-    cleanup_finish_branches(git, &release_branch)
+    // Finish branches go first: source cleanup may remove the worktree the
+    // process stands in, after which no git call can run.
+    cleanup_finish_branches(git, &release_branch)?;
+    finish_release_cleanup(git, cfg, &release_branch, main_branch, &shipped_version, tip_landed)
 }

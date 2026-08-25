@@ -672,6 +672,7 @@ fn protected_hotfix_completes_after_all_landed() {
         "is_ancestor:mc3:origin/release/1.2.0",
         "branch_sha:hotfix/1.1.1",
         "branch_sha:hotfix/1.1.1",
+        "list_branches_matching:finish/hotfix-1.1.1-into-*",
         "current_branch",
         "is_linked_worktree",
         "worktree_of:main",
@@ -680,7 +681,6 @@ fn protected_hotfix_completes_after_all_landed() {
         "delete_branch_local:hotfix/1.1.1",
         "remote_branch_exists:hotfix/1.1.1",
         "delete_branch_remote:hotfix/1.1.1",
-        "list_branches_matching:finish/hotfix-1.1.1-into-*",
     ]);
     assert_eq!(hosting.calls(), vec![
         "open_pr_to:hotfix/1.1.1:main",
@@ -968,9 +968,11 @@ fn protected_hotfix_completes_after_conflict_resolutions_and_cleans_every_finish
         assert!(calls.contains(&format!("local_branch_exists:{finish}")),
             "every finish branch (orphans included) is cleaned; calls: {calls:?}");
     }
-    let source_delete = calls.iter().position(|c| c == "delete_branch_local:hotfix/1.1.1").unwrap();
+    let guard_read = calls.iter().position(|c| c == "is_ancestor:hotfix/1.1.1:origin/finish/hotfix-1.1.1-into-main").unwrap();
     let finish_delete = calls.iter().position(|c| c == "local_branch_exists:finish/hotfix-1.1.1-into-develop").unwrap();
-    assert!(source_delete < finish_delete, "guard + source cleanup run before finish branches vanish; calls: {calls:?}");
+    let source_delete = calls.iter().position(|c| c == "delete_branch_local:hotfix/1.1.1").unwrap();
+    assert!(guard_read < finish_delete, "the tip-landed guard reads finish refs before they vanish; calls: {calls:?}");
+    assert!(finish_delete < source_delete, "finish branches go before source cleanup, whose worktree removal must be the flow's last git call; calls: {calls:?}");
 }
 
 #[test]
@@ -1004,6 +1006,40 @@ fn protected_hotfix_falls_back_to_local_finish_refs_when_origin_pruned_them() {
     assert!(calls.contains(&"is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-develop".to_string()),
         "the local ref must prove containment when origin is pruned; calls: {calls:?}");
     assert!(calls.contains(&"delete_branch_local:hotfix/1.1.1".to_string()), "calls: {calls:?}");
+}
+
+#[test]
+fn protected_hotfix_in_its_own_worktree_removes_the_worktree_last() {
+    // The process stands in the hotfix's linked worktree: removing it destroys
+    // the process cwd, so every other git call — finish-branch cleanup
+    // included — must have happened before.
+    let mut git = MockGit::new();
+    git.current_branch = "hotfix/1.1.1".to_string();
+    git.linked_worktree = true;
+    git.branch_shas.insert("hotfix/1.1.1".to_string(), "hfsha".to_string());
+    git.existing_tags.insert("v1.1.1".to_string());
+    git.tag_commits.insert("v1.1.1".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.1".to_string());
+    git.existing_local_branches.insert("hotfix/1.1.1".to_string());
+    git.existing_remote_branches.insert("hotfix/1.1.1".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.branches_matching_by.insert("release/*".to_string(), vec![]);
+    git.branches_matching_by.insert("finish/hotfix-1.1.1-into-*".to_string(), vec![
+        "finish/hotfix-1.1.1-into-develop".to_string(),
+        "finish/hotfix-1.1.1-into-main".to_string(),
+    ]);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"list_branches_matching:finish/hotfix-1.1.1-into-*".to_string()),
+        "finish branches are still cleaned; calls: {calls:?}");
+    assert_eq!(calls.last().map(String::as_str), Some("remove_current_worktree"),
+        "no git call may follow worktree removal — the process cwd is gone; calls: {calls:?}");
 }
 
 #[test]

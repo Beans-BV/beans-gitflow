@@ -756,6 +756,7 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "branch_sha:release/1.1.0",
+        "list_branches_matching:finish/release-1.1.0-into-*",
         "current_branch",
         "is_linked_worktree",
         "worktree_of:main",
@@ -764,7 +765,6 @@ fn protected_patch_finish_completes_after_both_legs_without_tagging() {
         "delete_branch_local:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
-        "list_branches_matching:finish/release-1.1.0-into-*",
     ]);
     let calls = git.calls();
     // The final tag was cut at bump — finish never creates one, but it does
@@ -1062,6 +1062,7 @@ fn protected_finish_completes_after_develop_merge() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "branch_sha:release/1.1.0",
+        "list_branches_matching:finish/release-1.1.0-into-*",
         "current_branch",
         "is_linked_worktree",
         "worktree_of:main",
@@ -1070,8 +1071,40 @@ fn protected_finish_completes_after_develop_merge() {
         "delete_branch_local:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
-        "list_branches_matching:finish/release-1.1.0-into-*",
     ]);
+}
+
+#[test]
+fn protected_release_in_its_own_worktree_removes_the_worktree_last() {
+    // The process stands in the release's linked worktree: removing it destroys
+    // the process cwd, so every other git call — finish-branch cleanup
+    // included — must have happened before.
+    let mut git = MockGit::new();
+    git.current_branch = "release/1.1.0".to_string();
+    git.linked_worktree = true;
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mc1".to_string());
+    git.existing_remote_tags.insert("v1.1.0".to_string());
+    git.existing_local_branches.insert("release/1.1.0".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.ancestors.insert(("mc1".to_string(), "origin/main".to_string()));
+    git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
+    git.branches_matching_by.insert("finish/release-1.1.0-into-*".to_string(), vec![
+        "finish/release-1.1.0-into-develop".to_string(),
+        "finish/release-1.1.0-into-main".to_string(),
+    ]);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "main".to_string()), landed("relsha", "mc1"));
+    hosting.merged_prs_to.insert(("release/1.1.0".to_string(), "develop".to_string()), landed("relsha", "mc2"));
+
+    finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"list_branches_matching:finish/release-1.1.0-into-*".to_string()),
+        "finish branches are still cleaned; calls: {calls:?}");
+    assert_eq!(calls.last().map(String::as_str), Some("remove_current_worktree"),
+        "no git call may follow worktree removal — the process cwd is gone; calls: {calls:?}");
 }
 
 #[test]
@@ -1217,12 +1250,12 @@ fn protected_finish_cleans_up_when_the_branch_moved_after_the_tag_landed() {
         "is_ancestor:mc2:origin/develop",
         "branch_sha:release/1.1.0",
         "branch_sha:release/1.1.0",
+        "list_branches_matching:finish/release-1.1.0-into-*",
         "current_branch",
         "local_branch_exists:release/1.1.0",
         "delete_branch_local:release/1.1.0",
         "remote_branch_exists:release/1.1.0",
         "delete_branch_remote:release/1.1.0",
-        "list_branches_matching:finish/release-1.1.0-into-*",
     ]);
     assert_eq!(hosting.calls(), vec![
         "open_pr_to:release/1.1.0:main",

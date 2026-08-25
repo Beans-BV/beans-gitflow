@@ -175,6 +175,8 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
     ];
     finish_names.extend(release_branches.iter().map(|r| finish_branch_name(&hotfix_branch, r)));
     let tip_landed = content_landed || tip_landed_somewhere(git, &hotfix_branch, &landed, &finish_names)?;
-    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)?;
-    cleanup_finish_branches(git, &hotfix_branch)
+    // Finish branches go first: source cleanup may remove the worktree the
+    // process stands in, after which no git call can run.
+    cleanup_finish_branches(git, &hotfix_branch)?;
+    finish_hotfix_cleanup(git, cfg, &hotfix_branch, main_branch, &version, &release_branches, tip_landed)
 }
