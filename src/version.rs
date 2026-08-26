@@ -71,8 +71,11 @@ impl SemVer {
     pub fn is_pre_release(&self) -> bool { self.pre.is_some() }
     pub fn is_rc(&self) -> bool { self.pre.as_ref().is_some_and(|p| p.label == "rc") }
     pub fn tag_name(&self) -> String { format!("v{self}") }
-    pub fn release_branch(&self) -> String { format!("release/{}.{}.{}", self.major, self.minor, self.patch) }
+    pub fn release_branch(&self) -> String { format!("release/{}", self.to_release()) }
     pub fn hotfix_branch(&self) -> String { format!("hotfix/{}", self.to_release()) }
+    pub fn release_fix_branch(&self, name: &str) -> String { format!("release-fix/{}/{name}", self.to_release()) }
+    pub fn hotfix_fix_branch(&self, name: &str) -> String { format!("hotfix-fix/{}/{name}", self.to_release()) }
+    pub fn release_chore_branch(&self, name: &str) -> String { format!("release-chore/{}/{name}", self.to_release()) }
 }
 
 impl Ord for SemVer {
@@ -101,4 +104,12 @@ impl fmt::Display for SemVer {
         }
         Ok(())
     }
+}
+
+/// Head branch for one protected landing leg: `finish/<source>-into-<target>`
+/// with slashes flattened. Cut from the source, merged into exactly one
+/// target, deleted after landing — conflict resolution happens here so the
+/// release/hotfix branch itself is never touched.
+pub fn finish_branch_name(source: &str, target: &str) -> String {
+    format!("finish/{}-into-{}", source.replace('/', "-"), target.replace('/', "-"))
 }

@@ -221,6 +221,33 @@ mod tests {
     }
 
     #[test]
+    fn override_devops_with_a_parsable_ado_remote_is_accepted() {
+        // The asymmetry that makes the error above safe: an explicit devops
+        // override is honored (not silently downgraded to GitHub) whenever the
+        // coordinates az needs are actually present.
+        assert_eq!(
+            resolve(Some("https://dev.azure.com/beans/Shop/_git/backend"), Some("devops")),
+            Ok(ado("beans", "Shop", "backend")),
+        );
+        // Config values are trimmed before matching — `git config` round-trips
+        // stray whitespace and an untrimmed value would fall through to GitHub.
+        assert_eq!(
+            resolve(Some("git@ssh.dev.azure.com:v3/beans/Shop/backend"), Some("  devops  ")),
+            Ok(ado("beans", "Shop", "backend")),
+        );
+    }
+
+    #[test]
+    fn ado_urls_missing_coordinates_yield_none() {
+        // Each ADO URL shape needs its full segment list; a partial one must not
+        // produce Provider::AzureDevOps with empty org/project/repo.
+        assert_eq!(parse_remote("git@ssh.dev.azure.com:v3/beans/Shop"), None, "ssh v3 without repo");
+        assert_eq!(parse_remote("git@ssh.dev.azure.com:v4/beans/Shop/backend"), None, "wrong ssh version segment");
+        assert_eq!(parse_remote("https://beans.visualstudio.com/Shop"), None, "legacy without _git/repo");
+        assert_eq!(parse_remote("https://beans.visualstudio.com/Shop/_git"), None, "legacy without repo");
+    }
+
+    #[test]
     fn override_invalid_value_errors() {
         let err = resolve(Some("https://github.com/acme/repo"), Some("gitlab")).unwrap_err();
         assert!(err.contains("Valid values: github, devops"), "{err}");

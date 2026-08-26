@@ -7,44 +7,53 @@
 
 use crate::action::Action;
 use crate::cli::{resolve_action, Commands};
-use crate::editor::Editor;
 use crate::flows::{finish_hotfix, finish_release, finish_work, start};
 use crate::git::branch::BranchType;
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
+use crate::mainline::resolve_main_branch;
 use crate::menu;
 use crate::prompt::Prompter;
+use crate::repo_config::{Mode, RepoConfig};
 use crate::state::{current_timestamp, FinishKind, FinishState};
-use crate::worktree::{WorktreeConfig, WorktreeContext};
+use crate::version_script::VersionScript;
+use crate::worktree::{WorktreeContext, WorktreeEnv};
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     git: &dyn Git,
     hosting: &dyn HostingPlatform,
     prompter: &dyn Prompter,
-    editor: &dyn Editor,
-    wt_config: &WorktreeConfig,
+    worktree_env: &WorktreeEnv<'_>,
+    repo_cfg: &RepoConfig,
+    script: Option<&dyn VersionScript>,
     command: Option<Commands>,
 ) -> Result<(), String> {
     let branch_name = git.current_branch()?;
     let git_dir = git.git_dir()?;
+    let wt_config = worktree_env.config;
 
     // One-time upgrade of any pre-2.4 global state file into the per-branch folder.
     FinishState::migrate_legacy(&git_dir)?;
 
     let branch_type = BranchType::parse(&branch_name);
 
+    let main_branch = resolve_main_branch(git)?;
+
+    let identity = finish_identity(&branch_type);
+
     // Resume context: an in-progress finish only resumes when you are standing on
     // the source branch that started it. From develop/main/feature branches there
     // is no resume — bflow behaves normally — so a stalled finish never hijacks
     // other work. To continue after a conflict you switch back to the source
     // branch and re-run 'bflow finish'.
-    let resume_state = match finish_identity(&branch_type) {
+    let resume_state = match identity {
         Some((kind, major, minor, patch)) => FinishState::load(&git_dir, kind, major, minor, patch)?,
         None => None,
     };
 
     // Resolve the action up-front so we can decide whether to fetch / stash / etc.
-    let action = resolve_action_with_state(command, &branch_type, &branch_name, resume_state.as_ref(), wt_config.enabled)?;
+    let action = resolve_action_with_state(command, prompter, &branch_type, &branch_name, resume_state.as_ref(), wt_config.enabled, &main_branch)?;
 
     // --abort short-circuits before any state-changing operation, even if the repo
     // is mid-merge — abort is itself a recovery action.
@@ -60,13 +69,24 @@ pub fn run(
     println!("Fetching latest...");
     git.fetch()?;
 
-    // Optional worktree flow: when enabled (and not opted out) for an eligible start,
-    // treat it like --no-checkout so the current working tree is left untouched and the
-    // new branch is free to be checked out in its own worktree.
-    let worktree_active = wt_config.enabled && !action.no_worktree() && action.worktree_eligible();
+    // Optional worktree flow: when enabled (and not opted out) for a start, treat
+    // it like --no-checkout so the current working tree is left untouched and the
+    // new branch is free to be checked out in its own worktree. A release is the
+    // exception: it is created in the current tree (the version script needs the
+    // branch checked out) and only then handed to a worktree, so it keeps the
+    // normal stash protection instead of the no-checkout shortcut.
+    let worktree_active = wt_config.enabled && !action.no_worktree() && action.is_start();
 
-    let no_checkout = action.no_checkout() || worktree_active;
-    let is_finish_with_state = matches!(action, Action::FinishRelease | Action::FinishHotfix);
+    let no_checkout = action.no_checkout()
+        || (worktree_active && !matches!(action, Action::StartRelease { .. }));
+    // Protected finishes never merge locally — there is nothing to resume — so
+    // only free-mode finishes get a FinishState. Stale-state edge: a state file
+    // left over from before a free→protected mode switch still resumes here
+    // (resolve_action_with_state is mode-unaware), so the protected flow runs,
+    // ignores the state's stash/progress, and a successful run (including a
+    // "Pending" landing) clears the now-meaningless file below.
+    let is_finish_with_state = matches!(action, Action::FinishRelease | Action::FinishHotfix)
+        && repo_cfg.mode == Mode::Free;
     let needs_stash = !no_checkout && branch_type != BranchType::Other && !git.is_working_tree_clean()?;
 
     // Reject dirty-tree finishes BEFORE any side effects (stash, state write).
@@ -77,7 +97,7 @@ pub fn run(
 
     // Stash if needed. On resume, inherit the prior stash ref from state.
     let stash_msg = if resume_state.is_some() {
-        resume_state.as_ref().and_then(|s| s.stash_ref.clone())
+        resume_state.as_ref().and_then(|s| s.stash_message.clone())
     } else if needs_stash {
         println!("Stashing uncommitted changes...");
         let msg = format!("bflow-finish:{branch_name}:{}", current_timestamp());
@@ -89,15 +109,24 @@ pub fn run(
 
     // Write state file BEFORE the first side effect of a release/hotfix finish.
     if is_finish_with_state && resume_state.is_none() {
-        write_state_for_action(&action, &branch_type, &git_dir, stash_msg.clone())?;
+        let Some((kind, major, minor, patch)) = identity else {
+            unreachable!("FinishRelease/FinishHotfix are only ever dispatched from their own release/hotfix branch, which always yields a finish identity");
+        };
+        FinishState {
+            kind, major, minor, patch,
+            started_at: current_timestamp(),
+            stash_message: stash_msg.clone(),
+        }.save(&git_dir)?;
     }
 
-    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree_active, wt_config, editor, resume_state.as_ref());
+    let worktree = if worktree_active { Some(WorktreeContext { env: worktree_env, prompter }) } else { None };
+
+    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch, repo_cfg, script);
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
     if result.is_ok() && (is_finish_with_state || resume_state.is_some()) {
-        if let Some((kind, major, minor, patch)) = finish_identity(&branch_type) {
+        if let Some((kind, major, minor, patch)) = identity {
             FinishState::clear(&git_dir, kind, major, minor, patch)?;
         }
     }
@@ -136,10 +165,12 @@ pub fn run(
 /// otherwise reject the resume with "Nothing to finish on this branch."
 pub fn resolve_action_with_state(
     command: Option<Commands>,
+    prompter: &dyn Prompter,
     branch_type: &BranchType,
     branch_name: &str,
     resume_state: Option<&FinishState>,
     worktree_enabled: bool,
+    main_branch: &str,
 ) -> Result<Action, String> {
     // `--abort` wins unconditionally and never errors based on branch type.
     if let Some(Commands::Finish { abort: true, .. }) = &command {
@@ -174,8 +205,8 @@ pub fn resolve_action_with_state(
 
     // No resume state (or a non-finish command): fall through to normal dispatch.
     match command {
-        None => menu::show_menu(branch_type, branch_name),
-        Some(cmd) => resolve_action(cmd, branch_type, worktree_enabled),
+        None => menu::show_menu(prompter, branch_type, branch_name, main_branch),
+        Some(cmd) => resolve_action(cmd, branch_type, worktree_enabled, main_branch),
     }
 }
 
@@ -194,29 +225,6 @@ fn finish_identity(branch_type: &BranchType) -> Option<(FinishKind, u32, u32, u3
     }
 }
 
-fn write_state_for_action(
-    action: &Action,
-    branch_type: &BranchType,
-    git_dir: &std::path::Path,
-    stash_ref: Option<String>,
-) -> Result<(), String> {
-    // The action decides *whether* state is written; the branch supplies the
-    // identity via the same finish_identity mapping the resume lookup uses,
-    // so the two can never encode the branch→identity rule differently.
-    let expected_kind = match action {
-        Action::FinishRelease => FinishKind::Release,
-        Action::FinishHotfix => FinishKind::Hotfix,
-        _ => return Ok(()),
-    };
-    let Some((kind, major, minor, patch)) = finish_identity(branch_type) else {
-        return Ok(());
-    };
-    if kind != expected_kind {
-        return Ok(());
-    }
-    FinishState { kind, major, minor, patch, started_at: current_timestamp(), stash_ref }.save(git_dir)
-}
-
 fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result<(), String> {
     match state {
         None => {
@@ -227,7 +235,7 @@ fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result
             println!("Aborting in-progress {} finish for {} (started_at={}).",
                 s.kind.as_str(), s.source_branch(), s.started_at);
             FinishState::clear(git_dir, s.kind, s.major, s.minor, s.patch)?;
-            if let Some(msg) = &s.stash_ref {
+            if let Some(msg) = &s.stash_message {
                 println!("Your original uncommitted changes are still stashed as '{msg}'.");
                 println!("Run 'git stash list' to find it, then 'git stash pop <ref>' to restore.");
             }
@@ -258,10 +266,11 @@ fn run_flow(
     branch_name: &str,
     action: &Action,
     skip_current_branch_sync: bool,
-    worktree_active: bool,
-    wt_config: &WorktreeConfig,
-    editor: &dyn Editor,
+    worktree: Option<WorktreeContext<'_>>,
     resume_state: Option<&FinishState>,
+    main_branch: &str,
+    repo_cfg: &RepoConfig,
+    script: Option<&dyn VersionScript>,
 ) -> Result<(), String> {
     // Fast-forward the current branch to origin when the flow will operate on
     // this checkout and we're not resuming (on resume the user may be on
@@ -277,19 +286,16 @@ fn run_flow(
 
     match action {
         Action::StartWorkBranch { prefix, name, from, no_checkout, .. } => {
-            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
-            start::start_work_branch(git, prefix, name, from, *no_checkout, wt)?;
+            start::start_work_branch(git, prefix, name, from, *no_checkout, worktree)?;
         }
-        Action::StartRelease(release_type) => {
-            start::start_release(git, prompter, *release_type)?;
+        Action::StartRelease { release_type, .. } => {
+            start::start_release(git, prompter, hosting, script, repo_cfg, *release_type, main_branch, worktree)?;
         }
         Action::StartReleaseFix { name, no_checkout, .. } => {
-            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
-            start::start_release_fix(git, name, *no_checkout, wt)?;
+            start::start_release_fix(git, hosting, repo_cfg, main_branch, name, *no_checkout, worktree)?;
         }
         Action::StartHotfixFix { name, no_checkout, .. } => {
-            let wt = if worktree_active { Some(WorktreeContext { config: wt_config, editor }) } else { None };
-            start::start_hotfix_fix(git, name, *no_checkout, wt)?;
+            start::start_hotfix_fix(git, hosting, repo_cfg, name, *no_checkout, worktree, main_branch, script)?;
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;
@@ -303,17 +309,22 @@ fn run_flow(
             let template = resolve_pr_template(git, branch_type)?;
             finish_work::finish_hotfix_fix(git, hosting, branch_type, template.as_deref())?;
         }
+        Action::FinishReleaseChore => {
+            let template = resolve_pr_template(git, branch_type)?;
+            finish_work::finish_release_chore(git, hosting, branch_type, template.as_deref())?;
+        }
         Action::BumpVersion => {
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("BumpVersion action only from Release branch");
             };
-            finish_release::bump_version(git, *major, *minor)?;
+            finish_release::bump_version(git, hosting, script, repo_cfg, *major, *minor)?;
         }
         Action::SyncWithDevelop => {
             let BranchType::Release { major, minor, .. } = branch_type else {
                 unreachable!("SyncWithDevelop action only from Release branch");
             };
-            finish_release::sync_with_develop(git, *major, *minor)?;
+            let template = resolve_landing_template(git, repo_cfg, "release")?;
+            finish_release::sync_with_develop(git, hosting, repo_cfg, *major, *minor, template.as_deref())?;
         }
         Action::FinishRelease => {
             // On resume, prefer the state's version (we may not be on the release branch).
@@ -325,7 +336,8 @@ fn run_flow(
                 };
                 (*major, *minor)
             };
-            finish_release::finish_release(git, major, minor)?;
+            let template = resolve_landing_template(git, repo_cfg, "release")?;
+            finish_release::finish_release(git, hosting, repo_cfg, major, minor, main_branch, template.as_deref())?;
         }
         Action::FinishHotfix => {
             let (major, minor, patch) = if let Some(s) = resume_state {
@@ -336,7 +348,8 @@ fn run_flow(
                 };
                 (*major, *minor, *patch)
             };
-            finish_hotfix::finish_hotfix(git, major, minor, patch)?;
+            let template = resolve_landing_template(git, repo_cfg, "hotfix")?;
+            finish_hotfix::finish_hotfix(git, hosting, repo_cfg, major, minor, patch, main_branch, template.as_deref())?;
         }
         Action::AbortFinish => {
             unreachable!("AbortFinish is handled before run_flow");
@@ -346,9 +359,23 @@ fn run_flow(
     Ok(())
 }
 
-/// Resolve the PR template at the composition boundary, anchored to the repo
-/// root — resolution keeps working from subdirectories, and flows never probe
-/// the filesystem themselves (they receive the resolved path as a parameter).
+/// Resolve the PR template at the composition boundary, anchored to the
+/// current worktree's root — resolution keeps working from subdirectories,
+/// and flows never probe the filesystem themselves (they receive the
+/// resolved path as a parameter). Anchored to `worktree_root`, not
+/// `repo_root`: a linked worktree can have a different branch (and therefore
+/// different templates) checked out than the main tree.
 fn resolve_pr_template(git: &dyn Git, branch_type: &BranchType) -> Result<Option<std::path::PathBuf>, String> {
-    Ok(crate::hosting::template::resolve(&git.repo_root()?, branch_type))
+    Ok(crate::hosting::template::resolve(&git.worktree_root()?, branch_type))
+}
+
+/// Landing PR template for a release/hotfix finish or sync, resolved only in
+/// protected mode — free mode never opens a landing PR, so it must not call
+/// `git.worktree_root()` (free-mode lifecycle sequences are pinned
+/// byte-for-byte).
+fn resolve_landing_template(git: &dyn Git, repo_cfg: &RepoConfig, key: &str) -> Result<Option<std::path::PathBuf>, String> {
+    if repo_cfg.mode == Mode::Protected {
+        return Ok(crate::hosting::template::resolve_keys(&git.worktree_root()?, key, key));
+    }
+    Ok(None)
 }

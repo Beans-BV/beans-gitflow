@@ -1,14 +1,15 @@
-use super::{resolve_body_file, run_cli, HostingPlatform, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, HostingPlatform, LandedPr, MergedPr, Result};
 
-pub struct AzureDevOps {
+pub struct AzureDevOps<'a> {
     org: String,
     project: String,
     repo: String,
+    runner: &'a dyn CliRunner,
 }
 
-impl AzureDevOps {
-    pub fn new(org: String, project: String, repo: String) -> Self {
-        Self { org, project, repo }
+impl<'a> AzureDevOps<'a> {
+    pub fn new(org: String, project: String, repo: String, runner: &'a dyn CliRunner) -> Self {
+        Self { org, project, repo, runner }
     }
 
     fn org_url(&self) -> String {
@@ -29,7 +30,8 @@ impl AzureDevOps {
     }
 
     fn run_az(&self, args: &[String]) -> Result<String> {
-        run_cli("az", args)
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.runner.run("az", &args)
     }
 
     fn repo_args(&self) -> Vec<String> {
@@ -66,6 +68,35 @@ impl AzureDevOps {
             base,
         }))
     }
+
+    /// Parse the `status<TAB>headSha<TAB>mergeCommitSha<TAB>id` tsv row of the
+    /// base-filtered merged-PR query. Same empty/status/id rules as
+    /// `parse_merged_pr_row`, plus the merge commit SHA gets the same
+    /// null-guard as the head SHA.
+    fn parse_landed_pr_row(&self, row: &str) -> Result<Option<LandedPr>> {
+        let row = row.trim();
+        if row.is_empty() {
+            return Ok(None);
+        }
+        let fields: Vec<&str> = row.split('\t').collect();
+        let [status, head_sha, merge_commit_sha, id] = fields.as_slice() else {
+            return Err(format!("Unexpected merged-PR data from az: '{row}'"));
+        };
+        if *status != "completed" {
+            return Ok(None);
+        }
+        if head_sha.is_empty() || *head_sha == "None" {
+            return Err(format!("Unexpected merge source commit from az: '{row}'"));
+        }
+        if merge_commit_sha.is_empty() || *merge_commit_sha == "None" {
+            return Err(format!("Unexpected merge commit from az: '{row}'"));
+        }
+        Ok(Some(LandedPr {
+            url: self.pr_url(validate_pr_id(id)?),
+            head_sha: head_sha.to_string(),
+            merge_commit_sha: merge_commit_sha.to_string(),
+        }))
+    }
 }
 
 /// URL-encode a path segment. Spaces (decoded during remote-URL detection) are
@@ -92,7 +123,7 @@ fn description_args(body: &str) -> Vec<String> {
     args
 }
 
-impl HostingPlatform for AzureDevOps {
+impl HostingPlatform for AzureDevOps<'_> {
     fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
         // Return the existing active PR for this head/base if there is one.
         let mut list_args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
@@ -155,6 +186,40 @@ impl HostingPlatform for AzureDevOps {
         self.parse_merged_pr_row(&row)
     }
 
+    fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>> {
+        // --target-branch narrows to exactly this landing; az still lists
+        // newest first, so [0] is the newest such PR. `completed`, not `all`:
+        // this answers "has this leg landed", which a newer active or abandoned
+        // PR must not erase — unlike `merged_pr`, where a newer PR does mean
+        // the work branch is still in play.
+        let mut args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
+        args.extend(self.repo_args());
+        args.extend([
+            "--source-branch".into(), head.into(),
+            "--target-branch".into(), base.into(),
+            "--status".into(), "completed".into(),
+            "--query".into(), "[0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, pullRequestId]".into(),
+            "-o".into(), "tsv".into(),
+        ]);
+        let row = self.run_az(&args)?;
+        self.parse_landed_pr_row(&row)
+    }
+
+    fn open_pr_to(&self, head: &str, base: &str) -> Result<Option<String>> {
+        let mut args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
+        args.extend(self.repo_args());
+        args.extend([
+            "--source-branch".into(), head.into(),
+            "--target-branch".into(), base.into(),
+            "--status".into(), "active".into(),
+            "--query".into(), "[0].pullRequestId".into(),
+            "-o".into(), "tsv".into(),
+        ]);
+        let id = self.run_az(&args)?;
+        let id = id.trim();
+        Ok(if id.is_empty() { None } else { Some(self.pr_url(validate_pr_id(id)?)) })
+    }
+
     fn check_auth(&self) -> Result<()> {
         // Explicit extension check first: it also prevents az's interactive
         // dynamic-install prompt from firing inside a non-tty command later.
@@ -173,17 +238,22 @@ impl HostingPlatform for AzureDevOps {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hosting::SystemCli;
+
+    // These exercise the pure helpers (URL synthesis, tsv parsing); the runner is
+    // never invoked. Provider policy that *does* run the CLI lives in
+    // tests/hosting_test.rs against a scripted runner.
 
     #[test]
     fn pr_url_is_canonical_dev_azure_form() {
         // Legacy visualstudio.com orgs get the canonical URL too — it redirects.
-        let ado = AzureDevOps::new("wilko".into(), "Shuttel".into(), "Shuttel".into());
+        let ado = AzureDevOps::new("wilko".into(), "Shuttel".into(), "Shuttel".into(), &SystemCli);
         assert_eq!(ado.pr_url("2662"), "https://dev.azure.com/wilko/Shuttel/_git/Shuttel/pullrequest/2662");
     }
 
     #[test]
     fn pr_url_encodes_spaces_in_project_and_repo() {
-        let ado = AzureDevOps::new("beans".into(), "My Shop".into(), "the repo".into());
+        let ado = AzureDevOps::new("beans".into(), "My Shop".into(), "the repo".into(), &SystemCli);
         assert_eq!(ado.pr_url("7"), "https://dev.azure.com/beans/My%20Shop/_git/the%20repo/pullrequest/7");
     }
 
@@ -209,8 +279,8 @@ mod tests {
         assert_eq!(description_args(""), vec!["--description", ""]);
     }
 
-    fn ado() -> AzureDevOps {
-        AzureDevOps::new("beans".into(), "Shop".into(), "shop".into())
+    fn ado() -> AzureDevOps<'static> {
+        AzureDevOps::new("beans".into(), "Shop".into(), "shop".into(), &SystemCli)
     }
 
     #[test]
@@ -237,5 +307,33 @@ mod tests {
         assert!(ado().parse_merged_pr_row("completed\t\trefs/heads/develop\t49").is_err());
         assert!(ado().parse_merged_pr_row("completed\tNone\trefs/heads/develop\t49").is_err());
         assert!(ado().parse_merged_pr_row("completed\tabc\trefs/heads/develop\tNone").is_err());
+    }
+
+    #[test]
+    fn landed_pr_row_empty_means_no_pr() {
+        assert_eq!(ado().parse_landed_pr_row(""), Ok(None));
+    }
+
+    #[test]
+    fn landed_pr_row_completed_parses_with_synthesized_url_and_merge_commit() {
+        let pr = ado().parse_landed_pr_row("completed\tabc123\tdeadbeef\t49").unwrap().unwrap();
+        assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
+        assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.merge_commit_sha, "deadbeef");
+    }
+
+    #[test]
+    fn landed_pr_row_active_or_abandoned_is_none() {
+        assert_eq!(ado().parse_landed_pr_row("active\tabc\tdeadbeef\t49"), Ok(None));
+        assert_eq!(ado().parse_landed_pr_row("abandoned\tabc\tdeadbeef\t49"), Ok(None));
+    }
+
+    #[test]
+    fn landed_pr_row_missing_shas_or_bad_id_is_a_hard_error() {
+        assert!(ado().parse_landed_pr_row("completed\t\tdeadbeef\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tNone\tdeadbeef\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tabc\t\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tabc\tNone\t49").is_err());
+        assert!(ado().parse_landed_pr_row("completed\tabc\tdeadbeef\tNone").is_err());
     }
 }

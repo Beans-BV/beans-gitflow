@@ -43,6 +43,27 @@ To override detection (e.g. a GitHub Enterprise domain), set:
 git config bflow.hosting.provider github   # or: devops (requires an Azure DevOps origin URL)
 ```
 
+### Mainline branch (`main` or `master`)
+
+bflow works with either name. On its first run in a repository it detects which
+one you use — `main` if that branch exists locally or on the remote, otherwise
+`master` — saves the answer to your **repository's** config, and says so:
+
+```
+Detected mainline branch 'master' (saved to bflow.branch.main).
+```
+
+Every later run just reads the setting. To set or change it yourself:
+
+```bash
+git config bflow.branch.main master   # or: main
+```
+
+The key is repo-local on purpose: the mainline is a property of the repository,
+not of the developer (the opposite of `bflow.worktree.*`, which is a personal
+preference and therefore global by default). Only `main` and `master` are
+supported; any other value is rejected with a message naming the fix.
+
 ## Branch Model
 
 bflow manages two permanent branches and several short-lived branch types:
@@ -93,12 +114,26 @@ gitGraph
 | `refactor/{name}` | `develop` | `develop` (PR) | Code restructuring |
 | `release/{major}.{minor}.{patch}` | `develop` | `main` + `develop` | Release preparation |
 | `release-fix/{v}/{name}` | `release/{v}` | `release/{v}` (PR) | Fixes during release |
+| `release-chore/{v}/set-version` | `release/{v}` | `release/{v}` (PR) | bflow-created: version-script commit that can't land directly ([Landing Modes](#landing-modes--version-script)) |
 | `hotfix/{major}.{minor}.{patch}` | `main` | `main` + `develop` + open `release/*` | Urgent production fix |
 | `hotfix-fix/{v}/{name}` | `hotfix/{v}` | `hotfix/{v}` (PR) | Fixes during hotfix |
 
 ## How It Works
 
 Run `bflow` in any git repository. The tool detects your current branch and shows the appropriate menu.
+
+### Initialising a repository
+
+bflow keeps its repo-wide policy in a committed `.bflow/config`. A repository
+without that file is **not initialised**: interactive `bflow` offers a
+three-question setup (landing mode, whether to keep release branches, bump
+strategy) and writes the file; subcommands refuse with `run 'bflow init'`.
+Run `bflow init` yourself at any time, then commit `.bflow/config` so every
+clone and CI job shares the same policy.
+
+```bash
+bflow init    # one-time per repository; then commit .bflow/config
+```
 
 ### Uncommitted Changes
 
@@ -120,7 +155,7 @@ Finish commands (`bflow finish`, `bflow bump`, `bflow sync`) still require a cle
   start release
 ```
 
-### On `main`
+### On the mainline (`main` / `master`)
 
 ```
 ? What would you like to do?
@@ -163,6 +198,7 @@ Selecting finish creates a PR back to the base branch. You can also start a new 
 ```
 ? What would you like to do?
 > finish hotfix
+  start hotfix fix
 ```
 
 ### On `hotfix-fix/{v}/{name}`
@@ -184,9 +220,9 @@ bflow start fix --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start chore --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start docs --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
 bflow start refactor --name <name> [--base <branch>] [--no-checkout] [--no-worktree]
-bflow start release [--major | --minor]
+bflow start release [--major | --minor] [--no-worktree]
 bflow start release-fix --name <name> [--no-checkout] [--no-worktree]    # must be on a release branch
-bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on main or hotfix branch
+bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must be on the mainline or a hotfix branch
 ```
 
 `--base` defaults to `develop` when omitted.
@@ -221,8 +257,9 @@ Cleanup only happens when the local branch tip is exactly the commit the PR merg
 `bflow finish` on **release** and **hotfix** branches is **idempotent**: if a merge into `main`, `develop`, or an open `release/*` branch conflicts, resolve the conflict in your editor and `git commit` the merge. A conflict usually leaves HEAD on the target branch (e.g. `develop`), so to continue you **switch back to the source branch and re-run `bflow finish`**:
 
 ```bash
-git switch hotfix/2.5.2   # back to the branch that started the finish
-bflow finish              # resumes; already-done steps are skipped
+git add . && git commit --no-edit   # complete the merge you just resolved
+git switch hotfix/2.5.2             # back to the branch that started the finish
+bflow finish                        # resumes; already-done steps are skipped
 ```
 
 Steps that already completed (merges, tags, pushes, branch deletion) are detected from git state and skipped — the flow continues from the first incomplete step. The conflict message names the exact branch to switch back to.
@@ -290,6 +327,13 @@ keys, which you can also set by hand (`git config --global bflow.worktree.enable
 | `bflow.worktree.editor` | `code` | Command to open the worktree (`<editor> <path>`). Use `none` to skip opening |
 | `bflow.worktree.path` | _(unset)_ | Directory to place worktree folders in (`~` is expanded). Defaults to the repo's parent directory |
 
+One other key lives outside this family and is **repo-local**, because the
+mainline is a property of the repository rather than a per-developer preference:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `bflow.branch.main` | detected on first use | The repo's mainline branch — `main` or `master`. See [Mainline branch](#mainline-branch-main-or-master) |
+
 The editor accepts any command whose CLI opens a folder as `<command> <path>` — VS Code (`code`),
 Cursor (`cursor`), Windsurf (`windsurf`), Zed (`zed`), and JetBrains launchers
 (`idea` / `pycharm` / `webstorm` / …) all work once their shell command is on your `PATH`.
@@ -302,7 +346,43 @@ When enabled, `bflow start feature/fix/chore/docs/refactor` (and `release-fix` /
 2. Add a git worktree for it.
 3. Open that folder in your editor (unless `editor = none`). An editor that isn't installed is a warning, not a failure — the worktree is still ready.
 
-Pass `--no-worktree` to skip the flow for a single command. `start release` is never run through the worktree flow.
+Pass `--no-worktree` to skip the flow for a single command.
+
+`start release` is included, with one difference: the release branch is created
+and tagged in your current checkout (the version script must run on a
+checked-out branch), then your checkout returns to `develop` and the release
+opens in its own worktree. Re-running `start release` while a worktree already
+holds the release just prints its path.
+
+### Setup commands (`worktrees.json`)
+
+With the worktree flow enabled, bflow looks for the repo's setup commands
+after creating a worktree and runs them **before opening the editor** — the
+same files Cursor and [worktree-cli](https://github.com/johnlindquist/worktree-cli)
+use: `.cursor/worktrees.json` (a JSON array of commands) or `worktrees.json`
+at the repo root (`{"setup-worktree": [...]}`); the first non-empty one wins,
+no file means nothing runs. Each entry is a shell command run inside the new
+worktree with `$ROOT_WORKTREE_PATH` pointing at your main checkout; a failing
+command is reported and the rest still run, and the start never fails because
+of a setup command. Nothing is asked — the file is repo content you committed,
+so enabling worktrees is the opt-in, and with the flow disabled the file is not
+read at all.
+
+The file must be strict JSON — the same dialect `JSON.parse` accepts, so what
+works here works for the other tools reading it. A file bflow cannot parse is
+reported as a warning naming the file and the byte offset (a trailing comma is
+called out as such), the setup commands are skipped, and the command you ran
+carries on: a typo in `worktrees.json` never blocks bflow.
+
+```json
+{
+  "setup-worktree": [
+    "fvm use",
+    "dart pub get",
+    "cd tools/shuttel_lint && dart pub get"
+  ]
+}
+```
 
 As with `--no-checkout`, an active worktree flow relaxes the branch-type check for `release-fix` and `hotfix-fix` — the target release/hotfix branch is discovered automatically, so you can run them from any branch.
 
@@ -317,6 +397,26 @@ Projects/beans/
 ├── beans-gitflow-fix-auth-bug/                 # worktree for fix/auth-bug
 └── beans-gitflow-release-fix-1.2.0-null-crash/ # worktree for release-fix/1.2.0/null-crash
 ```
+
+### Repo content in a worktree
+
+Wherever bflow runs — the main checkout or a linked worktree — it reads `.bflow/config`, the version script, and PR templates from **that** working tree, not the main one. A linked worktree can have a different branch checked out than the main tree, so this is what lets each worktree apply its own branch's mode, script, and templates instead of silently picking up whatever the main checkout happens to have.
+
+### Finishing from a worktree
+
+`bflow finish` on a release or hotfix branch can run from any worktree. For each
+merge target (`main`, `develop`, open `release/*`) bflow asks git where that
+branch is checked out. If another worktree holds it, the merge runs *in that
+worktree* (`git -C <path> merge …`), and that tree must be clean — bflow refuses
+and names the path otherwise, so it never merges over uncommitted work. If no
+worktree holds the target, it is checked out in the current tree as before.
+Cleanup follows the same rule: if the finish ends while still standing on the
+release/hotfix branch and `main` is held by another worktree, bflow detaches
+HEAD instead of checking `main` out, then deletes the branch.
+When the finish runs inside the release/hotfix branch's own worktree and deletes
+the branch, it removes that worktree too and tells you the editor window can be
+closed. With `keep-release-branches=true` (or when bflow keeps the branch as a
+safety guard) the worktree stays with it.
 
 ## Workflows
 
@@ -365,11 +465,11 @@ When finishing a feature, fix, or refactor branch, bflow asks whether the work c
 
 | Command | What it does |
 |---------|-------------|
-| **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) |
+| **bflow bump** | Creates next RC tag (v2.6.0-rc.1 → v2.6.0-rc.2) — or the next patch tag (v2.6.0 → v2.6.1) under [`bump-strategy=patch`](#bump-strategy-rc-vs-patch) |
 | **bflow sync** | Merges release changes into `develop` for fixes needed immediately |
-| **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch |
+| **bflow finish** | Creates clean production tag (v2.6.0), merges into `main` + `develop`, cleans up branch. Under `bump-strategy=patch` it only merges — the last bump tag is already final |
 
-> **RC-head guard:** `bflow finish` on a release branch is rejected if HEAD has commits past the latest RC tag. Every commit merged to `main` must have been validated on staging via an RC deploy. If the guard fires, run `bflow bump` to cut the next RC, wait for staging to pass, then `bflow finish`.
+> **Staging-tag guard:** `bflow finish` on a release branch is rejected if HEAD has commits past the latest RC tag (or latest patch tag under `bump-strategy=patch`). Every commit merged to `main` must have been validated on staging via a tagged deploy. If the guard fires, run `bflow bump` to cut the next tag, wait for staging to pass, then `bflow finish`.
 
 ### Hotfix
 
@@ -420,6 +520,159 @@ The hotfix lands on `main` (production-tagged `v2.6.2`), `develop`, *and* `relea
 If the merge into a release branch conflicts, bflow surfaces the error and **keeps the hotfix branch alive** so you can resolve the conflict and retry. The merges into `main` and `develop` (and the production tag) have already completed at that point — the hotfix is shipped to production; only the propagation to the release branch is left to finish. Resolve the conflict, `git commit` the merge, and re-run `bflow finish` — already-done steps are skipped and the propagation resumes.
 
 bflow already prevents the related "two open hotfixes" or "two open releases" cases at start-time: [`start.rs`](src/flows/start.rs) reuses an existing branch instead of creating a second one. The only concurrent state allowed is exactly this one — one release + one hotfix.
+
+## Landing Modes & Version Script
+
+Two related, opt-in features for teams whose `main`/`develop` reject direct pushes, or who keep the version number inside their own repo files (`Cargo.toml`, `package.json`, ...). The config file itself is required — see [Initialising a repository](#initialising-a-repository); with the defaults it selects, a repo behaves exactly as before.
+
+### `.bflow/config`
+
+A committed file, one `key=value` pair per line, `#` comments allowed, unknown keys ignored:
+
+```
+mode=protected
+keep-release-branches=true
+```
+
+| Key | Values | Default | Meaning |
+|-----|--------|---------|---------|
+| `mode` | `free` \| `protected` | `free` | `free` is today's behavior: `finish`/`bump`/`sync` merge and push directly. `protected` lands every merge into `main`, `develop`, or an already-pushed `release/*` branch via a PR instead. |
+| `keep-release-branches` | `true` \| `false` | `false` | When `true`, `finish` and `bump` stop deleting the `release/*`/`hotfix/*` branch when they're done with it. Work branches (`feature/*`, `fix/*`, ...) are never affected. |
+| `bump-strategy` | `rc` \| `patch` | `rc` | How `bump` versions staged builds. `rc` is today's behavior: pre-release tags (`v2.6.0-rc.1`, `-rc.2`, …) with one clean tag at finish. `patch` increments the real patch version at every bump (`v2.6.0` → `v2.6.1` → …) — see [Bump strategy](#bump-strategy-rc-vs-patch). |
+
+Any other value is a hard error naming the file, the key, and the accepted values. This is a **committed file, not git config**: these are team decisions, and a fresh clone must see the same policy everyone else does — git config is per-clone and would silently drift. (Same reasoning as the version script below.) Developer/machine preferences — the worktree flow, `bflow.branch.main` — stay in git config; only repo-wide landing policy moved here.
+
+### Bump strategy: `rc` vs `patch`
+
+Some projects can't consume pre-release tags — every staged build needs a real, incrementing version written into the project's own version files. `bump-strategy=patch` serves those projects:
+
+| Step | `rc` (default) | `patch` |
+|------|----------------|---------|
+| `bflow start release` | tags `v2.6.0-rc.1` | tags `v2.6.0` (clean) |
+| `bflow bump` | tags `v2.6.0-rc.2`; version script gets `2.6.0` every time | increments the patch: tags `v2.6.1`; version script gets the **new** `2.6.1` |
+| `bflow finish` | cuts the clean production tag `v2.6.0` | **merges only** — the last bump tag (e.g. `v2.6.2`) is already the final version (finish re-pushes it if origin is missing it) |
+
+Everything else is identical: the staging guard still refuses `finish` when HEAD has commits past the latest tag (`bflow bump` is the remedy), protected mode still routes version-script commits through a PR and tags the PR's merge commit, and hotfixes work the same way. One patch-specific subtlety is handled for you: an open release branch's staging tags (`v2.6.0`, `v2.6.1`, …) are *not* production history, so a hotfix started while that release is in flight derives its version from the last shipped tag (e.g. `v2.5.4`), never from the release's in-flight numbers.
+
+One consequence to plan for: under `patch` every tag is a clean `vX.Y.Z` — there is no tag-shape distinction between staging and production, so CI must gate production on something other than the tag pattern (a branch, the merge to `main`, or a manual promotion step).
+
+### Protected mode
+
+Use `mode=protected` when `main`/`develop` require pull requests (branch protection, required reviews). In this mode:
+
+- **bflow never merges a PR.** Every landing that would otherwise be a direct push instead opens (or reuses) a PR and prints its URL.
+- **Every landing PR's head is a throwaway `finish/*` branch** cut from the source — `finish/release-1.2.0-into-main`, `finish/hotfix-1.1.1-into-release-1.2.0`, and so on. The release/hotfix branch itself is never a PR head, so nothing (a conflict resolution, the platform's auto-delete-head-branches setting) can ever touch it. bflow creates, refreshes, and deletes these branches itself; a landing that predates newer source commits is re-opened with a refreshed finish branch, so no commit can silently miss a target.
+- `finish`, `bump`, and `sync` **exit 0** with the PR pending — nothing is left half-done, there's just a human step in between. Re-run the same command after the PR is merged; it continues from there.
+- Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch (and every `finish/*` branch, orphans included) — unless `keep-release-branches=true`, or its tip provably landed nowhere, in which case bflow keeps the branch and tells you how to remove it yourself.
+- Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
+- **Landing PRs are born mergeable.** Before opening (or refreshing) a landing PR, bflow merges the target into the finish branch itself. A conflict — e.g. on the version file, see [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut) — therefore surfaces immediately in your terminal, mid-run, left mid-merge ON the finish branch: resolve it, `git add . && git commit --no-edit`, switch back to the source branch, and re-run (the re-run pushes the resolution and opens the PR conflict-free; `git merge --abort` backs out instead). A PR that turns conflicted *later* because the target moved is healed the same way — just re-run. The release/hotfix branch is never touched by a resolution, and the finish branch is never rebased.
+- **Upgrading with a landing in flight?** An open landing PR whose head is the release/hotfix branch itself (opened by an older bflow) is a hard error naming it: merge it and re-run, or close/abandon it and re-run — bflow then reopens it from a finish branch. Already-merged old-style legs are recognized as landed.
+- That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead. If you do, bflow says so rather than letting it pass unnoticed:
+
+```
+⚠ release/2.6.0 has 1 commit after the main landing: not in v2.6.0, and not reaching main.
+  Release them as a hotfix if they must ship to production.
+```
+
+  Those commits still reach `develop` through the remaining landing, so nothing is lost — they just are not in this release.
+
+A `bflow finish` loop on a release branch looks like this:
+
+```
+$ bflow finish
+
+chore: merge release 2.6.0 into main
+https://github.com/org/repo/pull/42
+
+Waiting for a human to merge this PR.
+Re-run 'bflow finish' to continue after the merge.
+
+Conflicts later (main moved)? Just re-run — bflow merges `main` into `finish/release-2.6.0-into-main` and stops for you to resolve locally if needed.
+
+  ... a human merges pull/42 on GitHub ...
+
+$ bflow finish
+Tagging: v2.6.0
+
+chore: merge release 2.6.0 into develop
+https://github.com/org/repo/pull/43
+
+Waiting for a human to merge this PR.
+Re-run 'bflow finish' to continue after the merge.
+
+Conflicts later (develop moved)? Just re-run — bflow merges `develop` into `finish/release-2.6.0-into-develop` and stops for you to resolve locally if needed.
+
+  ... a human merges pull/43 ...
+
+$ bflow finish
+Cleaning up release branch...
+Release 2.6.0 complete.
+```
+
+If cleanup finds commits on the branch that never reached any of the landed PRs — e.g. something was pushed to it directly after everything else landed — it keeps the branch instead of deleting it:
+
+```
+⚠ Keeping release/2.6.0: its tip is not part of any landed pull request, so deleting it could lose commits.
+  Review it, then delete it yourself: git push origin --delete release/2.6.0
+```
+
+Hotfix branches print the same warning, naming the hotfix branch instead.
+
+`bflow sync` behaves the same way on a release branch ("Re-run 'bflow sync' after the merge."). `bflow bump` may also defer its RC tag — see below.
+
+### Version script
+
+An opt-in repo file that lets bflow write the tag-derived version into your own source files at the moments the version changes, instead of you doing it by hand.
+
+- **Path**: `.bflow/set-version.sh` (macOS/Linux) or `.bflow/set-version.cmd` (Windows) — picked by platform. Both files present is fine; only the *other* platform's file present (yours missing) is an error naming both paths. Neither present → the feature is off.
+- **Contract**: bflow runs the script with `argv[1]` set to the clean `X.Y.Z` version (never a `-rc.N` form) and the current working directory set to the repo root.
+- **Clean tree required**: bflow refuses to run the script on a dirty working tree, so a version commit never sweeps up unrelated local changes.
+- **No-op is a no-op**: if the script leaves the tree unchanged, bflow makes no commit. If it changes files, bflow stages everything (`git add -A`) and commits `chore: set version {X.Y.Z}`.
+- **The four moments it runs**: cutting a new release branch (version `X.Y.0`); bumping `develop` to the next dev version right after (warn-and-continue — a failure here doesn't undo the release; bflow tells you to update develop by hand); `bflow bump` on a release branch (`X.Y.0`); creating a new hotfix branch (`X.Y.Z`). Reusing an *existing* release/hotfix branch never re-runs the script.
+
+A script bflow finds but can't run — most often because it's missing its executable bit — names the fix instead of a bare OS error:
+
+```
+Version script .bflow/set-version.sh could not be run: Permission denied (os error 13)
+Make it executable: chmod +x .bflow/set-version.sh && git update-index --chmod=+x .bflow/set-version.sh, then re-run the command.
+```
+
+`git update-index --chmod=+x` is there because git tracks the executable bit itself — a local `chmod +x` alone doesn't survive a fresh clone. This differs from the platform-mismatch error above in *when* it can fire: platform mismatch is resolved eagerly, once, at the start of every command, so it fires no matter what you run; a not-executable script is only ever spawned by the commands that actually run it (cutting a release/hotfix branch, `bflow bump`) — that asymmetry can be surprising the first time you hit it.
+
+#### `chore/set-version-*` and `release-chore/*/set-version` branches
+
+In protected mode, a version commit that can't land directly goes out as its own PR from a branch bflow creates:
+
+- `chore/set-version-X.Y.Z` — the develop version bump that follows a release cut.
+- `release-chore/X.Y.0/set-version` — a version bump needed on an already-pushed release branch (during `bflow bump`).
+
+**bflow creates and manages these — merge the PR, don't commit to them yourself.** If a human needs to intervene on a `release-chore/*` branch, it finishes exactly like a `release-fix` branch (`bflow finish` from it opens/updates a PR into its release branch); it has no `--base` flag, same as `release-fix`/`hotfix-fix`.
+
+`bflow bump` deletes the `release-chore/*/set-version` branch itself the next time it revisits it, but nothing ever revisits `chore/set-version-*` after its PR merges, so it stays on the remote. Enable your hosting platform's automatic head-branch deletion (GitHub: "Automatically delete head branches"; Azure DevOps: the branch policy's auto-complete deletion option) to avoid the buildup, or delete it by hand.
+
+#### Deferred RC tags
+
+bflow never tags a commit that isn't yet on the branch being tagged. When `bflow bump` in protected mode needs a version-script commit on an already-pushed release branch, it opens the `release-chore/.../set-version` PR and defers the tag:
+
+```
+Version PR: https://github.com/org/repo/pull/44
+The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.
+```
+
+Re-running `bflow bump` after that PR merges tags the **PR's merge commit** directly — it does not re-run the script. A script whose output depends on repo history (e.g. a build number) would otherwise produce a different diff on every re-run; tagging the merge commit is what makes the RC converge to one tag instead of drifting forever.
+
+#### Version-file merge-conflict papercut
+
+Because `develop` and an open hotfix or release branch can carry different versions in their tracked files, merging one into the other can conflict on the version line — e.g. a hotfix's `1.2.1` against develop's already-bumped `1.3.0`, or a major release's `2.0.0` merging back into `develop`. Free mode surfaces this as an ordinary resumable merge conflict (resolve it, `git commit`, re-run `bflow finish`); protected mode surfaces it while merging the target into the `finish/*` branch — resolve it there mid-run, commit, and re-run. bflow does not auto-resolve version-file conflicts — it has no way to know which lines the script owns.
+
+#### Hotfix branches created without checkout
+
+`bflow start hotfix-fix --no-checkout` (or an active [worktree](#worktree-integration) flow) creates the hotfix branch without switching to it, so bflow cannot safely commit version files there — HEAD stays on your current branch. bflow skips the script and warns instead of guessing:
+
+```
+⚠ Version script not run: hotfix/1.2.1 was created without checkout, so bflow cannot commit version files there.
+  Recover manually: git switch hotfix/1.2.1, run set-version.sh 1.2.1, commit, and push.
+```
 
 ## Version Resolution
 
@@ -472,6 +725,7 @@ Merge commits and tags also follow the convention:
 - `chore: hotfix 2.5.4` (tag message)
 - `chore: merge hotfix 2.5.4 into develop`
 - `chore: merge hotfix 2.5.4 into release/2.6.0` (when a release branch is open)
+- `chore: set version 2.6.0` (version-script commit — see [Landing Modes & Version Script](#landing-modes--version-script))
 
 ## CI Integration
 
@@ -579,11 +833,12 @@ src/
 ├── action.rs            — Action enum: the single currency both interfaces resolve into
 ├── cli.rs               — CLI subcommands (clap); resolves to Action
 ├── lifecycle.rs         — Resume lookup, stash/state ordering contract, dispatch
+├── mainline.rs          — Resolves the repo's mainline branch (main vs master)
 ├── git/
-│   ├── mod.rs           — Git trait + CLI implementation
+│   ├── mod.rs           — Git trait, GitCli adapter, CommandRunner port
 │   └── branch.rs        — Branch type detection and parsing
 ├── hosting/
-│   ├── mod.rs           — Hosting platform trait
+│   ├── mod.rs           — HostingPlatform trait + CliRunner port
 │   ├── detect.rs        — Provider detection from the origin remote URL
 │   ├── github.rs        — GitHub implementation via gh CLI
 │   └── devops.rs        — Azure DevOps implementation via az CLI
@@ -593,15 +848,42 @@ src/
 │   ├── finish_release.rs — Bump, sync, finish release (idempotent)
 │   └── finish_hotfix.rs — Finish hotfix with auto-tag, propagate to open releases (idempotent)
 ├── state.rs             — Persisted finish state for conflict recovery
+├── repo_config.rs       — Parses .bflow/config (mode, keep-release-branches, bump-strategy)
+├── version_script.rs    — Discovery + execution port for .bflow/set-version.{sh,cmd}
 ├── version.rs           — SemVer parsing and bumping
 ├── menu.rs              — Interactive menus via crossterm; implements Prompter
-├── prompt.rs            — Prompter trait: interactive selection as a port
+├── prompt.rs            — Prompter trait: selection and text input as a port
 ├── editor.rs            — Editor trait for opening worktrees
 ├── worktree.rs          — Worktree config, path resolution, and setup wizard
 └── test_support.rs      — Shared helpers for inline unit tests (test builds only)
 ```
 
 The `Git`, `HostingPlatform`, `Editor`, and `Prompter` traits keep every flow fully mockable and make hosting providers swappable (GitHub and Azure DevOps today, GitLab/Bitbucket-ready).
+
+Two narrower ports sit one level down, under the adapters themselves:
+`CommandRunner` (`git/mod.rs`) and `CliRunner` (`hosting/mod.rs`) own nothing but
+the process spawn. That keeps every subprocess call in a single implementation
+each (`SystemRunner`, `SystemCli`) while leaving the adapters' own logic — git's
+exit-code semantics, output parsing, and the `gh`/`az` reuse-vs-create policy —
+testable without those CLIs installed.
+
+## Development
+
+bflow is developed test-first (TDD) with a coverage ratchet:
+
+- `cargo test` — runs the full suite. All tests run against mocks; none touch real git, the network, or installed CLIs.
+- `cargo llvm-cov --summary-only` — line-coverage report (`brew install cargo-llvm-cov`).
+- Coverage may never decrease: `.claude/hooks/coverage-baseline.txt` records the high-water mark and `.claude/hooks/tdd-gate.sh` enforces it (wired as a Claude Code Stop hook).
+
+Line coverage sits near 89%. What remains uncovered is there by design — the
+process and terminal shell that tests must never touch:
+
+| Exempt | Why |
+|---|---|
+| `main.rs` | Composition root; building the real adapters needs `git`/`gh`/`az` installed |
+| `menu.rs` raw-mode rendering and key loop | Requires a TTY (the branch-type gating and input shaping around it *are* tested) |
+| `SystemRunner`, `SystemCli`, `CommandEditor` | The process spawns themselves |
+| A handful of `unreachable!` arms | Uncoverable by construction — they mark invariants the compiler cannot express |
 
 ## License
 

@@ -32,6 +32,8 @@ pub enum Commands {
     Bump,
     /// Sync the current release branch into develop
     Sync,
+    /// Initialise this repository for bflow: writes .bflow/config (interactive)
+    Init,
     /// Configure the optional worktree flow (run with no subcommand for an interactive setup)
     Worktree {
         #[command(subcommand)]
@@ -60,7 +62,7 @@ pub enum WorktreeAction {
     Status,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct StartOptions {
     /// Create and push the branch without checking it out
     #[arg(long)]
@@ -123,6 +125,9 @@ pub enum StartKind {
         major: bool,
         #[arg(long, conflicts_with = "major")]
         minor: bool,
+        /// Skip the worktree flow for this command (no effect unless bflow.worktree.enabled)
+        #[arg(long)]
+        no_worktree: bool,
     },
     /// Start a release fix branch (must be on a release branch)
     ReleaseFix {
@@ -131,7 +136,7 @@ pub enum StartKind {
         #[command(flatten)]
         opts: StartOptions,
     },
-    /// Start a hotfix fix branch (must be on main or hotfix branch)
+    /// Start a hotfix fix branch (must be on the mainline or a hotfix branch)
     HotfixFix {
         #[arg(long)]
         name: String,
@@ -165,7 +170,7 @@ fn require_release_branch(branch_type: &BranchType) -> Result<(), String> {
 /// `--no-checkout`, an active worktree flow auto-discovers the target branch for
 /// release-fix/hotfix-fix, so the "must be standing on it" branch-type gate only
 /// applies to the plain checkout path.
-pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enabled: bool) -> Result<Action, String> {
+pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enabled: bool, main_branch: &str) -> Result<Action, String> {
     match command {
         Commands::Start { kind } => match kind {
             StartKind::Feature { name, base, opts } => start_work_branch("feature", name, base, opts.no_checkout, opts.no_worktree),
@@ -173,11 +178,11 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
             StartKind::Chore { name, base, opts } => start_work_branch("chore", name, base, opts.no_checkout, opts.no_worktree),
             StartKind::Docs { name, base, opts } => start_work_branch("docs", name, base, opts.no_checkout, opts.no_worktree),
             StartKind::Refactor { name, base, opts } => start_work_branch("refactor", name, base, opts.no_checkout, opts.no_worktree),
-            StartKind::Release { major, minor } => {
+            StartKind::Release { major, minor, no_worktree } => {
                 let release_type = if major { Some(ReleaseType::Major) }
                     else if minor { Some(ReleaseType::Minor) }
                     else { None };
-                Ok(Action::StartRelease(release_type))
+                Ok(Action::StartRelease { release_type, no_worktree })
             }
             StartKind::ReleaseFix { name, opts } => {
                 validate_branch_name(&name)?;
@@ -191,14 +196,14 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 if !auto_discovers_target(&opts, worktree_enabled)
                     && !matches!(branch_type, BranchType::Main | BranchType::Hotfix { .. })
                 {
-                    return Err("This command is only valid on a main or hotfix branch.".to_string());
+                    return Err(format!("This command is only valid on a {main_branch} or hotfix branch."));
                 }
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
         },
         Commands::Finish { breaking, base, abort } => {
             if abort {
-                return Ok(Action::AbortFinish);
+                unreachable!("--abort is intercepted in lifecycle::resolve_action_with_state before dispatch")
             }
             if base.is_some() && branch_type.has_fixed_finish_target() {
                 return Err("--base is only supported when finishing a work branch (feature/fix/chore/docs/refactor); this branch type has a fixed target.".to_string());
@@ -213,6 +218,7 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 }
                 BranchType::Release { .. } => Ok(Action::FinishRelease),
                 BranchType::ReleaseFix { .. } => Ok(Action::FinishReleaseFix),
+                BranchType::ReleaseChore { .. } => Ok(Action::FinishReleaseChore),
                 BranchType::Hotfix { .. } => Ok(Action::FinishHotfix),
                 BranchType::HotfixFix { .. } => Ok(Action::FinishHotfixFix),
                 BranchType::Other => {
@@ -230,6 +236,9 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
         }
         Commands::Worktree { .. } => {
             unreachable!("worktree configuration is dispatched in main() before resolve_action")
+        }
+        Commands::Init => {
+            unreachable!("init is dispatched in main() before resolve_action")
         }
     }
 }

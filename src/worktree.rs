@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::editor::Editor;
+use crate::worktree_setup::{SetupCommands, WorktreeSetup};
 use crate::git::{Git, Result};
-use crate::menu;
+use crate::prompt::Prompter;
 
 /// Friendly editor names offered by the interactive wizard, mapped to the launcher
 /// command bflow stores and runs. Any editor with a `<cmd> <path>` CLI works — this
@@ -33,6 +34,7 @@ fn editor_disabled(editor: &str) -> bool {
 
 /// User configuration for the optional worktree flow, read from `bflow.worktree.*`
 /// git config keys.
+#[derive(Debug)]
 pub struct WorktreeConfig {
     pub enabled: bool,
     pub editor: String,
@@ -40,7 +42,7 @@ pub struct WorktreeConfig {
 }
 
 impl WorktreeConfig {
-    /// Load the three `bflow.worktree.*` keys. Absent keys fall back to defaults
+    /// Load the `bflow.worktree.*` keys. Absent keys fall back to defaults
     /// (disabled, editor `code`, no custom base path). Values are trimmed —
     /// stray whitespace in git config would otherwise break `Command::new`
     /// (e.g. editor `"code "`) or produce oddly named directories.
@@ -62,11 +64,19 @@ impl WorktreeConfig {
     }
 }
 
-/// Bundle of resolved config + editor passed into the start flows when the worktree
-/// flow is active.
-pub struct WorktreeContext<'a> {
+/// Everything the worktree flow needs from the composition root: config,
+/// editor, the setup-command runner and the repo's resolved setup commands.
+pub struct WorktreeEnv<'a> {
     pub config: &'a WorktreeConfig,
     pub editor: &'a dyn Editor,
+    pub setup: &'a dyn WorktreeSetup,
+    pub commands: Option<&'a SetupCommands>,
+}
+
+/// Per-run handle passed into the start flows when the worktree flow is active.
+pub struct WorktreeContext<'a> {
+    pub env: &'a WorktreeEnv<'a>,
+    pub prompter: &'a dyn Prompter,
 }
 
 /// Expand a leading `~` / `~/` to the user's home directory. The shell never
@@ -110,7 +120,9 @@ pub fn worktree_path(repo_root: &Path, repo_name: &str, base_path: Option<&str>,
 ///
 /// `branch` must already exist. Worktree creation is fatal on error; editor-open
 /// failures are downgraded to a warning since the branch and worktree already exist.
-pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig, branch: &str) -> Result<()> {
+pub fn open_worktree(git: &dyn Git, ctx: &WorktreeContext<'_>, branch: &str) -> Result<()> {
+    let config = ctx.env.config;
+    let editor = ctx.env.editor;
     let repo_root = git.repo_root()?;
     let repo_name = repo_root
         .file_name()
@@ -126,6 +138,10 @@ pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig
     println!("Creating worktree: {}", path.display());
     git.add_worktree(&path, branch)?;
 
+    if let Some(cmds) = ctx.env.commands {
+        run_setup(ctx, &repo_root, &path, cmds);
+    }
+
     if !editor_disabled(&config.editor) {
         let editor_cmd = config.editor.trim();
         println!("Opening in editor: {editor_cmd}");
@@ -135,6 +151,22 @@ pub fn open_worktree(git: &dyn Git, editor: &dyn Editor, config: &WorktreeConfig
     }
 
     Ok(())
+}
+
+/// Run the repo's `worktrees.json` commands inside the new worktree. Never
+/// fails the start: a failing command is reported and the rest still run
+/// (worktree-cli's policy) — the branch is already pushed by now.
+fn run_setup(ctx: &WorktreeContext<'_>, main_root: &Path, worktree: &Path, cmds: &SetupCommands) {
+    println!("Running {} setup command(s) from {}", cmds.commands.len(), cmds.file.display());
+    let mut ok = 0;
+    for command in &cmds.commands {
+        println!("Running: {command}");
+        match ctx.env.setup.run_command(worktree, main_root, command) {
+            Ok(()) => ok += 1,
+            Err(e) => eprintln!("Setup command failed: {command} — {e}"),
+        }
+    }
+    println!("Setup commands completed ({ok}/{} succeeded).", cmds.commands.len());
 }
 
 // ---------------------------------------------------------------------------
@@ -194,14 +226,14 @@ pub fn show_status(git: &dyn Git) -> Result<()> {
 }
 
 /// Interactive setup: prompts for enable, editor, and location, then saves them.
-pub fn wizard(git: &dyn Git, local: bool) -> Result<()> {
+pub fn wizard(git: &dyn Git, prompter: &dyn Prompter, local: bool) -> Result<()> {
     println!("Configure the worktree flow — writing to {} git config.\n", scope_label(local));
 
     let enable_items = [
         "Enable — open each new branch in its own worktree + editor",
         "Disable",
     ];
-    let enabled = menu::show_select("Worktree flow", &enable_items)? == 0;
+    let enabled = prompter.select("Worktree flow", &enable_items)? == 0;
     set_enabled(git, enabled, local)?;
     if !enabled {
         return Ok(());
@@ -215,22 +247,22 @@ pub fn wizard(git: &dyn Git, local: bool) -> Result<()> {
     editor_items.push("None — create the worktree but don't open an editor".to_string());
     editor_items.push("Custom command…".to_string());
     let editor_refs: Vec<&str> = editor_items.iter().map(String::as_str).collect();
-    let e_idx = menu::show_select("Editor", &editor_refs)?;
+    let e_idx = prompter.select("Editor", &editor_refs)?;
     let editor_value = if e_idx < EDITOR_PRESETS.len() {
         EDITOR_PRESETS[e_idx].1.to_string()
     } else if e_idx == EDITOR_PRESETS.len() {
         "none".to_string()
     } else {
-        menu::prompt_line("Editor command (e.g. code, cursor)")?
+        prompter.prompt_line("Editor command (e.g. code, cursor)")?
     };
     set_editor(git, &editor_value, local)?;
 
     // Location: default (repo's parent) or a custom directory.
     let path_items = ["Default — next to the repository", "Custom directory…"];
-    if menu::show_select("Worktree location", &path_items)? == 0 {
+    if prompter.select("Worktree location", &path_items)? == 0 {
         use_default_path(git, local)?;
     } else {
-        let path = menu::prompt_line("Worktree base directory (e.g. ~/worktrees)")?;
+        let path = prompter.prompt_line("Worktree base directory (e.g. ~/worktrees)")?;
         set_path(git, &path, local)?;
     }
 

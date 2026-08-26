@@ -1,3 +1,4 @@
+use bflow::git::branch::BranchType;
 use bflow::version::SemVer;
 
 #[test]
@@ -150,4 +151,62 @@ fn release_branch_name() {
 fn hotfix_branch_name() {
     assert_eq!(SemVer::new(2, 5, 4).hotfix_branch(), "hotfix/2.5.4");
     assert_eq!(SemVer::new(2, 5, 4).with_rc(1).hotfix_branch(), "hotfix/2.5.4");
+}
+
+#[test]
+fn fix_family_branch_names() {
+    assert_eq!(SemVer::new(2, 6, 0).release_fix_branch("db-index"), "release-fix/2.6.0/db-index");
+    assert_eq!(SemVer::new(2, 5, 4).hotfix_fix_branch("npe"), "hotfix-fix/2.5.4/npe");
+    // Pre-release dropped: a fix branches off the release line, not off an RC.
+    assert_eq!(SemVer::new(2, 6, 0).with_rc(1).release_fix_branch("db-index"), "release-fix/2.6.0/db-index");
+    assert_eq!(SemVer::new(2, 5, 4).with_rc(1).hotfix_fix_branch("npe"), "hotfix-fix/2.5.4/npe");
+}
+
+#[test]
+fn release_chore_branch_name() {
+    assert_eq!(SemVer::new(1, 1, 0).release_chore_branch("set-version"), "release-chore/1.1.0/set-version");
+    // Pre-release dropped: the chore branches off the release line, not off an RC.
+    assert_eq!(SemVer::new(1, 1, 0).with_rc(1).release_chore_branch("set-version"), "release-chore/1.1.0/set-version");
+}
+
+#[test]
+fn generated_branch_names_round_trip_through_parse() {
+    // decisions.md: branch/tag names are always generated from SemVer methods,
+    // never string-concatenated.
+    let v = SemVer::new(2, 6, 0);
+
+    assert_eq!(BranchType::parse(&v.release_branch()),
+        BranchType::Release { major: 2, minor: 6, patch: 0 });
+    assert_eq!(BranchType::parse(&v.hotfix_branch()),
+        BranchType::Hotfix { major: 2, minor: 6, patch: 0 });
+    assert_eq!(BranchType::parse(&v.release_fix_branch("db-index")),
+        BranchType::ReleaseFix { major: 2, minor: 6, patch: 0, name: "db-index".to_string() });
+    assert_eq!(BranchType::parse(&v.hotfix_fix_branch("npe")),
+        BranchType::HotfixFix { major: 2, minor: 6, patch: 0, name: "npe".to_string() });
+    assert_eq!(BranchType::parse(&v.release_chore_branch("set-version")),
+        BranchType::ReleaseChore { major: 2, minor: 6, patch: 0, name: "set-version".to_string() });
+}
+
+#[test]
+fn a_clean_release_outranks_its_own_release_candidates() {
+    // decisions.md: SemVer::Ord is hand-implemented precisely so a pre-release
+    // sorts BELOW its own release — a derived Ord on Option would invert this and
+    // make `bflow finish` pick an RC tag as the latest release.
+    let release = SemVer::parse("v2.5.0").unwrap();
+    let rc = SemVer::parse("v2.5.0-rc.4").unwrap();
+
+    assert!(release > rc, "v2.5.0 must outrank v2.5.0-rc.4");
+    assert!(rc < release);
+    assert_eq!([rc.clone(), release.clone()].iter().max(), Some(&release));
+    assert_eq!([release.clone(), rc.clone()].iter().max(), Some(&release));
+}
+
+#[test]
+fn finish_branch_names_flatten_slashes() {
+    use bflow::version::finish_branch_name;
+    assert_eq!(finish_branch_name("release/1.2.0", "main"), "finish/release-1.2.0-into-main");
+    assert_eq!(finish_branch_name("release/1.2.0", "develop"), "finish/release-1.2.0-into-develop");
+    assert_eq!(finish_branch_name("hotfix/1.1.1", "main"), "finish/hotfix-1.1.1-into-main");
+    assert_eq!(finish_branch_name("hotfix/1.1.1", "develop"), "finish/hotfix-1.1.1-into-develop");
+    assert_eq!(finish_branch_name("hotfix/1.1.1", "release/1.2.0"), "finish/hotfix-1.1.1-into-release-1.2.0");
 }

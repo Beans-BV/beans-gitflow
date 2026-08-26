@@ -7,9 +7,10 @@ description: "SOLID principles — SRP single responsibility, OCP open/closed, L
 
 Authoritative reference for SOLID principles as applied in this project. Defines each principle, violation signals, and pragmatic deviations.
 
-**Code examples:** `examples/violations.md`, `examples/srp-examples.dart`, `examples/ocp-examples.dart`, `examples/lsp-examples.dart`, `examples/isp-examples.dart`, `examples/dip-examples.dart`
+**Precedent lives in this repo, not in example files** — every claim below points
+at real code. See also `architecture` and its `decisions.md`.
 
-**Related principles:** `kiss-principle` (counterbalance to SOLID ceremony), `dry-principles` (DRY-SRP tension).
+**Related principles:** `kiss-principles` (counterbalance to SOLID ceremony), `dry-principles` (DRY-SRP tension).
 
 ## S — Single Responsibility Principle
 
@@ -21,22 +22,18 @@ SRP is NOT "a class should do one thing." It means a class should serve one acto
 
 | Layer | SRP Means |
 |-------|-----------|
-| **Domain** | One aggregate/entity = one business concept. A `Payment` doesn't manage `Wallet` state. |
-| **Application** | One service = one domain aggregate's operations. `PaymentAppService` doesn't handle notifications. |
-| **Interface Adapters** | One adapter = one external system. `StripePaymentAdapter` doesn't talk to SendGrid. |
-| **Frameworks** | One configuration class = one concern. DB config separate from auth config. |
+| `flows/` | One function = one workflow. `finish_release` does not know about worktrees. |
+| `lifecycle.rs` | Cross-cutting ordering only (stash, state, dispatch) — never a workflow's own steps. |
+| Adapters | One adapter = one external CLI. `GitCli` never shells out to `gh`. |
+| `cli.rs` / `menu.rs` | Turn input into an `Action`. Neither performs the action. |
 
 ### Violation Signals
 
-- **Class name contains "Manager", "Helper", "Utils", "Processor"** — vague names hide multiple responsibilities
-- **Too many constructor dependencies** — see `kiss-principle` skill for thresholds
-- **>7 public methods serving different workflows** — the class is an orchestration hub
-- **Changes to unrelated features require modifying the same class**
-- **Test file for the class tests unrelated behaviors**
-
-### Relationship to The Helper Trap
-
-Static helpers that disguise orchestration as domain logic are an SRP violation: the class mixes domain state transitions with workflow orchestration (two different reasons to change).
+- **Name contains "Manager", "Helper", "Utils", "Processor"** — vague names hide multiple responsibilities
+- **Too many injected `&dyn` ports** — see `kiss-principles` for thresholds
+- **A flow reaches for a port it only needs on one branch** — that branch is a different responsibility
+- **Changes to unrelated features touch the same function**
+- **Business logic inside the subprocess/TTY shell**, which is exempt from testing — this is how the exemption stops being honest
 
 ## O — Open/Closed Principle
 
@@ -44,47 +41,45 @@ Static helpers that disguise orchestration as domain logic are an SRP violation:
 
 When new requirements arrive, you should be able to add new behavior by writing NEW code (a new class, a new implementation) rather than modifying EXISTING code.
 
-### Primary Mechanism: Polymorphism
+### Two Mechanisms Here
 
+**A port, when the variation is an external system:**
 ```
-IPaymentProvider  ← interface (closed for modification)
-├── StripePaymentProvider   (extension)
-├── KulipaPaymentProvider   (extension)
-└── NewProvider             (add this — no existing code changes)
+HostingPlatform          ← trait (closed for modification)
+├── GitHub    (gh)
+└── AzureDevOps (az)     ← adding a third never touches flows/
 ```
+
+**A table, when the variation is data.** `WORK_TYPES` in `git/branch.rs` is the single source of truth for work-branch kinds; menus, parent detection, `pr_template_keys` and `commit_type` all derive from it, so a new kind is a table row plus the arms the compiler demands.
 
 ### Violation Signals
 
-- **Growing switch/if-else chains** that check type or status to determine behavior
-- **Modifying existing classes every time a new variant is added**
-- **"Shotgun surgery"** — adding one feature requires touching many files in the same way
-- **Enum-based dispatch** where each enum value triggers different logic inline
+- **A `match` on `BranchType` that a table lookup could answer** — `pr_template_keys` used to be five hand-written arms restating "the key is the kind name"
+- **A wildcard arm that silently swallows a new variant** (`_ => None`) where the compiler could have forced a decision
+- **Adding one feature requires the same edit in several files**
 
 ### When NOT to Apply
 
-- **Simple CRUD with no realistic extension points** — don't create an interface hierarchy for a single implementation
-- **Stable, well-understood logic** that genuinely won't change
-- **Knowledge-based extraction applies** — see the `kiss-principles` skill for extraction timing and premature-abstraction detection
+- **A closed set that genuinely will not grow** — `main` | `master` is deliberately closed
+- **Knowledge-based extraction applies** — see `kiss-principles` for timing
 
 ## L — Liskov Substitution Principle
 
 **"Subtypes must be substitutable for their base types."** — Barbara Liskov
 
-If code works with `IPaymentRepository`, it must work identically with ANY implementation. No implementation may surprise its caller.
+If a flow works with `&dyn Git`, it must work identically with `GitCli` and with `MockGit`. **This cuts both ways: the mock is an implementation too.** A mock with a weaker postcondition than the trait promises lets tests pass input production could never produce — that is an LSP violation that manufactures false confidence.
 
 ### Violation Signals
 
-- **`NotImplementedException` or `UnsupportedOperationException`** — the implementation doesn't fulfill the contract
-- **Type-checking the implementation** (`if (repo is SqlRepository)`) — code shouldn't care which implementation it has
-- **Different error semantics per implementation** — one throws, another returns null, a third returns default
-- **Preconditions stricter than the interface promises**
-- **Postconditions weaker than the interface promises**
+- **`todo!()` / `unimplemented!()` in an impl** — it doesn't fulfil the contract
+- **Downcasting or type-checking an impl** — callers must not care which one they have
+- **Different error semantics per impl** — one returns `Err`, another returns `Ok(false)`
+- **Preconditions stricter than the trait promises**
+- **Postconditions weaker than the trait promises** — e.g. `MockGit::list_branches_matching` once ignored its pattern, so flows had to re-filter what git already filters; `MockPrompter::prompt_name` once returned names `validate_branch_name` would reject
 
 ### The Test: Behavioral Substitutability
 
-Write interface contracts as tests. Every implementation must pass the same contract tests. If an implementation needs special handling, either:
-1. The interface contract is too broad (split it — ISP)
-2. The implementation doesn't belong behind this interface
+Whenever a trait method's doc comment states a guarantee, the mock must assert it (`MockPrompter::prompt_name`) or model it (`MockGit::list_branches_matching` honouring its glob). If an impl needs special handling, either the contract is too broad, or the impl doesn't belong behind this trait.
 
 ## I — Interface Segregation Principle
 
@@ -92,74 +87,57 @@ Write interface contracts as tests. Every implementation must pass the same cont
 
 ### Violation Signals
 
-- **Interface with >7 methods** serving different client groups
-- **Implementations that throw `NotImplementedException`** for some methods
-- **"I only use 2 of the 10 methods"** — the client is coupled to 8 irrelevant methods
-- **Interface changes break unrelated implementations**
-- **Read/write split ignored** — query-only clients forced to depend on mutation methods
+- **A trait method with no production caller** — dead weight on every impl and every mock
+- **An impl that must fake a method it has no notion of**
+- **A new method added for one caller** that every mock now has to answer
 
-### Practical Application
+### Deliberate Deviation Here
 
-```
-// BAD: One fat interface
-IUserService { GetUser, UpdateUser, DeleteUser, GetUserPreferences, SendNotification, ResetPassword }
+`Git` has 42 methods and is **not** split into role traits. ISP fires nominally, but every method has a production caller, there is one client cluster (`flows/` + `lifecycle.rs`), and one mock. Splitting would multiply `&dyn` parameters at every call site for zero present-tense benefit — `kiss-principles` vetoes it (see the veto order in CLAUDE.md). Fine granularity is itself the decision: it is what lets mocks record exact call sequences.
 
-// GOOD: Segregated interfaces
-IUserReader { GetUser, GetUserPreferences }
-IUserWriter { UpdateUser, DeleteUser }
-IUserAuth { ResetPassword }
-IUserNotifier { SendNotification }
-```
-
-Split by client need, not by arbitrary grouping.
+Split by client need when a *second* client cluster appears, not by arbitrary grouping.
 
 ## D — Dependency Inversion Principle
 
 **"Depend on abstractions, not concretions."** — Robert C. Martin
 
-### Class-Level DIP
-
-- Constructor parameters should be interfaces, not concrete classes
-- A `PaymentAppService` depends on `IPaymentRepository`, not `SqlPaymentRepository`
-- The concrete implementation is resolved by the DI container at runtime
-
-For layer-level DIP (boundary crossing), ensure inner layers never depend on outer layers.
+DIP is the backbone of this repo, and it has exactly one shape: **flows take `&dyn Trait`; `main.rs` is the only place that names a concrete adapter.** There is no DI container and no service locator — the composition root passes references down, and detection results (`hosting/detect.rs`, `mainline::resolve_main_branch`) are resolved once there and threaded as data.
 
 ### Violation Signals
 
-- **`new ConcreteClass()` for services** inside application or domain code
-- **Constructor parameters typed as concrete classes** instead of interfaces
-- **Static method calls to infrastructure** (`Database.Query()`, `HttpClient.Get()`)
-- **Service locator pattern** — `ServiceLocator.Get<T>()` hides dependencies
+- **`Command::new(...)` outside an adapter impl or the composition root**
+- **A parameter typed `&GitCli` instead of `&dyn Git`**
+- **A flow reading git config or the filesystem directly** instead of receiving the resolved value
+- **A global or `lazy_static` standing in for an injected dependency**
 
-### When a Concrete Dependency Is Acceptable
+### When a Concrete Type Is Fine
 
-- **Value objects and DTOs** — `new Money(100, "EUR")` is fine; these are data, not services
-- **Domain entities** — `new Payment(...)` is fine; the domain creates its own objects
-- **Pure utility types** — `DateTime.UtcNow` (though consider `ITimeProvider` for testability)
+- **Value types** — `SemVer`, `BranchType`, `Action`, `FinishState` are data, not services
+- **Pure helpers** — `validate_branch_name`, `worktree_path`, `template::resolve`
+- **The adapters themselves** — `GitCli` naming `Command` is the whole point of an adapter
 
 ## SOLID Code Review Checklist
 
 | # | Principle | Check | Severity |
 |---|-----------|-------|----------|
-| 1 | SRP | Too many constructor dependencies (see `kiss-principle` for thresholds) | Medium |
-| 2 | SRP | Class name contains "Manager", "Helper", "Utils" | Medium |
-| 3 | OCP | Growing switch/if-else chain that checks type or variant | Medium |
-| 4 | OCP | Adding a variant requires modifying existing classes | High |
-| 5 | LSP | Interface implementation with `NotImplementedException` | High |
-| 6 | LSP | Type-checking implementations (`is`, `as`, `typeof`) | High |
-| 7 | ISP | Interface with >7 methods serving different clients | Medium |
-| 8 | ISP | Implementation provides dummy methods it doesn't need | Medium |
-| 9 | DIP | `new ConcreteService()` in application/domain code | High |
-| 10 | DIP | Static calls to infrastructure from inner layers | Critical |
+| 1 | SRP | Too many injected `&dyn` ports (see `kiss-principles` for thresholds) | Medium |
+| 2 | SRP | Name contains "Manager", "Helper", "Utils" | Medium |
+| 3 | SRP | Business logic inside the untested subprocess/TTY shell | High |
+| 4 | OCP | A wildcard arm that swallows a new `BranchType` variant | High |
+| 5 | OCP | A `match` restating what a table already knows | Medium |
+| 6 | LSP | A mock with a weaker postcondition than its trait's doc | High |
+| 7 | LSP | `todo!()`/`unimplemented!()` in an impl | High |
+| 8 | ISP | A trait method with no production caller | Medium |
+| 9 | DIP | A parameter typed as a concrete adapter instead of `&dyn` | High |
+| 10 | DIP | `Command::new` outside an adapter impl or the composition root | Critical |
 
 ## When Pragmatic Deviation Is Acceptable
 
-- **Simple value objects** don't need interfaces — `Money`, `Address`, `DateRange` are data, not services
-- **Single-implementation interfaces** are justified when they exist for the Dependency Rule (boundary crossing), even if no second implementation is planned
-- **Simple CRUD** — a basic GET endpoint that reads and returns data doesn't need full OCP ceremony
-- **Prototyping phase** — knowingly violating SOLID during rapid prototyping is fine IF you schedule a cleanup pass
-- For over-engineering detection and complexity calibration, see the `kiss-principle` skill
+- **Value types** don't need traits — `SemVer`, `BranchType` are data
+- **Single-impl traits** are justified when they cross the port boundary (`Prompter`, `CommandRunner`), even with no second impl planned
+- **ISP on `Git`** is knowingly deviated from — see the ISP section for the full argument
+- **`unreachable!` for an invariant the type system can't state** is preferred over a silent fallback (`cli.rs`'s `--abort` arm, `lifecycle`'s finish identity)
+- For over-engineering detection and complexity calibration, see `kiss-principles`
 
 Document deviations: `// SOLID-DEVIATION: {reason}`
 
@@ -169,11 +147,11 @@ SOLID violations cluster. When you find one, look for its siblings:
 
 | Symptom | Primary Violation | Usually Also |
 |---------|-------------------|-------------|
-| God Service (does everything) | SRP | ISP — fat interface serving all clients |
-| Switch/if-else selector | OCP | DIP — depending on concretions to dispatch |
-| `NotImplementedException` | LSP | ISP — interface too broad for this implementation |
-| Utility class with 15 methods | SRP | ISP — clients use different subsets |
-| Service locator pattern | DIP | SRP — hidden dependencies obscure responsibilities |
-| Modifying existing code for every new feature | OCP | SRP — class has multiple reasons to change |
+| One function doing two workflows | SRP | ISP — it needs ports neither half uses alone |
+| A `match` that a table could answer | OCP | DRY — the table and the match are one piece of knowledge |
+| `todo!()` in an impl | LSP | ISP — the trait is too broad for this impl |
+| A mock that fakes rather than models | LSP | Tests that pass on input production can't produce |
+| A global standing in for a dependency | DIP | SRP — hidden dependencies obscure responsibilities |
+| Every new feature edits the same file | OCP | SRP — that file has several reasons to change |
 
-When reviewing code, don't just fix the surface symptom. Trace it to the root principle violation, then check for clustered violations.
+When reviewing code, don't just fix the surface symptom. Trace it to the root principle violation, then check for clustered violations. When principles collide, the veto order is `kiss-principles` → `dry-principles` → `solid-principles`.

@@ -41,20 +41,21 @@ Aim for 3-6 options. Fewer than 3 means you haven't explored enough. More than 6
 
 Before evaluating, read existing architectural decisions and plans to ensure your analysis is grounded in the project's established patterns:
 
-- Check `plans/` for architecture decision reviews
+- Check `docs/superpowers/plans/` for implementation plans
 - Check `docs/superpowers/specs/` for design specs
-- Check `CLAUDE.md` and `.claude/rules/architecture.md` for dependency rules
+- Check `.claude/skills/architecture/SKILL.md` (Principles, Layer Map) and `.claude/skills/architecture/decisions.md` for layering and dependency rules
+- Check `CLAUDE.md` (Architectural Decisions) for the required output of any design choice
 - Note which patterns have already been chosen and why
 
 Flag if any option conflicts with or aligns with established decisions. These findings feed the **Precedent** and **Architecture fit** rows in the matrix — collect concrete references (package/file for existing patterns, the specific rule for boundary conflicts) so those cells can cite them.
 
 ### 4. Architecture Gate
 
-Hard boundaries are constraints, not trade-offs — an option that violates one must not compete on points. Before building the matrix, screen every option against `.claude/rules/architecture.md` (layer hierarchy, dependency direction, forbidden dependencies, thin clients, feature ownership):
+Hard boundaries are constraints, not trade-offs — an option that violates one must not compete on points. Before building the matrix, screen every option against `.claude/skills/architecture/SKILL.md` and `decisions.md` (ports & adapters, no subprocess calls outside adapters, business logic only in `flows/`, dependency budget, state-before-mutation):
 
-- **Passes** — fully compliant, or allowed-but-discouraged (tier skipping, unusual package placement) → enters the matrix.
+- **Passes** — fully compliant, or allowed-but-discouraged (widening a port trait for one call site, logic in `lifecycle.rs` rather than a flow) → enters the matrix.
 - **Violates a hard boundary** → does not enter the matrix. Note the option and the violated rule in one line, then **restore the option count**:
-  1. First try a **compliant variant** — restructure the option to respect the boundary while keeping its core idea (move code to the owning feature package, invert the dependency, extract shared logic to `shuttellibrary`). The variant enters the matrix as its own option.
+  1. First try a **compliant variant** — restructure the option to respect the boundary while keeping its core idea (move the logic into a `flows/` function taking `&dyn` ports, push the subprocess call down into an adapter, add the primitive to the port trait instead of reaching around it). The variant enters the matrix as its own option.
   2. If no compliant variant exists, **replace it with a fresh approach from a different angle**, so the matrix still compares the same number of genuinely different solutions.
 
 **Exception:** if the decision under evaluation is explicitly about changing the boundary itself, the violating option may enter the matrix, clearly marked as requiring a rule change.
@@ -79,14 +80,14 @@ Evaluate each option against these criteria using emoji indicators:
 | **KISS** | How simple is it to understand and implement? Could a new developer figure it out quickly? |
 | **DRY** | Does it avoid knowledge duplication? (Not code duplication — knowledge duplication) |
 | **Precedent** | Is this pattern already used in the codebase? ✅ established — cite an existing example (package/file). ⚠️ new pattern, but nothing existing covers this and the benefit justifies a second way of doing things. ❌ new pattern that duplicates an existing one, or divergence the benefit doesn't justify |
-| **Architecture fit** | Records the step 4 gate result and weighs soft boundary-bending. ✅ fully within boundaries; ⚠️ allowed but discouraged (tier skipping, unusual package placement) — a legitimate trade-off, cite the relevant rule; ❌ appears only when the decision is explicitly about changing the boundary itself — hard violations were already gated out in step 4 |
+| **Architecture fit** | Records the step 4 gate result and weighs soft boundary-bending. ✅ fully within boundaries; ⚠️ allowed but discouraged (widening a port trait for one call site, logic in `lifecycle.rs` rather than a flow) — a legitimate trade-off, cite the relevant rule; ❌ appears only when the decision is explicitly about changing the boundary itself — hard violations were already gated out in step 4 |
 | **SRP** | Does each component have one clear reason to change? |
 | **OCP** | Can it be extended without modifying existing code? |
 | **LSP** | Can implementations be substituted without breaking consumers? |
 | **ISP** | Are interfaces narrow and focused? Do consumers see only what they need? |
 | **DIP** | Do high-level modules depend on abstractions, not details? (Evaluate based on project rules, not clean architecture dogma) |
 | **Performance** | Runtime cost, memory, rendering speed, cache efficiency |
-| **Migration effort** | How much existing code changes? How many consumers affected? Count ONLY code/data that actually exists — in a greenfield phase (see `.claude/rules/project-phase.md`) this row is `—` for every option, and operational sequencing costs (new runtime/deploy target) go under KISS/Risk instead |
+| **Migration effort** | How much existing code changes? How many consumers affected? Count ONLY code/data that actually exists — including released state files and published tags, which cannot be migrated retroactively. Operational sequencing costs (new runtime/deploy target) go under KISS/Risk instead |
 | **Testability** | Can it be tested in isolation? How easy to mock/stub? |
 | **Reversibility** | If this turns out wrong, how hard is it to undo or change course? |
 | **Risk** | What could go wrong? How likely? How severe? |
@@ -102,8 +103,8 @@ Evaluate each option against these criteria using emoji indicators:
 |-----------|-----------|-----------|-----------|
 | **KISS** | ✅ Simple, no new concepts | ⚠️ Adds indirection layer | ❌ Complex lifecycle |
 | **DRY** | ✅ Single source of truth | — Equal | ⚠️ Two code paths |
-| **Precedent** | ✅ Matches `features/parking` notifier setup | ⚠️ New pattern, justified: no existing equivalent | ❌ Second way to do what `showModal` already does |
-| **Architecture fit** | ✅ Stays within feature package | ✅ Respects tier order | ⚠️ Skips tier 2, direct tier-3 → tier-1 dep |
+| **Precedent** | ✅ Matches `hosting/detect.rs` pure-core/thin-shell split | ⚠️ New pattern, justified: no existing equivalent | ❌ Second way to do what `lifecycle::run` already does |
+| **Architecture fit** | ✅ Flow depends only on `&dyn` ports | ✅ Adapter owns the subprocess call | ⚠️ Widens the `Git` trait for one call site |
 | **SRP** | ✅ Clear single purpose | ⚠️ Mixed concerns | ✅ Well separated |
 ...
 ```
@@ -132,15 +133,18 @@ Before presenting the matrix, verify:
 6. **Precedent and Architecture fit cite specifics** — an existing package/file for ✅ Precedent, the violated rule for ❌ Architecture fit; no vibes-based cells
 7. **Gate ran and the pool survived** — every option was screened against hard boundaries in step 4, no ungated violation appears in the matrix, and every gated option was replaced (compliant variant or fresh approach) so the number of angles didn't shrink
 
-## Integration with Brainstorming
+## Relationship to planning workflows
 
-When used inside the brainstorming skill's "Propose 2-3 approaches" step:
+This skill is the **method** for one contested decision. Whatever planning skill is driving the work — `superpowers:brainstorming`, `superpowers:writing-plans`, or any successor to them — is the **container** for a change that holds many decisions.
 
-1. The brainstorming skill identifies the approaches
-2. This skill evaluates them with the full matrix
-3. The recommendation feeds back into brainstorming's design phase
+**Nested, never run before.** The matrix consumes the scope, non-goals, and constraints that planning establishes; running it first gates options against constraints that were never set.
 
-The matrix replaces informal "here are the trade-offs" descriptions with a structured, reviewable analysis.
+- In brainstorming, the nesting point is *"Propose 2-3 approaches"* — that skill identifies the approaches, this one evaluates them, and the recommendation feeds back into its design phase.
+- In writing-plans, it is the *"File Structure"* section, where decomposition gets locked in.
+
+Use `decision-matrix` when the decision is structural, hard to reverse, and genuinely contested — all three. Everything else gets a stated trade-off inline.
+
+The standard for what any design choice must output — options, separating axis, one recommendation, reversibility — is owned by the **Architectural Decisions** section of `CLAUDE.md`, not by this skill or any planning skill. This matrix is the heavyweight form of that standard; it does not replace it, and the standard still applies when no matrix is warranted.
 
 ## Anti-Patterns
 

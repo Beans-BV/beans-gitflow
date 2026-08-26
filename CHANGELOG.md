@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-08-26
+
+### Added
+- `bflow init` — repositories are now initialised explicitly. Repo-wide policy lives in a committed `.bflow/config` (landing mode, `keep-release-branches`, bump strategy), written by a three-question wizard. Commit the file so every clone and CI job shares the same policy.
+- Protected landing mode (`mode=protected`): on repos where `main`/`develop` require pull requests, `bflow finish`, `bump`, and `sync` open a PR for every landing instead of merging directly, print its URL, and exit 0 — bflow never merges a PR. Re-running the same command after a human merges it continues from there; one PR lands per run, and only the last one deletes the source branch (unless its tip isn't part of any landed PR, in which case bflow keeps it and prints how to remove it by hand). Progress is re-derived from PR and tag state on every run — nothing is stored on disk.
+- Every protected landing PR's head is a throwaway `finish/<source>-into-<target>` branch, so the release/hotfix branch is never a PR head and can never be touched by a conflict resolution or the platform's auto-delete-head-branches setting. Landing PRs are born mergeable: bflow merges the target into the finish branch on every run, so a conflict surfaces immediately in your terminal with exact recovery steps, and a PR that turns conflicted later (the target moved) is healed by simply re-running. Strict develop/release legs re-open with a refreshed finish branch when a landing predates newer source commits, so no commit can silently miss a target.
+- Repo-owned version script (`.bflow/set-version.sh` / `.bflow/set-version.cmd`, picked by platform): an opt-in file bflow runs with the clean `X.Y.Z` version when a release or hotfix branch is cut, when develop is bumped after a release, and on `bflow bump`, committing whatever it changes as `chore: set version {v}`. A repo with neither file behaves exactly as before.
+- `bump-strategy` config key (`.bflow/config`): `rc` (default) keeps today's SemVer pre-release tags (`vX.Y.0-rc.N` for staging, clean `vX.Y.0` for production); `patch` gives every staged build a real incrementing version (`vX.Y.1`, `vX.Y.2`, …) for projects that cannot consume pre-release tags — finish then only merges (the last bump tag is already final), and hotfix versions derive from shipped tags only, never from an open release's staging numbers.
+- `keep-release-branches` config key (`.bflow/config`): skips bflow's own deletion of `release/*`/`hotfix/*` branches once a finish or bump is done with them; work branches are unaffected. Kept branches whose clean tag exists are treated as shipped, not open, so `bflow start`'s reuse checks, `release-fix` discovery, and hotfix fan-out skip them.
+- `release-chore/{v}/set-version` branch type: bflow-created branches carrying a version-script commit that can't land directly on a protected release branch; finishes like `release-fix` if a human needs to intervene.
+- Release and hotfix branches join the worktree flow: `bflow start release` opens the new release in its own worktree (the current checkout returns to `develop`; `--no-worktree` skips it), and a release/hotfix finish works from any worktree — a merge target checked out in another worktree is merged there in place (that tree must be clean), a mainline held by another worktree is detached around instead of checked out, and the finish removes its own worktree when it ran inside one.
+- `worktrees.json` setup commands: after creating a worktree, bflow runs the repo's `.cursor/worktrees.json` / `worktrees.json` setup commands (Cursor / worktree-cli format) in the new tree, with `$ROOT_WORKTREE_PATH` pointing at the main checkout. Command failures are reported and never fail the start; an unparsable file warns (naming the file and byte offset) and is skipped instead of blocking.
+- `master` mainline support: on first run bflow detects whether the repository uses `main` or `master`, saves the answer to `bflow.branch.main` (repo-local git config), and every flow, menu, and message follows the resolved name. Only those two names are accepted.
+
+### Changed
+- A repository without `.bflow/config` is **not initialised**: the interactive menu offers the init wizard and subcommands refuse with `run 'bflow init'`. Existing repos need `bflow init` once — that is the whole migration.
+- Pending-landing announcements are now a readable block — blank-line separated, with the PR title (bold on a terminal), the URL, what happens next, and the conflict hint — instead of a wall of text.
+
+### Fixed
+- The interactive menu on a hotfix branch now offers "start hotfix fix".
+- GitHub's open-PR probe (`create_or_get_pr`) now filters by base branch instead of returning a branch's newest PR regardless of target, which could reuse the wrong PR when a hotfix fans out into several release branches.
+- PR templates are now resolved from the working tree the command runs in, instead of the main working tree — running a finish from a worktree no longer applies another branch's template.
+
 ## [3.1.0] - 2026-08-03
 
 ### Changed
@@ -142,6 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[3.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.4.0...v3.0.0
 [2.4.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.3.0...v2.4.0

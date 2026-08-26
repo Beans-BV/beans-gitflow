@@ -17,6 +17,18 @@ pub struct MergedPr {
     pub base: String,
 }
 
+/// A PR that landed `head` into a specific `base`: everything a protected-mode
+/// landing needs to confirm the merge and record its commit. Distinct from
+/// `MergedPr` (which answers "is my work branch done, whatever the base") —
+/// this answers "did head land into base", and carries the merge commit SHA
+/// rather than the base name, since the base is already known by the caller.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandedPr {
+    pub url: String,
+    pub head_sha: String,
+    pub merge_commit_sha: String,
+}
+
 pub trait HostingPlatform {
     /// Create a PR (or return the URL of an existing open one). When `template` is
     /// `Some`, its contents become the PR body; when `None`, the platform falls back to
@@ -25,24 +37,44 @@ pub trait HostingPlatform {
     /// The merged PR for `head`, if the branch's most recent PR is merged.
     /// An open or abandoned newer PR yields `None` — the branch is still in play.
     fn merged_pr(&self, head: &str) -> Result<Option<MergedPr>>;
+    /// The newest `head`→`base` PR, if it is merged. An open or abandoned newer
+    /// PR yields `None`.
+    fn merged_pr_to(&self, head: &str, base: &str) -> Result<Option<LandedPr>>;
+    /// URL of the newest OPEN `head`→`base` PR, if any. Exists for the
+    /// finish-branch migration: an open landing PR from an older bflow (head =
+    /// the release/hotfix branch itself) must be surfaced, not duplicated.
+    fn open_pr_to(&self, head: &str, base: &str) -> Result<Option<String>>;
     fn open_url(&self, url: &str) -> Result<()> {
         open_in_browser(url)
     }
     fn check_auth(&self) -> Result<()>;
 }
 
-/// Run a hosting CLI (`gh`, `az`, ...), returning trimmed stdout on success or a
-/// `"<cli> <args> failed: <stderr>"` error. Shared by all provider implementations.
-fn run_cli(program: &str, args: &[impl AsRef<str>]) -> Result<String> {
-    use std::process::Command;
-    let output = Command::new(program).args(args.iter().map(|a| a.as_ref())).output()
-        .map_err(|e| format!("Failed to run {program}: {e}"))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let joined = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>().join(" ");
-        Err(format!("{program} {joined} failed: {stderr}"))
+/// Port for invoking a hosting CLI (`gh`, `az`, ...). The providers own the
+/// policy — which flags to pass, which failures are normal — and depend on this
+/// trait so that policy is testable without an installed CLI. `SystemCli` is the
+/// only production implementation, keeping "no subprocess calls outside adapter
+/// impls" (SKILL.md principle 1) true at a single point.
+pub trait CliRunner {
+    /// Run `program` with `args`, returning trimmed stdout on success or a
+    /// `"<cli> <args> failed: <stderr>"` error.
+    fn run(&self, program: &str, args: &[&str]) -> Result<String>;
+}
+
+/// The real runner: spawns the CLI as a child process.
+pub struct SystemCli;
+
+impl CliRunner for SystemCli {
+    fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+        use std::process::Command;
+        let output = Command::new(program).args(args).output()
+            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(format!("{program} {} failed: {stderr}", args.join(" ")))
+        }
     }
 }
 

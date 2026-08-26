@@ -3,16 +3,19 @@ use std::process::{Command, ExitCode};
 use clap::Parser;
 
 use bflow::cli::{Commands, WorktreeAction};
-use bflow::git::GitCli;
+use bflow::git::{GitCli, SystemRunner};
 use bflow::git::Git;
 use bflow::hosting::detect::{self, Provider};
 use bflow::hosting::devops::AzureDevOps;
 use bflow::hosting::github::GitHub;
-use bflow::hosting::HostingPlatform;
+use bflow::hosting::{HostingPlatform, SystemCli};
 use bflow::lifecycle;
 use bflow::menu::MenuPrompter;
 use bflow::editor::CommandEditor;
-use bflow::worktree::{self, WorktreeConfig};
+use bflow::init;
+use bflow::version_script::{self, ScriptCli, VersionScript};
+use bflow::worktree::{self, WorktreeConfig, WorktreeEnv};
+use bflow::worktree_setup::{self, ShellSetup};
 
 #[derive(Parser)]
 #[command(name = "bflow", version, about = "Beans GitFlow - customized gitflow workflow CLI")]
@@ -35,7 +38,7 @@ fn main() -> ExitCode {
 /// (which lives in the library so its crash-safety ordering is testable).
 fn run(command: Option<Commands>) -> Result<(), String> {
     check_command_exists("git")?;
-    let git = GitCli::new();
+    let git = GitCli::new(&SystemRunner);
 
     // `bflow worktree` only reads/writes git config — no gh, auth, fetch, or branch
     // context needed. Dispatch it here and return before the branch-flow machinery.
@@ -49,12 +52,41 @@ fn run(command: Option<Commands>) -> Result<(), String> {
     // Provider detection reads the origin remote, so the repo check comes first.
     git.current_branch().map_err(|_| "Not in a git repository.".to_string())?;
 
+    // Eager resolve: a platform-mismatched committed script errors on every
+    // command, not just release/hotfix ones. Accepted — it surfaces the
+    // misconfiguration immediately rather than on whichever command hits it first.
+    let root = git.worktree_root()?;
+    if let Some(Commands::Init) = command {
+        return init::run(&MenuPrompter, &root);
+    }
+    let repo_cfg = init::ensure(&MenuPrompter, &root, command.is_none())?;
+    let script_path = version_script::resolve(&root)?;
+    let script = script_path.map(|path| ScriptCli::new(path, root.clone()));
+
     let hosting = create_hosting(&git)?;
     let wt_config = WorktreeConfig::load(&git)?;
     let editor = CommandEditor::new(wt_config.editor.clone());
+    let (setup_commands, setup_warning) = worktree_setup::resolve(&root, wt_config.enabled);
+    if let Some(warning) = setup_warning {
+        eprintln!("Warning: {warning}");
+    }
+    let worktree_env = WorktreeEnv {
+        config: &wt_config,
+        editor: &editor,
+        setup: &ShellSetup,
+        commands: setup_commands.as_ref(),
+    };
     let prompter = MenuPrompter;
 
-    lifecycle::run(&git, &*hosting, &prompter, &editor, &wt_config, command)
+    lifecycle::run(
+        &git,
+        &*hosting,
+        &prompter,
+        &worktree_env,
+        &repo_cfg,
+        script.as_ref().map(|s| s as &dyn VersionScript),
+        command,
+    )
 }
 
 /// Detect the hosting provider for this repo and return a ready-to-use,
@@ -63,7 +95,7 @@ fn create_hosting(git: &dyn Git) -> Result<Box<dyn HostingPlatform>, String> {
     match detect::detect(git)? {
         Provider::GitHub => {
             check_command_exists("gh")?;
-            let hosting = GitHub::new();
+            let hosting = GitHub::new(&SystemCli);
             hosting.check_auth().map_err(|e| {
                 format!("GitHub CLI is not authenticated. Run 'gh auth login' first.\n{e}")
             })?;
@@ -71,7 +103,7 @@ fn create_hosting(git: &dyn Git) -> Result<Box<dyn HostingPlatform>, String> {
         }
         Provider::AzureDevOps { org, project, repo } => {
             check_command_exists("az")?;
-            let hosting = AzureDevOps::new(org, project, repo);
+            let hosting = AzureDevOps::new(org, project, repo, &SystemCli);
             hosting.check_auth().map_err(|e| {
                 format!("Azure CLI is not ready for Azure DevOps. Run 'az login' (or 'az devops login' with a PAT).\n{e}")
             })?;
@@ -80,9 +112,9 @@ fn create_hosting(git: &dyn Git) -> Result<Box<dyn HostingPlatform>, String> {
     }
 }
 
-fn run_worktree_config(git: &GitCli, action: Option<WorktreeAction>, local: bool) -> Result<(), String> {
+fn run_worktree_config(git: &GitCli<'_>, action: Option<WorktreeAction>, local: bool) -> Result<(), String> {
     match action {
-        None => worktree::wizard(git, local),
+        None => worktree::wizard(git, &MenuPrompter, local),
         Some(WorktreeAction::Enable) => worktree::set_enabled(git, true, local),
         Some(WorktreeAction::Disable) => worktree::set_enabled(git, false, local),
         Some(WorktreeAction::Editor { value }) => worktree::set_editor(git, &value, local),

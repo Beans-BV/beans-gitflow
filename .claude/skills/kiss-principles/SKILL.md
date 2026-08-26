@@ -1,5 +1,5 @@
 ---
-name: kiss-principle
+name: kiss-principles
 description: "KISS principle — over-engineering detection, simplicity heuristics, complexity anti-patterns, knowledge-based extraction timing, KISS vs DRY tension, KISS vs SOLID balance"
 ---
 
@@ -7,7 +7,8 @@ description: "KISS principle — over-engineering detection, simplicity heuristi
 
 Authoritative reference for the KISS (Keep It Simple, Stupid) principle as applied in this project. Provides over-engineering detection, simplicity heuristics, and complexity calibration.
 
-**Code examples:** `examples/over-engineering.dart`
+**Precedent lives in this repo, not in example files** — every claim below points
+at real code. See also `architecture` (Layer Map) and its `decisions.md`.
 
 **Related principles:** `solid-principles` (KISS counterbalances SOLID ceremony), `dry-principles` (KISS prevents premature DRY extraction).
 
@@ -26,7 +27,7 @@ Four concrete tests to evaluate whether a solution is too complex:
 ### Comprehension Test
 > "Can someone unfamiliar with this code understand its intent within reasonable onboarding time?"
 
-If the design requires deep context to understand, either the problem genuinely demands that complexity (document the rationale) or the solution has unnecessary indirection. Note: patterns like CQRS or domain events are not over-engineering when the problem warrants them.
+If the design requires deep context to understand, either the problem genuinely demands that complexity (write the rationale into `decisions.md`) or the solution has unnecessary indirection.
 
 ### Necessity Test
 > "Is there a simpler way that meets CURRENT requirements?"
@@ -36,7 +37,9 @@ Emphasis on current. "We might need it later" is not a current requirement.
 ### Deletion Test
 > "If I deleted this abstraction, what concrete problem reappears?"
 
-If you can't name a specific, present-tense problem, the abstraction isn't earning its keep. Note: standard CA layers serve structural consistency and testability — these are present-tense reasons. This test targets extra abstractions *within* layers.
+If you can't name a specific, present-tense problem, the abstraction isn't earning its keep.
+
+The ports (`Git`, `HostingPlatform`, `Editor`, `Prompter`) pass this test on the spot: delete them and flows can no longer run against mocks, which is principle 9. This test targets everything *else* — extra indirection inside `flows/`, inside an adapter, or between `lifecycle.rs` and a flow.
 
 ### Explanation Test
 > "Can I explain this design in one sentence without using 'flexible', 'extensible', or 'reusable'?"
@@ -47,25 +50,25 @@ If the only justification uses future-tense words, the complexity serves a hypot
 
 ### Premature Polymorphism
 
-Creating an interface with a single implementation when no layer boundary or test isolation requires it.
+A new trait with one production impl when nothing needs the seam.
 
-**Justified single-implementation interfaces:** layer boundary (Dependency Rule demands it), test isolation, API contract stability between teams.
+**Justified here:** the port/adapter boundary (a real CLI on one side, a mock on the other). `Prompter` has exactly one production impl and earns its keep because `menu::show_menu` is otherwise untestable without a TTY. `CommandRunner`/`CliRunner` are single-impl for the same reason.
 
-**Detection:** Interface + single implementation + no layer boundary + no test mock + no cross-team contract = premature polymorphism.
+**Detection:** trait + one impl + no mock in `tests/common/mod.rs` = premature polymorphism.
 
-### Lasagna Architecture
+### A Layer That Isn't in the Layer Map
 
-Extra layers *beyond the standard CA layer model* that add no logic — a facade between controller and service, a wrapper around a wrapper.
+The Layer Map has four rows: composition root, lifecycle, interfaces, flows, ports+adapters. Anything between two of them that only forwards is a layer that doesn't belong — a "service" between `lifecycle::run_flow` and a flow, or a wrapper around `GitCli`.
 
-**Important:** This targets layers that don't belong, NOT thin-but-structurally-correct standard layers. A thin Application Service is the correct shape for simple operations.
+**Important:** thin is not the same as pointless. `flows::push_if_needed` is four lines and correct: the guard IS the logic.
 
-**Detection:** A class outside standard CA layers where every method delegates to another class with the same signature.
+**Detection:** a function outside the Layer Map whose every call forwards to one other function with the same signature.
 
 ### Premature Abstraction (Wrong-Abstraction Guards)
 
 Extracting a shared abstraction from coincidental similarity — cases that share structure without sharing a meaningful concept.
 
-**Rule (this project — knowledge-based, never count-based):** extract at the SECOND occurrence when the cases share knowledge (same rule/contract, same reason to change) AND the extraction passes three guards: a clean name without "and"/"or", zero boolean flags or mode params at birth, and all callers change for the same reason. Coincidental shape-similarity is never extracted, at any count. One-liners never earn the indirection. Decided mechanisms/infrastructure go further: framework-first at the FIRST occurrence (see `.claude/rules/coding-rules.md`).
+**Rule (this project — knowledge-based, never count-based):** extract at the SECOND occurrence when the cases share knowledge (same rule/contract, same reason to change) AND the extraction passes three guards: a clean name without "and"/"or", zero boolean flags or mode params at birth, and all callers change for the same reason. Coincidental shape-similarity is never extracted, at any count. One-liners never earn the indirection. Decided mechanisms/infrastructure go further: framework-first at the FIRST occurrence.
 
 **Detection:** a shared abstraction whose name contains "and"/"or", or that needed a flag/mode parameter at birth to serve its callers.
 
@@ -77,9 +80,9 @@ Making things configurable that will never be configured. Adding options, flags,
 
 ### Pattern Worship
 
-Applying a design pattern where a simpler construct suffices. Strategy pattern for two stable variants. Full AsyncNotifier with freezed state for a simple boolean toggle.
+Applying a pattern where a simpler construct suffices: a trait for two stable variants where a `match` reads better; a builder for a struct with three fields; a params struct where the argument list was the problem.
 
-**Detection:** The pattern's structural overhead exceeds the logic it contains.
+**Detection:** the pattern's structural overhead exceeds the logic it contains. Precedent: `run_flow` keeps 10 plain parameters and an `#[allow]` rather than growing a params struct.
 
 ## The KISS-DRY Tension
 
@@ -101,34 +104,37 @@ SOLID ceremony is justified when the problem demands it. It's over-engineering w
 ### The Balance Point
 > "Is there a concrete, present-tense reason for this abstraction?"
 
-- **Yes, layer boundary** → add the interface (Dependency Rule is non-negotiable)
-- **Yes, test isolation** → add the interface
-- **Yes, API contract stability** → add the interface
-- **Yes, 3+ implementations exist** → add the interface
+- **Yes, it crosses the port boundary** (subprocess, network, terminal, clock) → add the trait
+- **Yes, a flow cannot be tested without it** → add the trait
+- **Yes, 2+ real impls exist** (`GitHub` / `AzureDevOps`) → add the trait
 - **No, maybe someday** → don't add it (KISS wins over speculative SOLID)
 
 ## KISS Applied to Architecture
 
-### Constructor Injection as Complexity Signal
+### Injected `&dyn` Ports as a Complexity Signal
 
-- **0-5 dependencies** — healthy
-- **6-7 dependencies** — review whether responsibilities should split
-- **8+ dependencies** — almost certainly an SRP violation
+Counting only the port parameters a function takes:
+
+- **0-3 ports** — healthy (`finish_work_branch` takes 3)
+- **4-5 ports** — ask whether the function is orchestrating two things
+- **6+ ports** — almost certainly an SRP violation
+
+Plain data parameters are a *separate* smell; `run_flow`'s ten are tolerated because it is the dispatch table itself, and the `#[allow]` says so out loud.
 
 ### Choosing the Right Level of Ceremony
 
-The standard CA layers are always present. KISS applies to how much logic lives *within* each layer:
+Where code goes is decided by the Layer Map. KISS decides how much machinery lives inside it:
 
-| Complexity | Application Service Shape |
-|-----------|----------|
-| Simple CRUD, no business rules | Thin pass-through — delegates to repository. Still present for consistency and as a seam. |
-| One business rule | Thin service with the rule inline |
-| Orchestration across multiple concerns | Full service with injected dependencies |
-| Cross-aggregate coordination | Domain Events |
+| Situation | Shape |
+|---|---|
+| One git call with a guard | A free function in `flows/mod.rs` (`push_if_needed`) |
+| A multi-step branch lifecycle | A flow function in `flows/` taking `&dyn` ports |
+| Needs a subprocess or the terminal | A port + adapter, never inline |
+| Needs to survive a crash mid-way | State in `state.rs`, written before the first side effect |
 
-### Start Simple Within the Layers
+### Start Simple
 
-Keep implementations simple and add ceremony within each layer as complexity grows. A service method that starts as 3 lines of delegation is fine — it's a placeholder in the right place.
+A flow that starts as three git calls in sequence is finished code, not a placeholder. Add structure when a second caller or a resume path actually arrives.
 
 ## Red Flags Checklist
 
@@ -141,13 +147,14 @@ Keep implementations simple and add ceremony within each layer as complexity gro
 | 5 | Design pattern where a conditional or direct call suffices | Pattern Worship |
 | 6 | Configuration parameter that has only ever had one value | Configuration Ceremony |
 | 7 | Generic base class shared by 2 unrelated concepts | Wrong Abstraction (see `dry-principles`) |
-| 8 | Full AsyncNotifier with freezed state for a boolean toggle | Pattern Worship (Flutter) |
-| 9 | 8+ constructor dependencies | Complexity signal (see `solid-principles` SRP) |
+| 8 | A `--flag` or config key with exactly one value ever used | Configuration Ceremony |
+| 9 | 6+ `&dyn` port parameters on one function | Complexity signal (see `solid-principles` SRP) |
 
 ## Severity Classification
 
 ### High (Should fix before merge)
-- Extra forwarding-only layer outside standard CA model that adds zero logic
+- A forwarding-only layer that is not in the Layer Map
+- A subprocess call outside an adapter impl (also an architecture violation)
 
 ### Medium (Fix soon)
 - Premature abstraction with single usage and no justification
@@ -156,18 +163,19 @@ Keep implementations simple and add ceremony within each layer as complexity gro
 
 ### Low / Suggestions
 - Configuration parameter with a single known value
-- Opportunity to simplify logic within an existing layer
+- Opportunity to simplify logic inside an existing flow or adapter
 
 ## Documentation Convention
 
 **`// KISS:` — applying simplicity:**
 ```
-// KISS: Single implementation, no layer boundary — concrete class sufficient
-// KISS: 2 stable variants, switch preferred over Strategy pattern
+// KISS: two stable variants — a match beats a trait here
+// KISS: one impl and no mock needed — a plain fn, not a port
 ```
 
 **`// KISS-DEVIATION:` — knowingly adding complexity:**
 ```
-// KISS-DEVIATION: Full Strategy pattern justified — 4 payment providers with different auth flows
-// KISS-DEVIATION: Generic base class needed — 5 Notifiers share identical pagination logic
+// KISS-DEVIATION: CommandRunner exists so GitCli's exit-code semantics are testable
 ```
+
+Anything load-bearing enough to argue about belongs in `decisions.md`, not only in a comment.

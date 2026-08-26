@@ -1,13 +1,14 @@
 ---
 name: dry-principles
-description: "DRY (Don't Repeat Yourself) — knowledge duplication vs coincidental similarity, when duplication is correct, Wrong Abstraction anti-pattern, cross-service contract DRY, DAMP testing"
+description: "DRY (Don't Repeat Yourself) — knowledge duplication vs coincidental similarity, when duplication is correct, Wrong Abstraction anti-pattern, DAMP testing"
 ---
 
 # DRY Principles
 
 Authoritative reference for the DRY principle as applied in this project. Defines knowledge duplication vs coincidental similarity, when duplication is correct, the Wrong Abstraction lifecycle, and DAMP testing.
 
-**Code examples:** `examples/real-vs-coincidental.dart`, `examples/wrong-abstraction.dart`, `examples/violations.md`, `examples/damp-tests.dart`
+**Precedent lives in this repo, not in example files** — every claim below points
+at real code. See also `architecture` and its `decisions.md`.
 
 **Related principles:** `solid-principles` (SRP-DRY tension when actors differ), `kiss-principles` (counterforce to premature extraction — see `kiss-principles` for the knowledge-based extraction guards and timing).
 
@@ -27,7 +28,7 @@ The same business rule or decision encoded in multiple places. When the rule cha
 
 **Heuristic:** These change for the **same reason** at the **same time**.
 
-**Example:** Fee calculation logic in both `PaymentApplicationService` and `TransferApplicationService`. When the fee structure changes, both must update — this is one piece of knowledge in two places.
+**Example (real):** `finish_release_fix` and `finish_hotfix_fix` each spelled out "if the PR already merged, clean up; otherwise open a `fix: <name>` PR against the parent". One rule, two copies — extracted into `finish_fix`.
 
 ### 2. Coincidental Similarity (Syntactic — Keep Separate)
 
@@ -35,13 +36,15 @@ Code that looks similar today but represents different business concepts. They w
 
 **Heuristic:** These change for **different reasons** or at **different times**.
 
-**Example:** A `CreatePaymentInput` and `CreateTransferInput` both have `Amount`, `Currency`, and `Description` fields. They look identical, but payments and transfers are different business concepts with different validation rules that will evolve independently.
+**Example (real):** `hosting/github.rs` and `hosting/devops.rs` have the same *shape* — check for a PR, create one, report a merge. They share almost no knowledge: `gh` takes `--body-file` while `az` needs the file read; ADO PR URLs must be synthesized. The one genuinely shared rule, `resolve_body_file`, IS extracted; the rest stays apart on purpose.
 
 ### 3. Structural Similarity (Pattern — Document)
 
 Repeated code structure that follows a convention or pattern (e.g., all Application Services have similar constructor injection). This is intentional consistency, not duplication.
 
-**Heuristic:** These change when the **pattern itself** changes, not when individual business rules change.
+**Heuristic:** These change when the **pattern itself** changes, not when individual rules change.
+
+**Example (real):** every idempotent finish step in `flows/mod.rs` reads "check a real-state predicate, print `↷ skipped:`, else act". That is a convention, documented in `decisions.md`; the steps are not folded into one generic step.
 
 ### The Decision Heuristic
 
@@ -53,25 +56,17 @@ Repeated code structure that follows a convention or pattern (e.g., all Applicat
 | No, different business concepts | Keep separate — this is coincidental similarity |
 | Same pattern/convention | Document the pattern, don't abstract the instances |
 
-See `examples/real-vs-coincidental.dart` for concrete scenarios.
-
 ## When Duplication Is Correct
 
 Duplication is not always wrong. In these cases, the coupling cost of sharing exceeds the duplication cost:
 
-### Across Architectural Layers
+### Across the Port Boundary
 
-DTOs, entities, and view models may have similar fields but serve different layers. Merging them creates tight coupling between layers.
+A concept represented on both sides of a port is not duplication. `BranchType` (parsed knowledge), `Action` (what to do), and `FinishState` (what survives a crash) all describe "a release finish" and are correctly three types with three lifetimes.
 
-**Example:** `PaymentEntity` (Domain), `PaymentDto` (Application), `PaymentResponseDto` (API), `PaymentState` (Flutter) — four representations of "payment" is correct, not duplication.
+### Between the Two Interfaces
 
-**Mapper code between these representations is also structural, not duplicative.** Don't extract a generic mapper — each boundary has its own evolution path.
-
-### Across Bounded Contexts
-
-Different bounded contexts own their own models. Sharing models between contexts creates tight coupling that's worse than duplication.
-
-**Example:** Two separately deployed services are separate products. Duplicating a shared model in both is correct.
+`cli::resolve_action` and `menu::show_menu` both encode the branch-type gating table — the CLI's reject side, the menu's offer side. Deriving one from the other would need a mode parameter and would flatten the deliberately different wording (decisions.md: the menu adds "Switch to main or develop first", the CLI stays terse). This duplication is accepted and paid for with a **parity test** instead.
 
 ### When Coupling Cost Exceeds Duplication Cost
 
@@ -113,8 +108,6 @@ If you can't name the shared concept better than "SharedHelper", "CommonUtils", 
 
 Do NOT try to "fix" a wrong abstraction by adding more parameters or conditionals.
 
-See `examples/wrong-abstraction.dart` for detailed lifecycle examples.
-
 ## DRY Violations to Watch For
 
 ### Shotgun Surgery
@@ -123,8 +116,8 @@ A single business rule change requires modifying multiple files. The knowledge i
 ### Business Rules in Multiple Places
 The same validation, calculation, or business decision implemented in more than one location.
 
-### Magic Numbers
-Literal values scattered through the codebase representing a single business decision. `3600` (token expiry), `0.015m` (fee percentage), `3` (max retry) appearing in multiple files without a named constant.
+### Magic Strings
+A branch name, config key, or remedy sentence written out in more than one place. `bflow.branch.main` is a `const`; the `gh auth login` remedy is a `const`; branch names come from `SemVer` methods, never `format!`.
 
 ### Copy-Paste with Minor Variations
 Nearly identical blocks of code where the differences are incidental, not intentional.
@@ -138,7 +131,7 @@ When DRY and SRP conflict, **SRP wins when actors differ**.
 
 The same logic serving different stakeholders is coincidental similarity, not knowledge duplication. Even if the code is identical today, different stakeholders will drive divergence.
 
-**Example:** Fee calculation for customer-facing payments vs fee calculation for internal reconciliation reports. Same formula today, but the customer-facing calculation might add promotional discounts while reconciliation stays on raw fees.
+**Example (real):** `finish_release` and `finish_hotfix` share shape but answer to different rules — only the release path carries the RC gate, only the hotfix path propagates into open releases. Unifying them would need mode flags, which is the wrong-abstraction red flag.
 
 Cross-reference: `solid-principles` skill, SRP section.
 
@@ -148,25 +141,10 @@ Cross-reference: `solid-principles` skill, SRP section.
 |-------|--------|-----------|
 | Within a class | Extract method | Zero coupling cost |
 | Within a module/feature | Extract to shared class in same module | Low coupling cost |
-| Across features in same product | Shared module with clear ownership | Medium coupling cost — worth it for business rules |
-| Across separately deployed services | **Keep duplicated** | High coupling cost — shared library creates deployment dependency |
-| Across bounded contexts | **Keep duplicated** | Very high coupling cost — different models, different evolution |
-
-## Cross-Service DRY (Enterprise)
-
-### Separate Products: Accept Duplication
-
-Separately deployed services with independent bounded contexts should accept duplication. Sharing models between them creates deployment coupling and version synchronization burden.
-
-### Within One Product: Single Source of Truth
-
-Within a single product, shared constants and business rules should have one authoritative source.
-
-### Frontend-Backend Contract Sync
-
-The mobile app, portal, and backend are one product. The contract is the **single source of truth**: database types come from `supabase gen types typescript` into `packages/api-types`, and Zod schemas defined once in that package serve backend validation (authoritative) and client-side UX validation (advisory). Clients never hand-write their own model or validation of a server concept — when client and server rules differ, that's a DRY violation.
-
-See `examples/real-vs-coincidental.dart` for further examples (code samples predate this project's stack; the principles transfer).
+| Across flows in `flows/` | Shared helper in `flows/mod.rs` | Low cost — worth it for a real shared rule |
+| Between the two interfaces | **Keep duplicated, add a parity test** | Unifying needs mode params; a test is cheaper |
+| Between two hosting adapters | **Keep duplicated** | Provider knowledge diverges; only cross-provider rules move to `hosting/mod.rs` |
+| Between production code and a mock | **Never** — fix the mock | Production code compensating for a mock is the relationship inverted |
 
 ## DAMP in Tests
 
@@ -186,7 +164,6 @@ In test code, **DRY the "how" (infrastructure), allow duplication in the "what" 
 
 Test code optimizes for **readability at the individual test level**, not for minimizing total lines.
 
-See `examples/damp-tests.dart` for DAMP testing examples.
 
 ## DRY Code Review Checklist
 
@@ -197,19 +174,19 @@ See `examples/damp-tests.dart` for DAMP testing examples.
 | 3 | Copy-paste with minor variations | Medium |
 | 4 | Growing conditionals in shared code | High |
 | 5 | Boolean parameters on shared methods | Medium |
-| 6 | Frontend/backend validation drift | High |
-| 7 | Shared library between separately deployed services | Medium |
+| 6 | The same gating rule encoded in both `cli.rs` and `menu.rs` with no parity test | High |
+| 7 | A branch or tag name built with `format!` instead of a `SemVer` method | High |
 
 ## Documentation Convention
 
 **`// DRY:` — applying the principle** (explaining why duplication is kept):
 ```
-// DRY: Coincidental similarity — payments and transfers evolve independently
-// DRY: Separate bounded contexts — duplication accepted over shared library coupling
+// DRY: coincidental similarity — gh and az diverge on body-file handling
+// DRY: the offer/reject sides differ in wording on purpose; parity is test-enforced
 ```
 
 **`// DRY-DEVIATION:` — knowingly violating** (duplicating knowledge):
 ```
-// DRY-DEVIATION: Fee calculation duplicated in reconciliation job — scheduled for extraction
-// DRY-DEVIATION: Validation rules duplicated client/server — API contract generation not yet available
+// DRY-DEVIATION: re-sorted here despite the trait contract — replay determinism
+// is a crash-safety invariant the flow enforces rather than trusts
 ```

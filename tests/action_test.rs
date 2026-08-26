@@ -1,10 +1,10 @@
-use bflow::action::Action;
+use bflow::action::{validate_branch_name, Action};
 
 #[test]
 fn start_actions_return_true() {
     let actions = vec![
         Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false, no_worktree: false },
-        Action::StartRelease(None),
+        Action::StartRelease { release_type: None, no_worktree: false },
         Action::StartReleaseFix { name: "x".into(), no_checkout: false, no_worktree: false },
         Action::StartHotfixFix { name: "x".into(), no_checkout: false, no_worktree: false },
     ];
@@ -68,7 +68,7 @@ fn no_checkout_returns_true_for_start_hotfix_fix() {
 #[test]
 fn no_checkout_returns_false_for_non_start_actions() {
     let actions: Vec<Action> = vec![
-        Action::StartRelease(None),
+        Action::StartRelease { release_type: None, no_worktree: false },
         Action::FinishWorkBranch { breaking: None, base: None },
         Action::FinishReleaseFix,
         Action::FinishRelease,
@@ -83,39 +83,35 @@ fn no_checkout_returns_false_for_non_start_actions() {
 }
 
 #[test]
-fn worktree_eligible_true_for_named_work_branch_starts() {
-    let actions = vec![
-        Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false, no_worktree: false },
-        Action::StartReleaseFix { name: "x".into(), no_checkout: false, no_worktree: false },
-        Action::StartHotfixFix { name: "x".into(), no_checkout: false, no_worktree: false },
-    ];
-    for action in actions {
-        assert!(action.worktree_eligible(), "Expected worktree_eligible() == true for {:?}", action);
-    }
-}
-
-#[test]
-fn worktree_eligible_false_for_start_release_and_finishes() {
-    let actions: Vec<Action> = vec![
-        Action::StartRelease(None),
-        Action::FinishWorkBranch { breaking: None, base: None },
-        Action::FinishRelease,
-        Action::FinishHotfix,
-        Action::BumpVersion,
-    ];
-    for action in actions {
-        assert!(!action.worktree_eligible(), "Expected worktree_eligible() == false for {:?}", action);
-    }
-}
-
-#[test]
-fn no_worktree_reflects_the_flag() {
-    let opted_out = Action::StartWorkBranch { prefix: "feature".into(), name: "x".into(), from: "develop".into(), no_checkout: false, no_worktree: true };
-    assert!(opted_out.no_worktree());
-
-    let default = Action::StartReleaseFix { name: "x".into(), no_checkout: false, no_worktree: false };
-    assert!(!default.no_worktree());
-
-    // Non-start actions never opt out (there's nothing to opt out of).
+fn no_worktree_flag_is_honored_by_every_start_action() {
+    // --no-worktree opts a single command out of an enabled worktree flow. Missing
+    // it on one variant silently creates a worktree the user asked not to have.
+    assert!(Action::StartWorkBranch {
+        prefix: "feature".to_string(), name: "x".to_string(), from: "develop".to_string(),
+        no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    assert!(Action::StartReleaseFix {
+        name: "x".to_string(), no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    assert!(Action::StartHotfixFix {
+        name: "x".to_string(), no_checkout: false, no_worktree: true,
+    }.no_worktree());
+    assert!(!Action::StartReleaseFix {
+        name: "x".to_string(), no_checkout: false, no_worktree: false,
+    }.no_worktree());
+    // Non-start actions never opt out of anything.
     assert!(!Action::FinishRelease.no_worktree());
+}
+
+#[test]
+fn an_empty_branch_name_is_rejected_with_its_own_message() {
+    // Distinct from the special-character message: an empty name is what you get
+    // from an accidental `--name ""`, and the fix is different.
+    assert_eq!(validate_branch_name(""), Err("Name cannot be empty".to_string()));
+}
+
+#[test]
+fn start_release_no_worktree_is_read_from_the_action() {
+    assert!(Action::StartRelease { release_type: None, no_worktree: true }.no_worktree());
+    assert!(!Action::StartRelease { release_type: None, no_worktree: false }.no_worktree());
 }

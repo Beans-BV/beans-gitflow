@@ -5,6 +5,10 @@ use std::process::Command;
 
 pub type Result<T> = std::result::Result<T, String>;
 
+fn utf8_path(path: &Path) -> Result<&str> {
+    path.to_str().ok_or_else(|| format!("Path is not valid UTF-8: {}", path.display()))
+}
+
 pub trait Git {
     fn current_branch(&self) -> Result<String>;
     fn fetch(&self) -> Result<()>;
@@ -55,8 +59,25 @@ pub trait Git {
     /// inside a linked worktree (`rev-parse --show-toplevel` would return the
     /// worktree's own directory there, compounding worktree folder names).
     fn repo_root(&self) -> Result<PathBuf>;
+    /// Absolute path to the root of the working tree the command is running in —
+    /// the linked worktree when standing in one, the main tree otherwise. Repo
+    /// *content* (`.bflow/config`, the version script, PR templates) must be read
+    /// from here: a linked worktree can have a different branch checked out than
+    /// the main tree, and reading the main tree's copy would apply another
+    /// branch's policy. Contrast `repo_root`, which is deliberately the MAIN
+    /// tree's root and stays correct for worktree bookkeeping.
+    fn worktree_root(&self) -> Result<PathBuf>;
     /// Add a worktree at `path` checked out to the (already existing) `branch`.
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
+    /// Root of the working tree (main or linked) that has `branch` checked out,
+    /// `None` when no tree holds it. Git refuses to check out a branch that is
+    /// held by another tree, so flows merge into such a branch in place instead.
+    fn worktree_of(&self, branch: &str) -> Result<Option<PathBuf>>;
+    /// `is_working_tree_clean` / `ff_merge` / `merge`, run in the working tree
+    /// at `path` (`git -C`) instead of the current one.
+    fn is_working_tree_clean_at(&self, path: &Path) -> Result<bool>;
+    fn ff_merge_at(&self, path: &Path, branch: &str) -> Result<()>;
+    fn merge_at(&self, path: &Path, branch: &str, message: &str) -> Result<()>;
     /// Whether the current checkout is a linked worktree rather than the main
     /// working tree.
     fn is_linked_worktree(&self) -> Result<bool>;
@@ -74,38 +95,93 @@ pub trait Git {
     fn stash_push_with_message(&self, msg: &str) -> Result<()>;
     fn find_stash_by_message(&self, msg: &str) -> Result<Option<String>>;
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()>;
+
+    // Version commits and merge-commit tagging
+    fn stage_all(&self) -> Result<()>;
+    fn commit(&self, message: &str) -> Result<()>;
+    /// Tags `sha` (not HEAD) — a separate method from `create_tag` because a
+    /// landing PR's merge commit is created by the hosting platform, not by a
+    /// local `git merge`.
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()>;
+    /// Resolves an annotated tag to the commit it points at (`^{commit}`).
+    /// Plain `rev-parse <tag>` on an annotated tag returns the tag object's own
+    /// SHA, not the commit's.
+    fn tag_commit_sha(&self, tag: &str) -> Result<String>;
+    /// SHA of a branch's tip — never HEAD, which is only the source branch when
+    /// the caller happens to be standing on it.
+    fn branch_sha(&self, branch: &str) -> Result<String>;
 }
 
-pub struct GitCli;
+/// One finished `git` invocation, in a form tests can construct. `std::process::
+/// Output` cannot be built portably (`ExitStatus` has no cross-platform
+/// constructor), and exit codes are load-bearing here — `git config --get`
+/// exits 1 for "not set", `--unset` exits 5 for "already unset" — so the seam
+/// carries the raw code rather than a success/failure boolean.
+pub struct CliOutput {
+    /// `None` when the process was terminated by a signal.
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
 
-impl GitCli {
-    pub fn new() -> Self { Self }
+/// Port for spawning `git`. `GitCli` owns the exit-code semantics and output
+/// parsing; this trait owns only the process spawn, keeping "no subprocess calls
+/// outside adapter impls" (SKILL.md principle 1) true at a single point.
+pub trait CommandRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<CliOutput>;
+}
+
+/// The real runner: spawns `git` as a child process.
+pub struct SystemRunner;
+
+impl CommandRunner for SystemRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<CliOutput> {
+        let output = Command::new(program).args(args).output()
+            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+        Ok(CliOutput {
+            code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+}
+
+pub struct GitCli<'a> {
+    runner: &'a dyn CommandRunner,
+}
+
+impl<'a> GitCli<'a> {
+    pub fn new(runner: &'a dyn CommandRunner) -> Self {
+        Self { runner }
+    }
+
+    fn output(&self, args: &[&str]) -> Result<CliOutput> {
+        self.runner.run("git", args)
+    }
 
     fn run(&self, args: &[&str]) -> Result<String> {
-        let output = Command::new("git").args(args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let output = self.output(args)?;
+        if output.code == Some(0) {
+            Ok(output.stdout.trim().to_string())
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            Err(format!("git {} failed: {}", args.join(" "), stderr))
+            Err(format!("git {} failed: {}", args.join(" "), output.stderr.trim()))
         }
+    }
+
+    fn run_lines(&self, args: &[&str]) -> Result<Vec<String>> {
+        let output = self.run(args)?;
+        Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
     }
 
     /// Run a check command that uses exit 0/1 as a true/false result
     /// (e.g., `merge-base --is-ancestor`, `show-ref --verify`).
     /// Exit codes other than 0 or 1 are treated as errors.
     fn run_check(&self, args: &[&str]) -> Result<bool> {
-        let output = Command::new("git").args(args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        match output.status.code() {
+        let output = self.output(args)?;
+        match output.code {
             Some(0) => Ok(true),
             Some(1) => Ok(false),
-            Some(code) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
-            }
-            None => Err(format!("git {} terminated by signal", args.join(" "))),
+            _ => Err(unexpected_exit(args, &output)),
         }
     }
 
@@ -118,25 +194,23 @@ impl GitCli {
     /// Run a `git config --get`-style command that uses exit 1 to mean "key not set".
     /// Returns `Ok(None)` on exit 1, `Ok(Some(value))` on exit 0, and an error otherwise.
     fn run_config(&self, args: &[&str]) -> Result<Option<String>> {
-        let output = Command::new("git").args(args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        match output.status.code() {
-            Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string())),
+        let output = self.output(args)?;
+        match output.code {
+            Some(0) => Ok(Some(output.stdout.trim().to_string())),
             Some(1) => Ok(None),
-            Some(code) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
-            }
-            None => Err(format!("git {} terminated by signal", args.join(" "))),
+            _ => Err(unexpected_exit(args, &output)),
         }
     }
 }
 
-impl Default for GitCli {
-    fn default() -> Self { Self::new() }
+fn unexpected_exit(args: &[&str], output: &CliOutput) -> String {
+    match output.code {
+        Some(code) => format!("git {} failed (exit {code}): {}", args.join(" "), output.stderr.trim()),
+        None => format!("git {} terminated by signal", args.join(" ")),
+    }
 }
 
-impl Git for GitCli {
+impl Git for GitCli<'_> {
     fn current_branch(&self) -> Result<String> { self.run(&["rev-parse", "--abbrev-ref", "HEAD"]) }
     fn fetch(&self) -> Result<()> { self.run(&["fetch", "--all", "--prune"]).map(|_| ()) }
     fn checkout(&self, branch: &str) -> Result<()> { self.run(&["checkout", branch]).map(|_| ()) }
@@ -148,21 +222,19 @@ impl Git for GitCli {
     fn merge(&self, branch: &str, message: &str) -> Result<()> { self.run(&["merge", branch, "--no-ff", "-m", message]).map(|_| ()) }
     fn ff_merge(&self, branch: &str) -> Result<()> { self.run(&["merge", branch, "--ff-only"]).map(|_| ()) }
     fn list_tags(&self) -> Result<Vec<String>> {
-        let output = self.run(&["tag", "--list"])?;
-        Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+        self.run_lines(&["tag", "--list"])
     }
     fn list_branches_matching(&self, pattern: &str) -> Result<Vec<String>> {
         let ref_pattern = format!("refs/remotes/origin/{pattern}");
         let local_pattern = format!("refs/heads/{pattern}");
-        let output = self.run(&[
+        let lines = self.run_lines(&[
             "for-each-ref", "--format=%(refname:short)",
             &ref_pattern, &local_pattern,
         ])?;
         // Sorted + deduped per the trait contract.
-        let mut branches: Vec<String> = output
-            .lines()
+        let mut branches: Vec<String> = lines
+            .iter()
             .map(|s| s.trim_start_matches("origin/").to_string())
-            .filter(|s| !s.is_empty())
             .collect();
         branches.sort();
         branches.dedup();
@@ -175,15 +247,14 @@ impl Git for GitCli {
     fn delete_branch_local(&self, branch: &str) -> Result<()> { self.run(&["branch", "-D", branch]).map(|_| ()) }
     fn delete_branch_remote(&self, branch: &str) -> Result<()> { self.run(&["push", "origin", "--delete", branch]).map(|_| ()) }
     fn tags_on_branch(&self, branch: &str) -> Result<Vec<String>> {
-        let output = self.run(&["tag", "--merged", branch])?;
-        Ok(output.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+        self.run_lines(&["tag", "--merged", branch])
     }
     fn list_remote_branches(&self) -> Result<Vec<String>> {
-        let output = self.run(&["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/"])?;
-        Ok(output
-            .lines()
+        let lines = self.run_lines(&["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/"])?;
+        Ok(lines
+            .iter()
             .map(|s| s.trim_start_matches("origin/").to_string())
-            .filter(|s| !s.is_empty() && s != "HEAD")
+            .filter(|s| s != "HEAD")
             .collect())
     }
     fn merge_base(&self, a: &str, b: &str) -> Result<String> {
@@ -274,16 +345,11 @@ impl Git for GitCli {
         if global { args.push("--global"); }
         args.push("--unset");
         args.push(key);
-        let output = Command::new("git").args(&args).output()
-            .map_err(|e| format!("Failed to run git: {e}"))?;
-        match output.status.code() {
+        let output = self.output(&args)?;
+        match output.code {
             // 0 = removed; 5 = key was not set (already at default) — both fine.
             Some(0) | Some(5) => Ok(()),
-            Some(code) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                Err(format!("git {} failed (exit {code}): {}", args.join(" "), stderr))
-            }
-            None => Err(format!("git {} terminated by signal", args.join(" "))),
+            _ => Err(unexpected_exit(&args, &output)),
         }
     }
     fn repo_root(&self) -> Result<PathBuf> {
@@ -296,9 +362,31 @@ impl Git for GitCli {
             .map(PathBuf::from)
             .ok_or_else(|| "Could not determine the main working tree from 'git worktree list'.".to_string())
     }
+    fn worktree_root(&self) -> Result<PathBuf> {
+        self.run(&["rev-parse", "--show-toplevel"]).map(PathBuf::from)
+    }
     fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_str().ok_or("Worktree path is not valid UTF-8")?;
         self.run(&["worktree", "add", path_str, branch]).map(|_| ())
+    }
+    fn worktree_of(&self, branch: &str) -> Result<Option<PathBuf>> {
+        let output = self.run(&["worktree", "list", "--porcelain"])?;
+        let wanted = format!("branch refs/heads/{branch}");
+        Ok(output
+            .split("\n\n")
+            .find(|entry| entry.lines().any(|l| l == wanted))
+            .and_then(|entry| entry.lines().find_map(|l| l.strip_prefix("worktree ")))
+            .map(PathBuf::from))
+    }
+    fn is_working_tree_clean_at(&self, path: &Path) -> Result<bool> {
+        let output = self.run(&["-C", utf8_path(path)?, "status", "--porcelain"])?;
+        Ok(output.is_empty())
+    }
+    fn ff_merge_at(&self, path: &Path, branch: &str) -> Result<()> {
+        self.run(&["-C", utf8_path(path)?, "merge", branch, "--ff-only"]).map(|_| ())
+    }
+    fn merge_at(&self, path: &Path, branch: &str, message: &str) -> Result<()> {
+        self.run(&["-C", utf8_path(path)?, "merge", branch, "--no-ff", "-m", message]).map(|_| ())
     }
     fn is_linked_worktree(&self) -> Result<bool> {
         // One invocation for both paths so the two are in a consistent form:
@@ -344,5 +432,17 @@ impl Git for GitCli {
     }
     fn stash_pop_ref(&self, stash_ref: &str) -> Result<()> {
         self.run(&["stash", "pop", stash_ref]).map(|_| ())
+    }
+
+    fn stage_all(&self) -> Result<()> { self.run(&["add", "-A"]).map(|_| ()) }
+    fn commit(&self, message: &str) -> Result<()> { self.run(&["commit", "-m", message]).map(|_| ()) }
+    fn create_tag_at(&self, tag: &str, message: &str, sha: &str) -> Result<()> {
+        self.run(&["tag", "-a", tag, "-m", message, sha]).map(|_| ())
+    }
+    fn tag_commit_sha(&self, tag: &str) -> Result<String> {
+        self.run(&["rev-parse", &format!("{tag}^{{commit}}")])
+    }
+    fn branch_sha(&self, branch: &str) -> Result<String> {
+        self.run(&["rev-parse", &format!("refs/heads/{branch}")])
     }
 }

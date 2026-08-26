@@ -9,6 +9,7 @@ pub enum BranchType {
     Refactor { name: String },
     Release { major: u32, minor: u32, patch: u32 },
     ReleaseFix { major: u32, minor: u32, patch: u32, name: String },
+    ReleaseChore { major: u32, minor: u32, patch: u32, name: String },
     Hotfix { major: u32, minor: u32, patch: u32 },
     HotfixFix { major: u32, minor: u32, patch: u32, name: String },
     Other,
@@ -64,6 +65,16 @@ impl BranchType {
             }
         }
 
+        if let Some(rest) = branch.strip_prefix("release-chore/") {
+            if let Some((version, name)) = rest.split_once('/') {
+                if let Some((major, minor, patch)) = Self::parse_major_minor_patch(version) {
+                    if !name.is_empty() {
+                        return Self::ReleaseChore { major, minor, patch, name: name.to_string() };
+                    }
+                }
+            }
+        }
+
         if let Some(version) = branch.strip_prefix("hotfix/") {
             if let Some((major, minor, patch)) = Self::parse_major_minor_patch(version) {
                 return Self::Hotfix { major, minor, patch };
@@ -96,7 +107,7 @@ impl BranchType {
             Self::Docs { .. } => Some("docs"),
             Self::Refactor { .. } => Some("refactor"),
             Self::Main | Self::Develop
-            | Self::Release { .. } | Self::ReleaseFix { .. }
+            | Self::Release { .. } | Self::ReleaseFix { .. } | Self::ReleaseChore { .. }
             | Self::Hotfix { .. } | Self::HotfixFix { .. }
             | Self::Other => None,
         }
@@ -115,7 +126,8 @@ impl BranchType {
         match self {
             Self::Feature { name } | Self::Fix { name } | Self::Chore { name }
             | Self::Docs { name } | Self::Refactor { name }
-            | Self::ReleaseFix { name, .. } | Self::HotfixFix { name, .. } => Some(name),
+            | Self::ReleaseFix { name, .. } | Self::ReleaseChore { name, .. }
+            | Self::HotfixFix { name, .. } => Some(name),
             _ => None,
         }
     }
@@ -126,23 +138,20 @@ impl BranchType {
 
     /// Branch types whose finish has a fixed merge/PR target, so `--base` never applies.
     pub fn has_fixed_finish_target(&self) -> bool {
-        matches!(self, Self::Release { .. } | Self::ReleaseFix { .. } | Self::Hotfix { .. } | Self::HotfixFix { .. })
+        matches!(self, Self::Release { .. } | Self::ReleaseFix { .. } | Self::ReleaseChore { .. } | Self::Hotfix { .. } | Self::HotfixFix { .. })
     }
 
     /// PR-template lookup keys as `(specific, group)` for branch types that open a PR.
-    /// The fix family (`fix`, `release-fix`, `hotfix-fix`) shares the `fix` group; for
-    /// every other type the group equals the specific key. Returns `None` for branches
-    /// that never open a PR (main, develop, release, hotfix, other).
+    /// The fix family (`fix`, `release-fix`, `hotfix-fix`) shares the `fix` group;
+    /// `release-chore` shares the plain `chore` group; for every other type the
+    /// group equals the specific key. Returns `None` for branches that never open
+    /// a PR (main, develop, release, hotfix, other).
     pub fn pr_template_keys(&self) -> Option<(&'static str, &'static str)> {
         match self {
-            Self::Feature { .. } => Some(("feature", "feature")),
-            Self::Fix { .. } => Some(("fix", "fix")),
-            Self::Chore { .. } => Some(("chore", "chore")),
-            Self::Docs { .. } => Some(("docs", "docs")),
-            Self::Refactor { .. } => Some(("refactor", "refactor")),
             Self::ReleaseFix { .. } => Some(("release-fix", "fix")),
             Self::HotfixFix { .. } => Some(("hotfix-fix", "fix")),
-            _ => None,
+            Self::ReleaseChore { .. } => Some(("release-chore", "chore")),
+            _ => self.work_kind().map(|kind| (kind, kind)),
         }
     }
 
