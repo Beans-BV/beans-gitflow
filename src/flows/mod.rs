@@ -164,16 +164,24 @@ fn landing_contains_tip(git: &dyn Git, source: &str, target: &str, pr: &LandedPr
     Ok(git.local_branch_exists(&finish)? && git.is_ancestor(source, &finish)?)
 }
 
-/// Make the leg's finish branch exist and contain the source tip, pushed.
-/// `origin/{finish}` is the truth: it may carry conflict resolutions the local
-/// ref never sees. A finish branch is only ever appended to — a moved source
-/// is merged in, never force-pushed over someone's resolution.
-pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) -> Result<String, String> {
+/// Make the leg's finish branch exist, contain the source tip AND the target
+/// tip, and be pushed — the landing PR is born mergeable, so conflicts surface
+/// here instead of on the platform. `origin/{finish}` is the truth: it may
+/// carry conflict resolutions the local ref never sees. A finish branch is
+/// only ever appended to — a moved source or target is merged in, never
+/// force-pushed over someone's resolution. A conflicted merge is left in
+/// place ON the finish branch (the source branch is never touched); the
+/// error names the recovery, and the re-run pushes the resolution.
+pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str, rerun: &str) -> Result<String, String> {
     reconcile_with_origin(git, source)?;
     let finish = finish_branch_name(source, target);
     let origin_finish = format!("origin/{finish}");
+    let origin_target = format!("origin/{target}");
     let remote = git.remote_branch_exists(&finish)?;
-    if remote && git.is_ancestor(source, &origin_finish)? {
+    if remote
+        && git.is_ancestor(source, &origin_finish)?
+        && git.is_ancestor(&origin_target, &origin_finish)?
+    {
         return Ok(finish);
     }
     if !git.local_branch_exists(&finish)? {
@@ -181,8 +189,6 @@ pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) ->
             git.create_branch_no_checkout(&finish, &origin_finish)?;
         } else {
             git.create_branch_no_checkout(&finish, source)?;
-            git.push(&finish)?;
-            return Ok(finish);
         }
     }
     if !git.is_ancestor(source, &finish)? || (remote && !git.is_ancestor(&origin_finish, &finish)?) {
@@ -193,19 +199,41 @@ pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str) ->
             git.ff_merge(&origin_finish)?;
         }
         git.merge(source, &format!("chore: refresh {finish} with {source}"))
-            .map_err(|e| format!("{e}\n{}", finish_conflict_hint(&finish, target)))?;
+            .map_err(|e| format!("{e}\n{}", finish_merge_conflict_hint(&finish, source, rerun)))?;
+        git.checkout(&prior)?;
+    }
+    if !git.is_ancestor(&origin_target, &finish)? {
+        println!("Merging {target} into {finish}...");
+        let prior = git.current_branch()?;
+        git.checkout(&finish)?;
+        git.merge(&origin_target, &format!("chore: merge {target} into {finish}"))
+            .map_err(|e| format!("{e}\n{}", finish_merge_conflict_hint(&finish, source, rerun)))?;
         git.checkout(&prior)?;
     }
     git.push(&finish)?;
     Ok(finish)
 }
 
-/// How to resolve a conflicted landing without ever touching the source branch.
+/// The pending block's conflict line: bflow merges the target into the finish
+/// branch on every run, so a PR the platform flags as conflicted (the target
+/// moved after it opened) is healed by re-running.
 pub(crate) fn finish_conflict_hint(finish: &str, target: &str) -> String {
     format!(
-        "Conflicts? Merge `{target}` into `{finish}` (never rebase it):\n  \
-         `git switch {finish} && git merge origin/{target}`\n  \
-         then resolve, commit, push, merge the PR, and re-run."
+        "Conflicts later ({target} moved)? Just re-run — bflow merges `{target}` into \
+         `{finish}` and stops for you to resolve locally if needed."
+    )
+}
+
+/// Recovery for a conflicted merge into the finish branch: the tree is left
+/// mid-merge ON the finish branch — resolution happens there, never on the
+/// source branch. No push step: the re-run pushes the resolved branch.
+pub(crate) fn finish_merge_conflict_hint(finish: &str, source: &str, rerun: &str) -> String {
+    format!(
+        "Resolve the conflicts on {finish} and commit the merge, \
+         then switch back to {source} and re-run '{rerun}' to continue:\n    \
+         git add . && git commit --no-edit\n    \
+         git switch {source}\n    {rerun}\n\
+         To back out instead: git merge --abort"
     )
 }
 
@@ -219,7 +247,7 @@ pub(crate) enum LegState {
 /// Drive one strict landing leg: refuse legacy PRs, recognize a landing that
 /// still contains the tip, skip a target that already has the content, else
 /// open (or reuse) the PR from the leg's finish branch.
-pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>) -> Result<LegState, String> {
+pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>, rerun: &str) -> Result<LegState, String> {
     refuse_open_legacy_pr(hosting, source, target)?;
     if let Some(pr) = finish_leg_landed_strict(git, hosting, source, target)? {
         return Ok(LegState::Landed(pr));
@@ -228,7 +256,7 @@ pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, sour
         println!("↷ skipped: landing into {target} (already contains {source})");
         return Ok(LegState::ContentPresent);
     }
-    let finish = ensure_finish_branch(git, source, target)?;
+    let finish = ensure_finish_branch(git, source, target, rerun)?;
     let url = hosting.create_or_get_pr(&finish, target, title, template.and_then(|p| p.to_str()))?;
     Ok(LegState::Pending { url, finish })
 }
@@ -482,13 +510,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn finish_conflict_hint_is_a_compact_recipe() {
+    fn finish_conflict_hint_points_at_rerunning() {
+        // bflow merges the target into the finish branch itself, so a PR that
+        // conflicts later (the target moved) is healed by re-running.
         let hint = finish_conflict_hint("finish/hotfix-2.11.6-into-main", "main");
         assert_eq!(
             hint,
-            "Conflicts? Merge `main` into `finish/hotfix-2.11.6-into-main` (never rebase it):\n  \
-             `git switch finish/hotfix-2.11.6-into-main && git merge origin/main`\n  \
-             then resolve, commit, push, merge the PR, and re-run."
+            "Conflicts later (main moved)? Just re-run — bflow merges `main` into \
+             `finish/hotfix-2.11.6-into-main` and stops for you to resolve locally if needed."
+        );
+    }
+
+    #[test]
+    fn finish_merge_conflict_hint_commits_before_switching_back() {
+        // Same discipline as resume_hint: the copy-pasteable block must not
+        // start with `git switch` — mid-merge, that fails. No `git push` step:
+        // the re-run pushes the resolved finish branch itself.
+        let hint = finish_merge_conflict_hint("finish/hotfix-2.11.6-into-main", "hotfix/2.11.6", "bflow finish");
+        assert_eq!(
+            hint,
+            "Resolve the conflicts on finish/hotfix-2.11.6-into-main and commit the merge, \
+             then switch back to hotfix/2.11.6 and re-run 'bflow finish' to continue:\n    \
+             git add . && git commit --no-edit\n    \
+             git switch hotfix/2.11.6\n    bflow finish\n\
+             To back out instead: git merge --abort"
         );
     }
 

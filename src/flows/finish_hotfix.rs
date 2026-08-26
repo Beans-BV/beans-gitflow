@@ -128,7 +128,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
             }
             None => {
                 let title = format!("chore: merge hotfix {version} into {main_branch}");
-                let finish = ensure_finish_branch(git, &hotfix_branch, main_branch)?;
+                let finish = ensure_finish_branch(git, &hotfix_branch, main_branch, "bflow finish")?;
                 let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
                 announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                 return Ok(());
@@ -142,7 +142,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
 
     let mut content_landed = false;
     let title = format!("chore: merge hotfix {version} into develop");
-    match land_leg_strict(git, hosting, &hotfix_branch, "develop", &title, template)? {
+    match land_leg_strict(git, hosting, &hotfix_branch, "develop", &title, template, "bflow finish")? {
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
@@ -156,7 +156,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
 
     for release in &release_branches {
         let title = format!("chore: merge hotfix {version} into {release}");
-        match land_leg_strict(git, hosting, &hotfix_branch, release, &title, template)? {
+        match land_leg_strict(git, hosting, &hotfix_branch, release, &title, template, "bflow finish")? {
             LegState::Landed(pr) => landed.push(pr),
             LegState::ContentPresent => content_landed = true,
             LegState::Pending { url, finish } => {

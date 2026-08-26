@@ -254,7 +254,7 @@ pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
 /// re-enters this same PR-opening path with a refreshed finish branch.
 fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, release: &SemVer, release_branch: &str, template: Option<&Path>) -> Result<(), String> {
     let title = format!("chore: sync release {release} with develop");
-    match land_leg_strict(git, hosting, release_branch, "develop", &title, template)? {
+    match land_leg_strict(git, hosting, release_branch, "develop", &title, template, "bflow sync")? {
         LegState::Landed(_) | LegState::ContentPresent => {
             println!("Develop already contains {release_branch}.");
             Ok(())
@@ -402,7 +402,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                     None => {
                         staging_gate(git, &release_branch, main_branch, major, minor, cfg.bump_strategy)?;
                         let title = format!("chore: merge release {release} into {main_branch}");
-                        let finish = ensure_finish_branch(git, &release_branch, main_branch)?;
+                        let finish = ensure_finish_branch(git, &release_branch, main_branch, "bflow finish")?;
                         let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
                         announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                         return Ok(());
@@ -430,7 +430,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
             None => {
                 staging_gate(git, &release_branch, main_branch, major, minor, cfg.bump_strategy)?;
                 let title = format!("chore: merge release {release} into {main_branch}");
-                let finish = ensure_finish_branch(git, &release_branch, main_branch)?;
+                let finish = ensure_finish_branch(git, &release_branch, main_branch, "bflow finish")?;
                 let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
                 announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                 return Ok(());
@@ -440,7 +440,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
 
     let mut content_landed = false;
     let title = format!("chore: merge release {release} into develop");
-    match land_leg_strict(git, hosting, &release_branch, "develop", &title, template)? {
+    match land_leg_strict(git, hosting, &release_branch, "develop", &title, template, "bflow finish")? {
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
