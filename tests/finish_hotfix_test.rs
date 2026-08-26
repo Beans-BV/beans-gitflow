@@ -465,6 +465,12 @@ fn protected_hotfix_opens_main_pr_and_stops() {
         "remote_branch_exists:finish/hotfix-1.1.1-into-main",
         "local_branch_exists:finish/hotfix-1.1.1-into-main",
         "create_branch_no_checkout:finish/hotfix-1.1.1-into-main:hotfix/1.1.1",
+        "is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-main",
+        "is_ancestor:origin/main:finish/hotfix-1.1.1-into-main",
+        "current_branch",
+        "checkout:finish/hotfix-1.1.1-into-main",
+        "merge:origin/main:chore: merge main into finish/hotfix-1.1.1-into-main",
+        "checkout:develop",
         "push:finish/hotfix-1.1.1-into-main",
     ]);
     assert_eq!(hosting.calls(), vec![
@@ -474,8 +480,9 @@ fn protected_hotfix_opens_main_pr_and_stops() {
         "create_or_get_pr:finish/hotfix-1.1.1-into-main:main:chore: merge hotfix 1.1.1 into main",
     ]);
     let calls = git.calls();
-    assert!(!calls.iter().any(|c| c == "checkout:main"), "must not merge locally; calls: {calls:?}");
-    assert!(!calls.iter().any(|c| c.starts_with("merge:")), "must not merge locally; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "checkout:main"), "must never land into the target locally; calls: {calls:?}");
+    assert!(calls.iter().filter(|c| c.starts_with("merge:")).all(|c| c.ends_with("into finish/hotfix-1.1.1-into-main")),
+        "merges may only append to the finish branch; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("create_tag")), "must not tag before main lands; calls: {calls:?}");
 }
 
@@ -508,6 +515,12 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
         "remote_branch_exists:finish/hotfix-1.1.1-into-develop",
         "local_branch_exists:finish/hotfix-1.1.1-into-develop",
         "create_branch_no_checkout:finish/hotfix-1.1.1-into-develop:hotfix/1.1.1",
+        "is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-develop",
+        "is_ancestor:origin/develop:finish/hotfix-1.1.1-into-develop",
+        "current_branch",
+        "checkout:finish/hotfix-1.1.1-into-develop",
+        "merge:origin/develop:chore: merge develop into finish/hotfix-1.1.1-into-develop",
+        "checkout:develop",
         "push:finish/hotfix-1.1.1-into-develop",
     ]);
     assert_eq!(hosting.calls(), vec![
@@ -560,6 +573,12 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
         "remote_branch_exists:finish/hotfix-1.1.1-into-release-1.2.0",
         "local_branch_exists:finish/hotfix-1.1.1-into-release-1.2.0",
         "create_branch_no_checkout:finish/hotfix-1.1.1-into-release-1.2.0:hotfix/1.1.1",
+        "is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-release-1.2.0",
+        "is_ancestor:origin/release/1.2.0:finish/hotfix-1.1.1-into-release-1.2.0",
+        "current_branch",
+        "checkout:finish/hotfix-1.1.1-into-release-1.2.0",
+        "merge:origin/release/1.2.0:chore: merge release/1.2.0 into finish/hotfix-1.1.1-into-release-1.2.0",
+        "checkout:develop",
         "push:finish/hotfix-1.1.1-into-release-1.2.0",
     ]);
     assert_eq!(hosting.calls(), vec![
@@ -616,6 +635,12 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
         "remote_branch_exists:finish/hotfix-1.1.1-into-release-1.3.0",
         "local_branch_exists:finish/hotfix-1.1.1-into-release-1.3.0",
         "create_branch_no_checkout:finish/hotfix-1.1.1-into-release-1.3.0:hotfix/1.1.1",
+        "is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-release-1.3.0",
+        "is_ancestor:origin/release/1.3.0:finish/hotfix-1.1.1-into-release-1.3.0",
+        "current_branch",
+        "checkout:finish/hotfix-1.1.1-into-release-1.3.0",
+        "merge:origin/release/1.3.0:chore: merge release/1.3.0 into finish/hotfix-1.1.1-into-release-1.3.0",
+        "checkout:develop",
         "push:finish/hotfix-1.1.1-into-release-1.3.0",
     ]);
     assert_eq!(hosting.calls(), vec![

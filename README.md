@@ -565,14 +565,7 @@ Use `mode=protected` when `main`/`develop` require pull requests (branch protect
 - `finish`, `bump`, and `sync` **exit 0** with the PR pending — nothing is left half-done, there's just a human step in between. Re-run the same command after the PR is merged; it continues from there.
 - Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch (and every `finish/*` branch, orphans included) — unless `keep-release-branches=true`, or its tip provably landed nowhere, in which case bflow keeps the branch and tells you how to remove it yourself.
 - Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
-- **A landing PR can conflict on the version file** — e.g. release→develop, or hotfix→a release branch — because both sides changed their version since diverging. That's expected, and the finish branch is where it gets resolved: use the platform's conflict editor (it commits to the finish branch), or locally
-
-  ```bash
-  git switch finish/release-1.2.0-into-develop
-  git merge origin/develop     # resolve, commit, push — never rebase the finish branch
-  ```
-
-  then merge the PR and re-run. The release/hotfix branch is never touched by a resolution. GitHub's web editor only handles simple conflicts, and Azure DevOps has no native one — the local recipe always works. See [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut).
+- **Landing PRs are born mergeable.** Before opening (or refreshing) a landing PR, bflow merges the target into the finish branch itself. A conflict — e.g. on the version file, see [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut) — therefore surfaces immediately in your terminal, mid-run, left mid-merge ON the finish branch: resolve it, `git add . && git commit --no-edit`, switch back to the source branch, and re-run (the re-run pushes the resolution and opens the PR conflict-free; `git merge --abort` backs out instead). A PR that turns conflicted *later* because the target moved is healed the same way — just re-run. The release/hotfix branch is never touched by a resolution, and the finish branch is never rebased.
 - **Upgrading with a landing in flight?** An open landing PR whose head is the release/hotfix branch itself (opened by an older bflow) is a hard error naming it: merge it and re-run, or close/abandon it and re-run — bflow then reopens it from a finish branch. Already-merged old-style legs are recognized as landed.
 - That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead. If you do, bflow says so rather than letting it pass unnoticed:
 
@@ -594,9 +587,7 @@ https://github.com/org/repo/pull/42
 Waiting for a human to merge this PR.
 Re-run 'bflow finish' to continue after the merge.
 
-Conflicts? Merge `main` into `finish/release-2.6.0-into-main` (never rebase it):
-  `git switch finish/release-2.6.0-into-main && git merge origin/main`
-  then resolve, commit, push, merge the PR, and re-run.
+Conflicts later (main moved)? Just re-run — bflow merges `main` into `finish/release-2.6.0-into-main` and stops for you to resolve locally if needed.
 
   ... a human merges pull/42 on GitHub ...
 
@@ -609,9 +600,7 @@ https://github.com/org/repo/pull/43
 Waiting for a human to merge this PR.
 Re-run 'bflow finish' to continue after the merge.
 
-Conflicts? Merge `develop` into `finish/release-2.6.0-into-develop` (never rebase it):
-  `git switch finish/release-2.6.0-into-develop && git merge origin/develop`
-  then resolve, commit, push, merge the PR, and re-run.
+Conflicts later (develop moved)? Just re-run — bflow merges `develop` into `finish/release-2.6.0-into-develop` and stops for you to resolve locally if needed.
 
   ... a human merges pull/43 ...
 
@@ -674,7 +663,7 @@ Re-running `bflow bump` after that PR merges tags the **PR's merge commit** dire
 
 #### Version-file merge-conflict papercut
 
-Because `develop` and an open hotfix or release branch can carry different versions in their tracked files, merging one into the other can conflict on the version line — e.g. a hotfix's `1.2.1` against develop's already-bumped `1.3.0`, or a major release's `2.0.0` merging back into `develop`. Free mode surfaces this as an ordinary resumable merge conflict (resolve it, `git commit`, re-run `bflow finish`); protected mode surfaces it as a PR conflict a human resolves on the hosting platform. bflow does not auto-resolve version-file conflicts — it has no way to know which lines the script owns.
+Because `develop` and an open hotfix or release branch can carry different versions in their tracked files, merging one into the other can conflict on the version line — e.g. a hotfix's `1.2.1` against develop's already-bumped `1.3.0`, or a major release's `2.0.0` merging back into `develop`. Free mode surfaces this as an ordinary resumable merge conflict (resolve it, `git commit`, re-run `bflow finish`); protected mode surfaces it while merging the target into the `finish/*` branch — resolve it there mid-run, commit, and re-run. bflow does not auto-resolve version-file conflicts — it has no way to know which lines the script owns.
 
 #### Hotfix branches created without checkout
 

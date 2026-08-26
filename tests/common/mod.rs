@@ -58,6 +58,12 @@ pub struct MockGit {
     // Idempotency state — branches/tags considered "already done".
     /// Pairs of (ancestor, descendant) where ancestor is treated as merged into descendant.
     pub ancestors: HashSet<(String, String)>,
+    /// Postcondition of `create_branch`/`create_branch_no_checkout`: the new
+    /// branch points at `from`, so `from` is an ancestor of it — and stays one,
+    /// since branches are only appended to. Modeled here (LSP: the mock is an
+    /// implementation too) so flows can trust the contract instead of tests
+    /// hand-feeding what git guarantees.
+    created_ancestors: RefCell<HashSet<(String, String)>>,
     /// Existing local tags (idempotent skipping for tag creation).
     pub existing_tags: HashSet<String>,
     /// Existing remote tags.
@@ -128,6 +134,7 @@ impl MockGit {
             fail_stash_pop: false,
             fail_find_stash: false,
             ancestors: HashSet::new(),
+            created_ancestors: RefCell::new(HashSet::new()),
             existing_tags: HashSet::new(),
             existing_remote_tags: HashSet::new(),
             existing_local_branches: HashSet::new(),
@@ -189,12 +196,16 @@ impl Git for MockGit {
 
     fn create_branch(&self, branch: &str, from: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("create_branch:{branch}:{from}"));
-        self.create_branch_result()
+        self.create_branch_result()?;
+        self.created_ancestors.borrow_mut().insert((from.to_string(), branch.to_string()));
+        Ok(())
     }
 
     fn create_branch_no_checkout(&self, branch: &str, from: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("create_branch_no_checkout:{branch}:{from}"));
-        self.create_branch_result()
+        self.create_branch_result()?;
+        self.created_ancestors.borrow_mut().insert((from.to_string(), branch.to_string()));
+        Ok(())
     }
 
     fn push(&self, branch: &str) -> Result<(), String> {
@@ -304,7 +315,8 @@ impl Git for MockGit {
 
     fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool, String> {
         self.calls.borrow_mut().push(format!("is_ancestor:{ancestor}:{descendant}"));
-        Ok(self.ancestors.contains(&(ancestor.to_string(), descendant.to_string())))
+        let key = (ancestor.to_string(), descendant.to_string());
+        Ok(self.ancestors.contains(&key) || self.created_ancestors.borrow().contains(&key))
     }
 
     fn tag_exists(&self, tag: &str) -> Result<bool, String> {
