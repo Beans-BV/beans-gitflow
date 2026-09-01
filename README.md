@@ -354,6 +354,11 @@ checked-out branch), then your checkout returns to `develop` and the release
 opens in its own worktree. Re-running `start release` while a worktree already
 holds the release just prints its path.
 
+`start hotfix-fix` also covers the `hotfix/{v}` container branch it resolves or
+creates: the container gets its own worktree too — that is where `bflow finish`
+runs later — opened before the fix branch's worktree, so the fix keeps editor
+focus. A hotfix already held by a worktree just prints its path.
+
 ### Setup commands (`worktrees.json`)
 
 With the worktree flow enabled, bflow looks for the repo's setup commands

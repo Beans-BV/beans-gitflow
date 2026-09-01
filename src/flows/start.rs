@@ -70,10 +70,7 @@ pub fn start_work_branch(git: &dyn Git, prefix: &str, name: &str, from: &str, no
 pub fn start_release(git: &dyn Git, prompter: &dyn Prompter, hosting: &dyn HostingPlatform, script: Option<&dyn VersionScript>, cfg: &RepoConfig, release_type: Option<ReleaseType>, main_branch: &str, worktree: Option<WorktreeContext<'_>>) -> Result<(), String> {
     let branch = resolve_or_create_release(git, prompter, hosting, script, cfg, release_type, main_branch, worktree.is_some())?;
     if let Some(ctx) = worktree {
-        match git.worktree_of(&branch)? {
-            Some(path) => println!("Release branch {branch} is already open at {}", path.display()),
-            None => open_worktree(git, &ctx, &branch)?,
-        }
+        open_container_worktree(git, &ctx, "Release", &branch)?;
     }
     Ok(())
 }
@@ -97,11 +94,30 @@ pub fn start_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
     materialize_branch(git, &branch, &release_branch, effective_no_checkout, worktree)
 }
 
+/// In worktree mode the hotfix container gets its own worktree too (opened
+/// before the fix branch's, which then keeps editor focus): `start hotfix-fix`
+/// is the only command that creates a hotfix container, so no later command
+/// would hand it one — and `bflow finish` needs it checked out somewhere.
 pub fn start_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, name: &str, no_checkout: bool, worktree: Option<WorktreeContext<'_>>, main_branch: &str, script: Option<&dyn VersionScript>) -> Result<(), String> {
     let effective_no_checkout = effective_no_checkout(no_checkout, &worktree);
     let hotfix_branch = resolve_or_create_hotfix(git, hosting, cfg, effective_no_checkout, main_branch, script)?;
     let branch = version_of(&hotfix_branch, "hotfix/")?.hotfix_fix_branch(name);
+    if let Some(ctx) = &worktree {
+        open_container_worktree(git, ctx, "Hotfix", &hotfix_branch)?;
+    }
     materialize_branch(git, &branch, &hotfix_branch, effective_no_checkout, worktree)
+}
+
+/// A release/hotfix container branch handed to worktree mode: open it in its
+/// own worktree, or announce the worktree that already holds it.
+fn open_container_worktree(git: &dyn Git, ctx: &WorktreeContext<'_>, label: &str, branch: &str) -> Result<(), String> {
+    match git.worktree_of(branch)? {
+        Some(path) => {
+            println!("{label} branch {branch} is already open at {}", path.display());
+            Ok(())
+        }
+        None => open_worktree(git, ctx, branch),
+    }
 }
 
 /// `hand_off`: the caller will move the release into a worktree, so the current
