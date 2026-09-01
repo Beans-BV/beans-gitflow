@@ -19,7 +19,7 @@ fn finish_hotfix_full_sequence() {
     let git = fresh_hotfix_mock(1, 0, 1);
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/1.0.1:main",
@@ -55,7 +55,7 @@ fn finish_hotfix_targets_master_when_that_is_the_mainline() {
     let git = fresh_hotfix_mock(2, 3, 4);
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 2, 3, 4, "master", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 2, 3, 4, "master", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/2.3.4:master",
@@ -91,7 +91,7 @@ fn finish_hotfix_propagates_to_open_release_branch() {
     git.branches_matching = vec!["release/1.2.0".to_string()];
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:hotfix/1.0.1:main",
@@ -138,7 +138,7 @@ fn finish_hotfix_excludes_shipped_release_branch() {
     git.existing_tags.insert("v1.2.0".to_string());
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"tag_exists:v1.2.0".to_string()));
@@ -164,7 +164,7 @@ fn finish_hotfix_propagates_to_multiple_release_branches_in_sorted_order() {
     ];
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     let expected_tail = vec![
@@ -205,7 +205,7 @@ fn finish_hotfix_excludes_release_fix_branches() {
     ];
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(
@@ -230,7 +230,7 @@ fn finish_hotfix_aborts_on_release_merge_conflict_without_deleting_hotfix() {
     git.fail_nth_merge = Some(3);
 
     let hosting = MockHosting::new();
-    let result = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None);
+    let result = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false);
 
     assert!(result.is_err(), "expected merge conflict to surface");
     let err = result.unwrap_err();
@@ -269,7 +269,7 @@ fn finish_hotfix_resume_skips_already_merged_main_and_develop() {
     git.pushed_branches.insert("develop".to_string());
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     // No re-merges of main or develop
@@ -305,7 +305,7 @@ fn finish_hotfix_resume_skips_already_propagated_release() {
     git.existing_remote_branches.insert("hotfix/1.0.1".to_string());
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("merge:")), "no merges should run; calls: {calls:?}");
@@ -333,7 +333,7 @@ fn finish_hotfix_switches_off_source_before_deleting_when_currently_on_it() {
     git.existing_remote_branches.insert("hotfix/1.0.1".to_string());
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     let checkout_main_idx = calls.iter().position(|c| c == "checkout:main")
@@ -352,7 +352,7 @@ fn finish_hotfix_skips_cleanup_checkout_when_already_off_source() {
     git.current_branch = "develop".to_string();
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     // The only checkouts should be the ones the flow explicitly drives (main, develop).
@@ -376,7 +376,7 @@ fn finish_hotfix_resume_when_branch_already_deleted_is_idempotent() {
     // Note: no entries in existing_local_branches / existing_remote_branches → already deleted
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "deletions should be skipped; calls: {calls:?}");
@@ -401,7 +401,7 @@ fn finish_hotfix_keeps_branch_when_configured() {
 
     let hosting = MockHosting::new();
     let cfg = RepoConfig { mode: Mode::Free, keep_release_branches: true, ..RepoConfig::default() };
-    finish_hotfix(&git, &hosting, &cfg, 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &cfg, 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_")), "keep must skip deletion; calls: {calls:?}");
@@ -416,7 +416,7 @@ fn finish_hotfix_main_merge_conflict_names_source_branch_to_switch_back() {
     git.fail_nth_merge = Some(1); // main merge
 
     let hosting = MockHosting::new();
-    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
+    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap_err();
     assert!(err.contains("git add . && git commit --no-edit"),
         "the commit step must come before git switch, which fails mid-merge; got: {err}");
     assert!(err.contains("git switch hotfix/1.0.1"),
@@ -430,7 +430,7 @@ fn finish_hotfix_develop_merge_conflict_names_source_branch_to_switch_back() {
     git.fail_nth_merge = Some(2); // develop merge
 
     let hosting = MockHosting::new();
-    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
+    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap_err();
     assert!(err.contains("git switch hotfix/1.0.1"),
         "develop conflict should tell user to switch back to the hotfix branch; got: {err}");
 }
@@ -456,7 +456,7 @@ fn protected_hotfix_opens_main_pr_and_stops() {
     git.pushed_branches.insert("hotfix/1.1.1".to_string());
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "tag_exists:v1.1.1",
@@ -499,11 +499,13 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
         ("hotfix/1.1.1".to_string(), "main".to_string()),
         landed("hfsha", "mc1"),
     );
+    git.parent_counts.insert("mc1".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:mc1:origin/main",
+        "commit_parent_count:mc1",
         "tag_exists:v1.1.1",
         "tag_exists:v1.1.1",
         "create_tag_at:v1.1.1:chore: hotfix 1.1.1:mc1",
@@ -553,18 +555,22 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
     git.ancestors.insert(("mc2".to_string(), "origin/develop".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:mc1:origin/main",
+        "commit_parent_count:mc1",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
         "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
+        "commit_parent_count:mc2",
         "branch_sha:hotfix/1.1.1",
         "list_branches_matching:release/*",
         "tag_exists:v1.3.0",
@@ -613,24 +619,30 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
     git.ancestors.insert(("mc3".to_string(), "origin/release/1.2.0".to_string()));
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "release/1.2.0".to_string()), landed("hfsha", "mc3"));
+    git.parent_counts.insert("mc3".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:mc1:origin/main",
+        "commit_parent_count:mc1",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
         "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
+        "commit_parent_count:mc2",
         "branch_sha:hotfix/1.1.1",
         "list_branches_matching:release/*",
         "tag_exists:v1.3.0",
         "tag_exists:v1.2.0",
         "is_ancestor:mc3:origin/release/1.2.0",
+        "commit_parent_count:mc3",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:hotfix/1.1.1:origin/release/1.3.0",
         "remote_branch_exists:hotfix/1.1.1",
@@ -682,23 +694,29 @@ fn protected_hotfix_completes_after_all_landed() {
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "release/1.2.0".to_string()), landed("hfsha", "mc3"));
+    git.parent_counts.insert("mc3".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert_eq!(git.calls(), vec![
         "is_ancestor:mc1:origin/main",
+        "commit_parent_count:mc1",
         "tag_exists:v1.1.1",
         "tag_commit_sha:v1.1.1",
         "is_ancestor:mc1:origin/main",
         "remote_tag_exists:v1.1.1",
         "branch_sha:hotfix/1.1.1",
         "is_ancestor:mc2:origin/develop",
+        "commit_parent_count:mc2",
         "branch_sha:hotfix/1.1.1",
         "list_branches_matching:release/*",
         "tag_exists:v1.2.0",
         "is_ancestor:mc3:origin/release/1.2.0",
+        "commit_parent_count:mc3",
         "branch_sha:hotfix/1.1.1",
         "branch_sha:hotfix/1.1.1",
         "list_branches_matching:finish/hotfix-1.1.1-into-*",
@@ -737,9 +755,11 @@ fn protected_hotfix_keeps_branch_when_configured() {
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(true), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(true), 1, 1, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:main"), "keep must skip delete_source_branch's checkout; calls: {calls:?}");
@@ -765,8 +785,9 @@ fn protected_hotfix_reopens_the_develop_leg_when_the_branch_moved() {
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.3.1".to_string(), "develop".to_string()), landed("old-develop-head", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None, false).unwrap();
 
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls, vec![
@@ -802,8 +823,9 @@ fn protected_hotfix_reopens_develop_instead_of_completing_when_the_tip_landed_no
 
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.3.1".to_string(), "develop".to_string()), landed("old-develop-head", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    let result = finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None);
+    let result = finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 3, 1, "main", None, false);
     assert!(result.is_ok(), "re-opening the leg must not fail the run; got: {result:?}");
 
     let calls = git.calls();
@@ -824,7 +846,7 @@ fn finish_hotfix_merges_in_place_when_target_is_checked_out_in_another_worktree(
     git.worktrees.insert("develop".to_string(), std::path::PathBuf::from("/repos/beans-api"));
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(!calls.contains(&"checkout:develop".to_string()), "must not check out a branch held by another worktree; calls: {calls:?}");
@@ -846,7 +868,7 @@ fn finish_hotfix_refuses_to_merge_into_a_dirty_worktree_it_does_not_stand_in() {
     git.working_tree_clean = false;
 
     let hosting = MockHosting::new();
-    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap_err();
+    let err = finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap_err();
 
     assert!(err.contains("/repos/beans-api") && err.contains("develop"), "got: {err}");
     let calls = git.calls();
@@ -866,7 +888,7 @@ fn finish_hotfix_cleanup_detaches_when_main_is_held_by_another_worktree() {
     git.worktrees.insert("main".to_string(), std::path::PathBuf::from("/repos/beans-api-main"));
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(!calls.contains(&"checkout:main".to_string()), "must not check out a branch held by another worktree; calls: {calls:?}");
@@ -893,7 +915,7 @@ fn finish_hotfix_in_its_own_worktree_removes_the_worktree_last() {
     git.pushed_branches.insert("develop".to_string());
 
     let hosting = MockHosting::new();
-    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &RepoConfig::default(), 1, 0, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     let cleanup: Vec<&String> = calls.iter().skip_while(|c| *c != "current_branch").collect();
@@ -922,7 +944,7 @@ fn finish_hotfix_keeping_the_branch_keeps_the_worktree() {
     git.pushed_branches.insert("develop".to_string());
     let cfg = RepoConfig { keep_release_branches: true, ..RepoConfig::default() };
 
-    finish_hotfix(&git, &MockHosting::new(), &cfg, 1, 0, 1, "main", None).unwrap();
+    finish_hotfix(&git, &MockHosting::new(), &cfg, 1, 0, 1, "main", None, false).unwrap();
 
     assert!(!git.calls().iter().any(|c| c == "remove_current_worktree" || c == "detach_head"),
         "a kept branch keeps its worktree; calls: {:?}", git.calls());
@@ -944,9 +966,11 @@ fn protected_hotfix_all_legs_use_finish_branches() {
     git.pushed_branches.insert("hotfix/1.1.1".to_string());
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert_eq!(hosting.calls(), vec![
         "open_pr_to:hotfix/1.1.1:main",
@@ -989,9 +1013,11 @@ fn protected_hotfix_completes_after_conflict_resolutions_and_cleans_every_finish
     ]);
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("res-main", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("res-dev", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"delete_branch_local:hotfix/1.1.1".to_string()),
@@ -1031,9 +1057,11 @@ fn protected_hotfix_falls_back_to_local_finish_refs_when_origin_pruned_them() {
     ]);
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("res-main", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("res-dev", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"is_ancestor:hotfix/1.1.1:finish/hotfix-1.1.1-into-develop".to_string()),
@@ -1064,9 +1092,11 @@ fn protected_hotfix_in_its_own_worktree_removes_the_worktree_last() {
     ]);
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-main".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
     hosting.merged_prs_to.insert(("finish/hotfix-1.1.1-into-develop".to_string(), "develop".to_string()), landed("hfsha", "mc2"));
+    git.parent_counts.insert("mc2".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"list_branches_matching:finish/hotfix-1.1.1-into-*".to_string()),
@@ -1095,8 +1125,9 @@ fn protected_hotfix_content_present_legs_complete_without_prs() {
     git.branches_matching_by.insert("finish/hotfix-1.1.1-into-*".to_string(), vec![]);
     let mut hosting = MockHosting::new();
     hosting.merged_prs_to.insert(("hotfix/1.1.1".to_string(), "main".to_string()), landed("hfsha", "mc1"));
+    git.parent_counts.insert("mc1".to_string(), 2);
 
-    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None).unwrap();
+    finish_hotfix(&git, &hosting, &protected_cfg(false), 1, 1, 1, "main", None, false).unwrap();
 
     assert!(!hosting.calls().iter().any(|c| c.starts_with("create_or_get_pr")),
         "content-present legs need no PR; calls: {:?}", hosting.calls());

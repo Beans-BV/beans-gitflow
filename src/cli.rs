@@ -27,11 +27,20 @@ pub enum Commands {
         /// Discard any in-progress finish state without running the flow.
         #[arg(long, conflicts_with = "breaking")]
         abort: bool,
+        /// Accept a PR that was completed with the wrong type (squash vs merge
+        /// commit) and continue instead of stopping with undo instructions.
+        #[arg(long)]
+        accept_merge_type: bool,
     },
     /// Bump the patch version on the current release branch
     Bump,
     /// Sync the current release branch into develop
-    Sync,
+    Sync {
+        /// Accept a landing PR that was completed with the wrong type (squash
+        /// instead of merge commit) and continue.
+        #[arg(long)]
+        accept_merge_type: bool,
+    },
     /// Initialise this repository for bflow: writes .bflow/config (interactive)
     Init,
     /// Configure the optional worktree flow (run with no subcommand for an interactive setup)
@@ -201,7 +210,7 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
                 Ok(Action::StartHotfixFix { name, no_checkout: opts.no_checkout, no_worktree: opts.no_worktree })
             }
         },
-        Commands::Finish { breaking, base, abort } => {
+        Commands::Finish { breaking, base, abort, .. } => {
             if abort {
                 unreachable!("--abort is intercepted in lifecycle::resolve_action_with_state before dispatch")
             }
@@ -230,7 +239,7 @@ pub fn resolve_action(command: Commands, branch_type: &BranchType, worktree_enab
             require_release_branch(branch_type)?;
             Ok(Action::BumpVersion)
         }
-        Commands::Sync => {
+        Commands::Sync { .. } => {
             require_release_branch(branch_type)?;
             Ok(Action::SyncWithDevelop)
         }

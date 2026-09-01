@@ -84,6 +84,84 @@ pub(crate) fn push_tag_if_missing(git: &dyn Git, tag: &str) -> Result<(), String
     git.push_tag(tag)
 }
 
+// --- PR completion-type policy ----------------------------------------------
+// Every PR bflow opens must be completed a specific way: finish/* landing PRs
+// with a merge commit (history stays connected), everything else squashed (one
+// commit per change on the target). The type is derived from the merge
+// commit's parent count; a wrong completion hard-stops the flow until the
+// operator undoes it or re-runs with --accept-merge-type.
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum CompletionType {
+    Squash,
+    MergeCommit,
+}
+
+impl CompletionType {
+    fn label(self) -> &'static str {
+        match self {
+            CompletionType::Squash => "SQUASH",
+            CompletionType::MergeCommit => "MERGE COMMIT",
+        }
+    }
+}
+
+/// Undo recipe for a work/fix PR that got a merge commit instead of a squash.
+/// The amend gives the branch a new commit id, so the merged-PR guard in
+/// `try_cleanup_merged` sees new work and opens a fresh PR instead of
+/// completing the finish.
+pub(crate) const WORK_PR_UNDO: &str =
+    "To undo it:\n    \
+     1. Revert (or reset) the wrong merge on the target branch.\n    \
+     2. Run 'git commit --amend --no-edit' on this branch — the new commit id lets a fresh PR open.\n    \
+     3. Re-run 'bflow finish'.";
+
+/// Undo recipe for a finish/* landing PR that was squashed: protected branches
+/// cannot be force-pushed back, so the platform's revert is the only clean path.
+pub(crate) const LANDING_PR_UNDO: &str =
+    "To undo it: revert the landing PR on the hosting platform, then re-run this command.\n\
+     (A protected branch cannot be force-pushed back.)";
+
+const BANNER_RULE: &str = "════════════════════════════════════════════════";
+
+/// The hard-to-miss instruction printed next to every PR bflow creates or
+/// re-surfaces: which completion button the human must press. The counterpart
+/// of `enforce_completion_type`, which verifies it after the fact.
+pub(crate) fn completion_instruction(expected: CompletionType) -> String {
+    let warning = match expected {
+        CompletionType::Squash => "(do NOT use a merge commit)",
+        CompletionType::MergeCommit => "(do NOT squash this landing PR)",
+    };
+    format!(
+        "{BANNER_RULE}\n ⚠  COMPLETE THIS PR WITH: {}\n    {warning}\n{BANNER_RULE}",
+        expected.label(),
+    )
+}
+
+/// Hard gate on how a merged PR was completed. A 2-parent merge commit is a
+/// real merge; 1 parent means squash (or rebase, indistinguishable for a
+/// 1-commit PR — and equivalent). `accept` downgrades a mismatch to a warning.
+pub(crate) fn enforce_completion_type(git: &dyn Git, url: &str, merge_commit_sha: &str, expected: CompletionType, accept: bool, undo: &str) -> Result<(), String> {
+    let actual = if git.commit_parent_count(merge_commit_sha)? >= 2 {
+        CompletionType::MergeCommit
+    } else {
+        CompletionType::Squash
+    };
+    if actual == expected {
+        return Ok(());
+    }
+    if accept {
+        eprintln!("⚠ Accepted wrong completion type for {url}: {} (expected {}).", actual.label(), expected.label());
+        return Ok(());
+    }
+    Err(format!(
+        "✖ PR completed with the wrong type: {} (expected {}).\n  {url}\n\n{undo}\n\n\
+         To keep it as-is instead: re-run the same bflow command with --accept-merge-type.",
+        actual.label(),
+        expected.label(),
+    ))
+}
+
 // --- Protected-mode landing helpers ----------------------------------------
 // bflow never merges a PR (SKILL.md principle: protected mode never pushes
 // main/develop) — a landing step opens a PR and stops; a human merges it, and
@@ -126,20 +204,27 @@ pub(crate) fn refuse_open_legacy_pr(hosting: &dyn HostingPlatform, source: &str,
 /// landed): landed once stays landed. Checks the finish-branch head first,
 /// then the legacy head — drop the fallback once every pre-finish-branch
 /// landing has migrated.
-pub(crate) fn finish_leg_landed(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
+pub(crate) fn finish_leg_landed(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, accept_merge_type: bool) -> Result<Option<LandedPr>, String> {
     let finish = finish_branch_name(source, target);
-    if let Some(pr) = leg_landed(git, hosting, &finish, target)? {
-        return Ok(Some(pr));
-    }
-    leg_landed(git, hosting, source, target)
+    let pr = match leg_landed(git, hosting, &finish, target)? {
+        Some(pr) => Some(pr),
+        None => leg_landed(git, hosting, source, target)?,
+    };
+    let Some(pr) = pr else {
+        return Ok(None);
+    };
+    // Every confirmed landing passes the completion-type gate before the flow
+    // acts on it (tags, next leg, cleanup) — a squashed landing hard-stops here.
+    enforce_completion_type(git, &pr.url, &pr.merge_commit_sha, CompletionType::MergeCommit, accept_merge_type, LANDING_PR_UNDO)?;
+    Ok(Some(pr))
 }
 
 /// Strict leg lookup (develop and release legs): landed only while the merged
 /// landing still contains the current source tip. A landing that predates new
 /// source commits (a mid-release sync, an earlier finish attempt) re-opens
 /// with a refreshed finish branch instead of silently dropping the commits.
-pub(crate) fn finish_leg_landed_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str) -> Result<Option<LandedPr>, String> {
-    let Some(pr) = finish_leg_landed(git, hosting, source, target)? else {
+pub(crate) fn finish_leg_landed_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, accept_merge_type: bool) -> Result<Option<LandedPr>, String> {
+    let Some(pr) = finish_leg_landed(git, hosting, source, target, accept_merge_type)? else {
         return Ok(None);
     };
     if landing_contains_tip(git, source, target, &pr)? {
@@ -247,9 +332,10 @@ pub(crate) enum LegState {
 /// Drive one strict landing leg: refuse legacy PRs, recognize a landing that
 /// still contains the tip, skip a target that already has the content, else
 /// open (or reuse) the PR from the leg's finish branch.
-pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>, rerun: &str) -> Result<LegState, String> {
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, source: &str, target: &str, title: &str, template: Option<&Path>, rerun: &str, accept_merge_type: bool) -> Result<LegState, String> {
     refuse_open_legacy_pr(hosting, source, target)?;
-    if let Some(pr) = finish_leg_landed_strict(git, hosting, source, target)? {
+    if let Some(pr) = finish_leg_landed_strict(git, hosting, source, target, accept_merge_type)? {
         return Ok(LegState::Landed(pr));
     }
     if git.is_ancestor(source, &format!("origin/{target}"))? {
@@ -357,12 +443,14 @@ pub(crate) fn pending_landing_message(title: &str, url: &str, rerun: &str, hint:
 pub(crate) fn announce_pending_landing(hosting: &dyn HostingPlatform, title: &str, url: &str, rerun: &str, hint: &str) {
     use std::io::IsTerminal;
     println!("{}", pending_landing_message(title, url, rerun, hint, std::io::stdout().is_terminal()));
+    println!("{}", completion_instruction(CompletionType::MergeCommit));
     open_pr_in_browser(hosting, url);
 }
 
 /// Announce a version PR waiting for a human merge, and open it.
 pub(crate) fn announce_version_pr(hosting: &dyn HostingPlatform, url: &str) {
     println!("Version PR: {url}");
+    println!("{}", completion_instruction(CompletionType::Squash));
     open_pr_in_browser(hosting, url);
 }
 
@@ -531,6 +619,30 @@ pub(crate) fn resume_hint(source_branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completion_instruction_for_a_work_pr_demands_squash() {
+        let banner = completion_instruction(CompletionType::Squash);
+        assert_eq!(
+            banner,
+            "════════════════════════════════════════════════\n \
+             ⚠  COMPLETE THIS PR WITH: SQUASH\n    \
+             (do NOT use a merge commit)\n\
+             ════════════════════════════════════════════════"
+        );
+    }
+
+    #[test]
+    fn completion_instruction_for_a_landing_pr_demands_a_merge_commit() {
+        let banner = completion_instruction(CompletionType::MergeCommit);
+        assert_eq!(
+            banner,
+            "════════════════════════════════════════════════\n \
+             ⚠  COMPLETE THIS PR WITH: MERGE COMMIT\n    \
+             (do NOT squash this landing PR)\n\
+             ════════════════════════════════════════════════"
+        );
+    }
 
     #[test]
     fn finish_conflict_hint_points_at_rerunning() {

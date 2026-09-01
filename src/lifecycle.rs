@@ -52,6 +52,13 @@ pub fn run(
         None => None,
     };
 
+    // The completion-type override is per-invocation, not part of the Action:
+    // the menu path has no flags, so it always runs strict (false).
+    let accept_merge_type = matches!(
+        &command,
+        Some(Commands::Finish { accept_merge_type: true, .. }) | Some(Commands::Sync { accept_merge_type: true })
+    );
+
     // Resolve the action up-front so we can decide whether to fetch / stash / etc.
     let action = resolve_action_with_state(command, prompter, &branch_type, &branch_name, resume_state.as_ref(), wt_config.enabled, &main_branch)?;
 
@@ -121,7 +128,7 @@ pub fn run(
 
     let worktree = if worktree_active { Some(WorktreeContext { env: worktree_env, prompter }) } else { None };
 
-    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch, repo_cfg, script);
+    let result = run_flow(git, hosting, prompter, &branch_type, &branch_name, &action, no_checkout, worktree, resume_state.as_ref(), &main_branch, repo_cfg, script, accept_merge_type);
 
     // Lifecycle: clear state on success of a release/hotfix finish. Both a fresh
     // finish and a resume run on the source branch, so its identity is available.
@@ -271,6 +278,7 @@ fn run_flow(
     main_branch: &str,
     repo_cfg: &RepoConfig,
     script: Option<&dyn VersionScript>,
+    accept_merge_type: bool,
 ) -> Result<(), String> {
     // Fast-forward the current branch to origin when the flow will operate on
     // this checkout and we're not resuming (on resume the user may be on
@@ -299,19 +307,19 @@ fn run_flow(
         }
         Action::FinishWorkBranch { breaking, base } => {
             let template = resolve_pr_template(git, branch_type)?;
-            finish_work::finish_work_branch(git, hosting, prompter, branch_type, *breaking, base.clone(), template.as_deref())?;
+            finish_work::finish_work_branch(git, hosting, prompter, branch_type, *breaking, base.clone(), template.as_deref(), accept_merge_type)?;
         }
         Action::FinishReleaseFix => {
             let template = resolve_pr_template(git, branch_type)?;
-            finish_work::finish_release_fix(git, hosting, branch_type, template.as_deref())?;
+            finish_work::finish_release_fix(git, hosting, branch_type, template.as_deref(), accept_merge_type)?;
         }
         Action::FinishHotfixFix => {
             let template = resolve_pr_template(git, branch_type)?;
-            finish_work::finish_hotfix_fix(git, hosting, branch_type, template.as_deref())?;
+            finish_work::finish_hotfix_fix(git, hosting, branch_type, template.as_deref(), accept_merge_type)?;
         }
         Action::FinishReleaseChore => {
             let template = resolve_pr_template(git, branch_type)?;
-            finish_work::finish_release_chore(git, hosting, branch_type, template.as_deref())?;
+            finish_work::finish_release_chore(git, hosting, branch_type, template.as_deref(), accept_merge_type)?;
         }
         Action::BumpVersion => {
             let BranchType::Release { major, minor, .. } = branch_type else {
@@ -324,7 +332,7 @@ fn run_flow(
                 unreachable!("SyncWithDevelop action only from Release branch");
             };
             let template = resolve_landing_template(git, repo_cfg, "release")?;
-            finish_release::sync_with_develop(git, hosting, repo_cfg, *major, *minor, template.as_deref())?;
+            finish_release::sync_with_develop(git, hosting, repo_cfg, *major, *minor, template.as_deref(), accept_merge_type)?;
         }
         Action::FinishRelease => {
             // On resume, prefer the state's version (we may not be on the release branch).
@@ -337,7 +345,7 @@ fn run_flow(
                 (*major, *minor)
             };
             let template = resolve_landing_template(git, repo_cfg, "release")?;
-            finish_release::finish_release(git, hosting, repo_cfg, major, minor, main_branch, template.as_deref())?;
+            finish_release::finish_release(git, hosting, repo_cfg, major, minor, main_branch, template.as_deref(), accept_merge_type)?;
         }
         Action::FinishHotfix => {
             let (major, minor, patch) = if let Some(s) = resume_state {
@@ -349,7 +357,7 @@ fn run_flow(
                 (*major, *minor, *patch)
             };
             let template = resolve_landing_template(git, repo_cfg, "hotfix")?;
-            finish_hotfix::finish_hotfix(git, hosting, repo_cfg, major, minor, patch, main_branch, template.as_deref())?;
+            finish_hotfix::finish_hotfix(git, hosting, repo_cfg, major, minor, patch, main_branch, template.as_deref(), accept_merge_type)?;
         }
         Action::AbortFinish => {
             unreachable!("AbortFinish is handled before run_flow");

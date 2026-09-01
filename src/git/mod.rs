@@ -31,6 +31,9 @@ pub trait Git {
     fn list_remote_branches(&self) -> Result<Vec<String>>;
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
     fn rev_list_count(&self, from: &str, to: &str) -> Result<u32>;
+    /// Number of parents of `sha` (2+ = a merge commit, 1 = a plain commit,
+    /// 0 = a root commit). An unknown commit is an error, never a zero.
+    fn commit_parent_count(&self, sha: &str) -> Result<u32>;
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>>;
 
     // Idempotency primitives
@@ -264,6 +267,15 @@ impl Git for GitCli<'_> {
         let range = format!("{from}..{to}");
         let output = self.run(&["rev-list", "--count", &range])?;
         output.parse::<u32>().map_err(|e| format!("Failed to parse rev-list count: {e}"))
+    }
+    fn commit_parent_count(&self, sha: &str) -> Result<u32> {
+        // Output: the commit followed by its parents, whitespace-separated.
+        let output = self.run(&["rev-list", "--parents", "-n", "1", sha])?;
+        let count = output.split_whitespace().count();
+        if count == 0 {
+            return Err(format!("Could not read parents of commit '{sha}'. Run 'git fetch' and retry."));
+        }
+        Ok((count - 1) as u32)
     }
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>> {
         let range = format!("{from}..{to}");

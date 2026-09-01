@@ -153,6 +153,33 @@ fn a_commit_count_is_parsed_as_a_number() {
 }
 
 #[test]
+fn parent_count_of_a_merge_commit_is_two() {
+    // `rev-list --parents -n 1` prints the commit followed by its parents.
+    let runner = MockCommandRunner::ok("deadbeef aaa111 bbb222\n");
+
+    assert_eq!(git(&runner).commit_parent_count("deadbeef").unwrap(), 2);
+    assert_eq!(runner.calls(), vec!["git rev-list --parents -n 1 deadbeef"]);
+}
+
+#[test]
+fn parent_count_of_a_squash_commit_is_one() {
+    let runner = MockCommandRunner::ok("deadbeef aaa111\n");
+
+    assert_eq!(git(&runner).commit_parent_count("deadbeef").unwrap(), 1);
+}
+
+#[test]
+fn parent_count_empty_output_is_an_error_not_a_zero() {
+    // Zero parents is a root commit; empty output means the commit is unknown —
+    // guessing either way would let a completion-type check pass vacuously.
+    let runner = MockCommandRunner::ok("");
+
+    let err = git(&runner).commit_parent_count("deadbeef").unwrap_err();
+
+    assert!(err.contains("deadbeef"), "must name the commit; got: {err}");
+}
+
+#[test]
 fn an_unparseable_commit_count_is_an_error_not_a_zero() {
     // Zero would mean "nothing past the RC" and would wave the release gate through.
     let runner = MockCommandRunner::ok("not-a-number");

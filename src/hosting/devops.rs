@@ -42,16 +42,17 @@ impl<'a> AzureDevOps<'a> {
         ]
     }
 
-    /// Parse the `status<TAB>commitId<TAB>targetRefName<TAB>id` tsv row of the
-    /// merged-PR query. Empty output is the normal "no PR" case; a row whose
-    /// status isn't `completed` means the newest PR is open/abandoned → `None`.
+    /// Parse the `status<TAB>headSha<TAB>mergeCommitSha<TAB>targetRefName<TAB>id`
+    /// tsv row of the merged-PR query. Empty output is the normal "no PR" case; a
+    /// row whose status isn't `completed` means the newest PR is open/abandoned →
+    /// `None`.
     fn parse_merged_pr_row(&self, row: &str) -> Result<Option<MergedPr>> {
         let row = row.trim();
         if row.is_empty() {
             return Ok(None);
         }
         let fields: Vec<&str> = row.split('\t').collect();
-        let [status, sha, target, id] = fields.as_slice() else {
+        let [status, sha, merge_sha, target, id] = fields.as_slice() else {
             return Err(format!("Unexpected merged-PR data from az: '{row}'"));
         };
         if *status != "completed" {
@@ -61,10 +62,14 @@ impl<'a> AzureDevOps<'a> {
         if sha.is_empty() || *sha == "None" {
             return Err(format!("Unexpected merge source commit from az: '{row}'"));
         }
+        if merge_sha.is_empty() || *merge_sha == "None" {
+            return Err(format!("Unexpected merge commit from az: '{row}'"));
+        }
         let base = target.strip_prefix("refs/heads/").unwrap_or(target).to_string();
         Ok(Some(MergedPr {
             url: self.pr_url(validate_pr_id(id)?),
             head_sha: sha.to_string(),
+            merge_commit_sha: merge_sha.to_string(),
             base,
         }))
     }
@@ -179,7 +184,7 @@ impl HostingPlatform for AzureDevOps<'_> {
         args.extend([
             "--source-branch".into(), head.into(),
             "--status".into(), "all".into(),
-            "--query".into(), "[0].[status, lastMergeSourceCommit.commitId, targetRefName, pullRequestId]".into(),
+            "--query".into(), "[0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, targetRefName, pullRequestId]".into(),
             "-o".into(), "tsv".into(),
         ]);
         let row = self.run_az(&args)?;
@@ -290,23 +295,26 @@ mod tests {
 
     #[test]
     fn merged_pr_row_completed_parses_with_synthesized_url_and_short_base() {
-        let pr = ado().parse_merged_pr_row("completed\tabc123\trefs/heads/develop\t49").unwrap().unwrap();
+        let pr = ado().parse_merged_pr_row("completed\tabc123\tdeadbeef\trefs/heads/develop\t49").unwrap().unwrap();
         assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
         assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.merge_commit_sha, "deadbeef");
         assert_eq!(pr.base, "develop");
     }
 
     #[test]
     fn merged_pr_row_active_or_abandoned_is_none() {
-        assert_eq!(ado().parse_merged_pr_row("active\tabc\trefs/heads/develop\t49"), Ok(None));
-        assert_eq!(ado().parse_merged_pr_row("abandoned\tabc\trefs/heads/develop\t49"), Ok(None));
+        assert_eq!(ado().parse_merged_pr_row("active\tabc\tdeadbeef\trefs/heads/develop\t49"), Ok(None));
+        assert_eq!(ado().parse_merged_pr_row("abandoned\tabc\tdeadbeef\trefs/heads/develop\t49"), Ok(None));
     }
 
     #[test]
     fn merged_pr_row_missing_commit_or_bad_id_is_a_hard_error() {
-        assert!(ado().parse_merged_pr_row("completed\t\trefs/heads/develop\t49").is_err());
-        assert!(ado().parse_merged_pr_row("completed\tNone\trefs/heads/develop\t49").is_err());
-        assert!(ado().parse_merged_pr_row("completed\tabc\trefs/heads/develop\tNone").is_err());
+        assert!(ado().parse_merged_pr_row("completed\t\tdeadbeef\trefs/heads/develop\t49").is_err());
+        assert!(ado().parse_merged_pr_row("completed\tNone\tdeadbeef\trefs/heads/develop\t49").is_err());
+        assert!(ado().parse_merged_pr_row("completed\tabc\t\trefs/heads/develop\t49").is_err());
+        assert!(ado().parse_merged_pr_row("completed\tabc\tNone\trefs/heads/develop\t49").is_err());
+        assert!(ado().parse_merged_pr_row("completed\tabc\tdeadbeef\trefs/heads/develop\tNone").is_err());
     }
 
     #[test]
