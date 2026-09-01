@@ -69,3 +69,7 @@ landed until `git status` showed the file still modified.
 
 **Rule:** always `git add` the path exactly as `git ls-files` prints it, and
 read `git status --short` before claiming a commit contains a file.
+
+- 2026-09-01: Edited `.claude/skills/bflow/skill.md` twice before remembering
+  the skill-sync-reminder skill must run whenever any skill file changes.
+  Trigger it on EVERY skill-file edit, in the same turn as the edit.

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use bflow::action::validate_branch_name;
 use bflow::editor::Editor;
 use bflow::git::{CliOutput, CommandRunner, Git};
-use bflow::hosting::{CliRunner, HostingPlatform};
+use bflow::hosting::{CliRunner, HostingPlatform, PrBody};
 use bflow::prompt::Prompter;
 use bflow::version_script::VersionScript;
 
@@ -493,6 +493,8 @@ pub struct MockHosting {
     pub calls: RefCell<Vec<String>>,
     /// (head, base) -> url of an OPEN PR, for `open_pr_to`.
     pub open_prs_to: HashMap<(String, String), String>,
+    /// When set, `open_url` fails with this (the call is still recorded).
+    pub open_url_error: Option<String>,
     pub pr_url: String,
     /// What `merged_pr` reports (defaults to no merged PR).
     pub merged_pr: Option<bflow::hosting::MergedPr>,
@@ -505,6 +507,7 @@ impl MockHosting {
         Self {
             calls: RefCell::new(Vec::new()),
             open_prs_to: HashMap::new(),
+            open_url_error: None,
             pr_url: "https://github.com/org/repo/pull/1".to_string(),
             merged_pr: None,
             merged_prs_to: HashMap::new(),
@@ -517,8 +520,12 @@ impl MockHosting {
 }
 
 impl HostingPlatform for MockHosting {
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String, String> {
-        let suffix = template.map(|t| format!(":template={t}")).unwrap_or_default();
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, body: PrBody<'_>) -> Result<String, String> {
+        let suffix = match body {
+            PrBody::File(t) => format!(":template={t}"),
+            PrBody::NativeDefault => String::new(),
+            PrBody::Empty => ":empty-body".to_string(),
+        };
         self.calls.borrow_mut().push(format!("create_or_get_pr:{head}:{base}:{title}{suffix}"));
         Ok(self.pr_url.clone())
     }
@@ -540,7 +547,10 @@ impl HostingPlatform for MockHosting {
 
     fn open_url(&self, url: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("open_url:{url}"));
-        Ok(())
+        match &self.open_url_error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
     }
 
     fn check_auth(&self) -> Result<(), String> {

@@ -1,4 +1,4 @@
-use super::{resolve_body_file, CliRunner, HostingPlatform, LandedPr, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, HostingPlatform, LandedPr, MergedPr, PrBody, Result};
 
 pub struct AzureDevOps<'a> {
     org: String,
@@ -124,7 +124,7 @@ fn description_args(body: &str) -> Vec<String> {
 }
 
 impl HostingPlatform for AzureDevOps<'_> {
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, body: PrBody<'_>) -> Result<String> {
         // Return the existing active PR for this head/base if there is one.
         let mut list_args: Vec<String> = vec!["repos".into(), "pr".into(), "list".into()];
         list_args.extend(self.repo_args());
@@ -148,8 +148,8 @@ impl HostingPlatform for AzureDevOps<'_> {
             "PULL_REQUEST_TEMPLATE.md",
             "docs/pull_request_template.md",
         ];
-        let body_file = resolve_body_file(template, &default_paths);
-        let body = match body_file {
+        let body_file = resolve_body_file(body, &default_paths);
+        let description = match body_file {
             Some(path) => std::fs::read_to_string(&path)
                 .map_err(|e| format!("Failed to read PR template '{path}': {e}"))?,
             None => String::new(),
@@ -162,7 +162,7 @@ impl HostingPlatform for AzureDevOps<'_> {
             "--target-branch".into(), base.into(),
             "--title".into(), title.into(),
         ]);
-        create_args.extend(description_args(&body));
+        create_args.extend(description_args(&description));
         create_args.extend([
             "--query".into(), "pullRequestId".into(),
             "-o".into(), "tsv".into(),

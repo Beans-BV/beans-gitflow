@@ -852,6 +852,7 @@ fn m2_protected_mode_opens_a_version_pr_on_a_fresh_branch() {
         "protected mode must never push develop directly; calls: {:?}", git.calls());
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert_eq!(script.calls(), vec!["run:1.1.0", "run:1.2.0"]);
 }
@@ -929,6 +930,7 @@ fn m2_protected_mode_reuses_a_leftover_chore_branch_without_recreating_it() {
         "a leftover remote branch must be reused, never recreated; calls: {:?}", git.calls());
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert_eq!(script.calls(), vec!["run:1.1.0"], "the leftover-reuse path never re-runs the script");
 }
@@ -976,6 +978,7 @@ fn bump_develop_protected_deletes_leftover_local_chore_branch_before_recreating(
     ]);
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
 
@@ -1225,7 +1228,72 @@ fn start_hotfix_fix_worktree_active_discovers_and_opens() {
     assert!(calls.contains(&"create_branch_no_checkout:hotfix-fix/2.5.1/npe:hotfix/2.5.1".to_string()),
         "a worktree start must never switch the current checkout; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("checkout:")), "calls: {calls:?}");
-    assert_eq!(editor.calls().len(), 1, "the new worktree is opened in the editor");
+    assert_eq!(editor.calls(), vec![
+        format!("open:{}", worktree_for("hotfix/2.5.1")),
+        format!("open:{}", worktree_for("hotfix-fix/2.5.1/npe")),
+    ], "the hotfix container opens first; the fix worktree opens last so it keeps focus");
+}
+
+#[test]
+fn start_hotfix_fix_worktree_mode_opens_a_worktree_for_the_new_hotfix_branch_too() {
+    // A hotfix container is only ever created by `start hotfix-fix` — there is
+    // no `start hotfix` to hand it a worktree later. Mirror of the release
+    // hand-off: the container gets its own worktree, so `bflow finish` has a
+    // checkout to run from without touching the main tree.
+    let mut git = MockGit::new();
+    git.branches_matching = vec![];
+    git.tags = vec!["1.0.0".to_string()];
+    let config = test_worktree_config("code");
+    let editor = MockEditor::new();
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
+
+    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "urgent-crash", false, Some(ctx), "main", None).unwrap();
+
+    assert_eq!(git.calls(), vec![
+        "list_branches_matching:hotfix/*".to_string(),
+        "list_tags".to_string(),
+        "create_branch_no_checkout:hotfix/1.0.1:main".to_string(),
+        "push:hotfix/1.0.1".to_string(),
+        "worktree_of:hotfix/1.0.1".to_string(),
+        "repo_root".to_string(),
+        format!("add_worktree:{}:hotfix/1.0.1", worktree_for("hotfix/1.0.1")),
+        "create_branch_no_checkout:hotfix-fix/1.0.1/urgent-crash:hotfix/1.0.1".to_string(),
+        "push:hotfix-fix/1.0.1/urgent-crash".to_string(),
+        "repo_root".to_string(),
+        format!("add_worktree:{}:hotfix-fix/1.0.1/urgent-crash", worktree_for("hotfix-fix/1.0.1/urgent-crash")),
+    ]);
+    assert_eq!(editor.calls(), vec![
+        format!("open:{}", worktree_for("hotfix/1.0.1")),
+        format!("open:{}", worktree_for("hotfix-fix/1.0.1/urgent-crash")),
+    ]);
+}
+
+#[test]
+fn start_hotfix_fix_worktree_mode_points_at_the_worktree_that_already_holds_the_hotfix() {
+    let mut git = MockGit::new();
+    git.current_branch = "develop".to_string();
+    git.branches_matching = vec!["hotfix/2.5.1".to_string()];
+    git.worktrees.insert("hotfix/2.5.1".to_string(), std::path::PathBuf::from("/repos/beans-gitflow-hotfix-2.5.1"));
+    let config = test_worktree_config("code");
+    let editor = MockEditor::new();
+    let setup = MockWorktreeSetup::new();
+    let prompter = MockPrompter::new();
+    let env = WorktreeEnv { config: &config, editor: &editor, setup: &setup, commands: None };
+    let ctx = WorktreeContext { env: &env, prompter: &prompter };
+
+    start_hotfix_fix(&git, &MockHosting::new(), &RepoConfig::default(), "npe", false, Some(ctx), "main", None).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"worktree_of:hotfix/2.5.1".to_string()),
+        "the container's worktree must be looked up; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("add_worktree:") && c.ends_with(":hotfix/2.5.1")),
+        "the container is announced, never re-created; calls: {calls:?}");
+    assert!(calls.iter().any(|c| c.starts_with("add_worktree:") && c.ends_with(":hotfix-fix/2.5.1/npe")),
+        "the fix branch still gets its worktree; calls: {calls:?}");
+    assert_eq!(editor.calls(), vec![format!("open:{}", worktree_for("hotfix-fix/2.5.1/npe"))]);
 }
 
 // --- Release-type prompt: detection reorders the default, it never decides ---

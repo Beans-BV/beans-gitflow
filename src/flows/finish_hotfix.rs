@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::flows::{
     announce_pending_landing, cleanup_finish_branches, delete_source_branch, ensure_finish_branch,
-    finish_conflict_hint, finish_leg_landed, land_leg_strict, merge_into, refuse_open_legacy_pr, LegState,
+    finish_conflict_hint, finish_leg_landed, land_leg_strict, landing_pr_body, merge_into, refuse_open_legacy_pr, LegState,
     open_versioned_branches, push_if_needed, push_tag_if_missing, report_commits_past_landing, resume_hint, tag_at_if_missing,
     tag_if_missing, tip_landed_somewhere,
 };
@@ -129,8 +129,8 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
             None => {
                 let title = format!("chore: merge hotfix {version} into {main_branch}");
                 let finish = ensure_finish_branch(git, &hotfix_branch, main_branch, "bflow finish")?;
-                let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
-                announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
+                let url = hosting.create_or_get_pr(&finish, main_branch, &title, landing_pr_body(template))?;
+                announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                 return Ok(());
             }
         }
@@ -146,7 +146,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
-            announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
+            announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
             return Ok(());
         }
     }
@@ -160,7 +160,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
             LegState::Landed(pr) => landed.push(pr),
             LegState::ContentPresent => content_landed = true,
             LegState::Pending { url, finish } => {
-                announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, release));
+                announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, release));
                 return Ok(());
             }
         }

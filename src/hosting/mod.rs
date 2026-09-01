@@ -29,11 +29,23 @@ pub struct LandedPr {
     pub merge_commit_sha: String,
 }
 
+/// What a new PR's description is made from. Flows own this policy; adapters
+/// only execute it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PrBody<'a> {
+    /// Body from this file (a resolved bflow template).
+    File(&'a str),
+    /// Fall back to the repository's own default PR template, else empty.
+    NativeDefault,
+    /// No description. Machinery PRs (landing legs) use this so the repo's
+    /// native PR template never decorates an auto-generated merge.
+    Empty,
+}
+
 pub trait HostingPlatform {
-    /// Create a PR (or return the URL of an existing open one). When `template` is
-    /// `Some`, its contents become the PR body; when `None`, the platform falls back to
-    /// the repository's own default template.
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String>;
+    /// Create a PR (or return the URL of an existing open one), with its
+    /// description built per `body`.
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, body: PrBody<'_>) -> Result<String>;
     /// The merged PR for `head`, if the branch's most recent PR is merged.
     /// An open or abandoned newer PR yields `None` — the branch is still in play.
     fn merged_pr(&self, head: &str) -> Result<Option<MergedPr>>;
@@ -78,33 +90,41 @@ impl CliRunner for SystemCli {
     }
 }
 
-/// PR-body precedence shared by all providers: a bflow-resolved template wins,
-/// else the first existing native default-template path, else `None` (empty
-/// body). The native path *lists* stay per-provider knowledge on purpose.
-fn resolve_body_file(template: Option<&str>, native_paths: &[&str]) -> Option<String> {
-    template
-        .map(|p| p.to_string())
-        .or_else(|| {
-            native_paths.iter()
-                .find(|p| std::path::Path::new(p).exists())
-                .map(|p| p.to_string())
-        })
+/// PR-body precedence shared by all providers: a bflow-resolved template file
+/// is used verbatim; `NativeDefault` probes the first existing native
+/// default-template path, else `None` (empty body). The native path *lists*
+/// stay per-provider knowledge on purpose.
+fn resolve_body_file(body: PrBody<'_>, native_paths: &[&str]) -> Option<String> {
+    match body {
+        PrBody::File(p) => Some(p.to_string()),
+        PrBody::NativeDefault => native_paths.iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .map(|p| p.to_string()),
+        PrBody::Empty => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_body_file;
+    use super::{resolve_body_file, PrBody};
 
     #[test]
     fn bflow_template_wins_over_native_paths() {
         // The native path need not even exist for the template to win.
-        let result = resolve_body_file(Some(".github/pr-templates/bflow-fix.md"), &["nope.md"]);
+        let result = resolve_body_file(PrBody::File(".github/pr-templates/bflow-fix.md"), &["nope.md"]);
         assert_eq!(result, Some(".github/pr-templates/bflow-fix.md".to_string()));
     }
 
     #[test]
     fn no_template_and_no_existing_native_path_is_empty_body() {
-        assert_eq!(resolve_body_file(None, &["definitely/not/a/real/path.md"]), None);
+        assert_eq!(resolve_body_file(PrBody::NativeDefault, &["definitely/not/a/real/path.md"]), None);
+    }
+
+    #[test]
+    fn empty_body_ignores_an_existing_native_template() {
+        // Machinery PRs (landing legs) must not inherit the repo's own PR
+        // template — Cargo.toml stands in for a native path that exists.
+        assert_eq!(resolve_body_file(PrBody::Empty, &["Cargo.toml"]), None);
     }
 }
 

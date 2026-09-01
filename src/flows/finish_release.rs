@@ -1,13 +1,13 @@
 use std::path::Path;
 
 use crate::flows::{
-    announce_pending_landing, cleanup_finish_branches, delete_branch_guarded, delete_source_branch, ensure_finish_branch,
-    finish_conflict_hint, finish_leg_landed, land_leg_strict, merge_where_checked_out, refuse_open_legacy_pr, LegState,
+    announce_pending_landing, announce_version_pr, cleanup_finish_branches, delete_branch_guarded, delete_source_branch, ensure_finish_branch,
+    finish_conflict_hint, finish_leg_landed, land_leg_strict, landing_pr_body, merge_where_checked_out, refuse_open_legacy_pr, LegState,
     merge_into, push_if_needed, push_tag_if_missing, report_commits_past_landing, require_clean_tree,
     resume_hint, run_version_script, tag_at_if_missing, tag_if_missing, tip_landed_somewhere,
 };
 use crate::git::Git;
-use crate::hosting::{HostingPlatform, LandedPr};
+use crate::hosting::{HostingPlatform, LandedPr, PrBody};
 use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::{finish_branch_name, SemVer};
 use crate::version_script::VersionScript;
@@ -184,8 +184,8 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     let title = format!("chore: set version {script_version}");
 
     if git.remote_branch_exists(&chore_branch)? {
-        let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
-        announce_deferred(&url);
+        let url = hosting.create_or_get_pr(&chore_branch, branch, &title, PrBody::NativeDefault)?;
+        announce_deferred(hosting, &url);
         return Ok(());
     }
 
@@ -201,8 +201,8 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     match run_version_script(git, script, &script_version) {
         Ok(true) => {
             git.push(&chore_branch)?;
-            let url = hosting.create_or_get_pr(&chore_branch, branch, &title, None)?;
-            announce_deferred(&url);
+            let url = hosting.create_or_get_pr(&chore_branch, branch, &title, PrBody::NativeDefault)?;
+            announce_deferred(hosting, &url);
             git.checkout(branch)?;
             Ok(())
         }
@@ -220,8 +220,8 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     }
 }
 
-fn announce_deferred(pr_url: &str) {
-    println!("Version PR: {pr_url}");
+fn announce_deferred(hosting: &dyn HostingPlatform, pr_url: &str) {
+    announce_version_pr(hosting, pr_url);
     println!("The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.");
 }
 
@@ -260,7 +260,7 @@ fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, rel
             Ok(())
         }
         LegState::Pending { url, finish } => {
-            announce_pending_landing(&title, &url, "bflow sync", &finish_conflict_hint(&finish, "develop"));
+            announce_pending_landing(hosting, &title, &url, "bflow sync", &finish_conflict_hint(&finish, "develop"));
             Ok(())
         }
     }
@@ -403,8 +403,8 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                         staging_gate(git, &release_branch, main_branch, major, minor, cfg.bump_strategy)?;
                         let title = format!("chore: merge release {release} into {main_branch}");
                         let finish = ensure_finish_branch(git, &release_branch, main_branch, "bflow finish")?;
-                        let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
-                        announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
+                        let url = hosting.create_or_get_pr(&finish, main_branch, &title, landing_pr_body(template))?;
+                        announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                         return Ok(());
                     }
                 }
@@ -431,8 +431,8 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
                 staging_gate(git, &release_branch, main_branch, major, minor, cfg.bump_strategy)?;
                 let title = format!("chore: merge release {release} into {main_branch}");
                 let finish = ensure_finish_branch(git, &release_branch, main_branch, "bflow finish")?;
-                let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
-                announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
+                let url = hosting.create_or_get_pr(&finish, main_branch, &title, landing_pr_body(template))?;
+                announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                 return Ok(());
             }
         },
@@ -444,7 +444,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
-            announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
+            announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
             return Ok(());
         }
     }

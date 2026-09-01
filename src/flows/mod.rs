@@ -6,7 +6,7 @@ pub mod finish_hotfix;
 use std::path::{Path, PathBuf};
 
 use crate::git::Git;
-use crate::hosting::{HostingPlatform, LandedPr};
+use crate::hosting::{HostingPlatform, LandedPr, PrBody};
 use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::{finish_branch_name, SemVer};
 use crate::version_script::VersionScript;
@@ -257,8 +257,15 @@ pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, sour
         return Ok(LegState::ContentPresent);
     }
     let finish = ensure_finish_branch(git, source, target, rerun)?;
-    let url = hosting.create_or_get_pr(&finish, target, title, template.and_then(|p| p.to_str()))?;
+    let url = hosting.create_or_get_pr(&finish, target, title, landing_pr_body(template))?;
     Ok(LegState::Pending { url, finish })
+}
+
+/// A landing PR's description: an explicitly authored bflow template wins;
+/// without one the body stays empty — the repo's native PR template is for
+/// human PRs and never decorates a machinery merge.
+pub(crate) fn landing_pr_body(template: Option<&Path>) -> PrBody<'_> {
+    template.and_then(|p| p.to_str()).map_or(PrBody::Empty, PrBody::File)
 }
 
 /// Delete every finish branch of `source` — machinery, never kept, found by
@@ -346,10 +353,26 @@ pub(crate) fn pending_landing_message(title: &str, url: &str, rerun: &str, hint:
 }
 
 /// Announce a landing step that opened (or reused) a PR and is stopping for a
-/// human to merge it.
-pub(crate) fn announce_pending_landing(title: &str, url: &str, rerun: &str, hint: &str) {
+/// human to merge it — and put that PR in front of them in the browser.
+pub(crate) fn announce_pending_landing(hosting: &dyn HostingPlatform, title: &str, url: &str, rerun: &str, hint: &str) {
     use std::io::IsTerminal;
     println!("{}", pending_landing_message(title, url, rerun, hint, std::io::stdout().is_terminal()));
+    open_pr_in_browser(hosting, url);
+}
+
+/// Announce a version PR waiting for a human merge, and open it.
+pub(crate) fn announce_version_pr(hosting: &dyn HostingPlatform, url: &str) {
+    println!("Version PR: {url}");
+    open_pr_in_browser(hosting, url);
+}
+
+/// Best-effort browser open for a PR bflow just created or re-surfaced: the PR
+/// exists and its URL is already printed, so a failed open (headless CI, no
+/// xdg-open) is a warning, never an error.
+pub(crate) fn open_pr_in_browser(hosting: &dyn HostingPlatform, url: &str) {
+    if let Err(e) = hosting.open_url(url) {
+        eprintln!("Warning: {e}. Open the PR yourself: {url}");
+    }
 }
 
 /// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and

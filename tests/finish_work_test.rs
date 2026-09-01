@@ -26,6 +26,22 @@ fn finish_release_fix_pushes_and_creates_pr() {
 }
 
 #[test]
+fn a_failed_browser_open_never_fails_the_finish() {
+    // The PR exists and its URL is printed by the time the browser opens, so a
+    // headless environment (CI, no xdg-open) gets a warning, not an error.
+    let mut git = MockGit::new();
+    git.current_branch = "release-fix/1.1.0/login-bug".to_string();
+    let mut hosting = MockHosting::new();
+    hosting.open_url_error = Some("Failed to open URL: no browser".to_string());
+    let branch_type = BranchType::ReleaseFix { major: 1, minor: 1, patch: 0, name: "login-bug".to_string() };
+
+    finish_release_fix(&git, &hosting, &branch_type, None).unwrap();
+
+    assert!(hosting.calls().contains(&"open_url:https://github.com/org/repo/pull/1".to_string()),
+        "the open must still be attempted; calls: {:?}", hosting.calls());
+}
+
+#[test]
 fn finish_hotfix_fix_pushes_and_creates_pr() {
     let mut git = MockGit::new();
     git.current_branch = "hotfix-fix/1.0.1/crash-fix".to_string();

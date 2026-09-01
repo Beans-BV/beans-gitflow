@@ -1,4 +1,4 @@
-use super::{resolve_body_file, CliRunner, HostingPlatform, LandedPr, MergedPr, Result};
+use super::{resolve_body_file, CliRunner, PrBody, HostingPlatform, LandedPr, MergedPr, Result};
 
 const AUTH_REMEDY: &str = "If authentication expired, run 'gh auth login', then re-run 'bflow finish'.";
 
@@ -17,7 +17,7 @@ impl<'a> GitHub<'a> {
 }
 
 impl HostingPlatform for GitHub<'_> {
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String> {
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, body: PrBody<'_>) -> Result<String> {
         // The probe must filter by base: a fan-out source branch (a protected
         // hotfix landing on both main and a release branch) can have open PRs
         // to more than one base at once, and a head-only lookup would return
@@ -37,7 +37,7 @@ impl HostingPlatform for GitHub<'_> {
             "pull_request_template.md",
             "docs/pull_request_template.md",
         ];
-        let body_file = resolve_body_file(template, &git_default_paths);
+        let body_file = resolve_body_file(body, &git_default_paths);
 
         if let Some(path) = body_file {
             self.run_gh(&["pr", "create", "--head", head, "--base", base, "--title", title, "--body-file", &path])
