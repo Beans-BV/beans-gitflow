@@ -6,7 +6,7 @@ pub mod finish_hotfix;
 use std::path::{Path, PathBuf};
 
 use crate::git::Git;
-use crate::hosting::{HostingPlatform, LandedPr};
+use crate::hosting::{HostingPlatform, LandedPr, PrBody};
 use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::{finish_branch_name, SemVer};
 use crate::version_script::VersionScript;
@@ -257,8 +257,15 @@ pub(crate) fn land_leg_strict(git: &dyn Git, hosting: &dyn HostingPlatform, sour
         return Ok(LegState::ContentPresent);
     }
     let finish = ensure_finish_branch(git, source, target, rerun)?;
-    let url = hosting.create_or_get_pr(&finish, target, title, template.and_then(|p| p.to_str()))?;
+    let url = hosting.create_or_get_pr(&finish, target, title, landing_pr_body(template))?;
     Ok(LegState::Pending { url, finish })
+}
+
+/// A landing PR's description: an explicitly authored bflow template wins;
+/// without one the body stays empty — the repo's native PR template is for
+/// human PRs and never decorates a machinery merge.
+pub(crate) fn landing_pr_body(template: Option<&Path>) -> PrBody<'_> {
+    template.and_then(|p| p.to_str()).map_or(PrBody::Empty, PrBody::File)
 }
 
 /// Delete every finish branch of `source` — machinery, never kept, found by

@@ -529,7 +529,7 @@ fn sync_protected_opens_develop_pr_and_stops() {
         "open_pr_to:release/1.1.0:develop",
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -576,7 +576,7 @@ fn sync_protected_stale_merged_pr_reopens_new_pr() {
         "open_pr_to:release/1.1.0:develop",
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -738,7 +738,7 @@ fn protected_patch_finish_opens_main_pr_without_any_tag_machinery() {
         "open_pr_to:release/1.1.0:main",
         "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
-        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main",
+        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -1045,7 +1045,7 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
         "open_pr_to:release/1.1.0:develop",
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -1321,7 +1321,7 @@ fn protected_finish_keeps_the_branch_when_its_tip_landed_nowhere() {
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "unlanded commits must not be deleted; calls: {calls:?}");
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop".to_string(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ], "the develop leg must re-open with a finish-branch PR and put it in the browser");
 }
@@ -1357,7 +1357,7 @@ fn protected_finish_pushes_when_remote_branch_missing_before_opening_pr() {
         "open_pr_to:release/1.1.0:main",
         "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
-        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main",
+        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -1527,7 +1527,7 @@ fn protected_release_opens_main_pr_from_the_finish_branch() {
         "open_pr_to:release/1.1.0:main",
         "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
-        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main",
+        "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -1660,7 +1660,7 @@ fn protected_release_tags_the_finish_prs_merge_commit() {
         "the tag is cut at the finish PR's merge commit; calls: {calls:?}");
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop".to_string(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ]);
 }
@@ -1692,7 +1692,7 @@ fn develop_leg_reopens_when_release_gained_commits_after_a_landed_sync() {
         "the finish must NOT complete while develop misses commits; calls: {calls:?}");
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop".to_string(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ]);
 }
@@ -1719,7 +1719,7 @@ fn ensure_reuses_a_remote_finish_that_gained_resolution_commits() {
         "a remote finish that already contains the tip is reused untouched; calls: {calls:?}");
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop".to_string(),
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ]);
 }
@@ -1766,7 +1766,7 @@ fn protected_sync_lands_via_the_develop_finish_branch() {
         "open_pr_to:release/1.1.0:develop",
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
-        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop",
+        "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }

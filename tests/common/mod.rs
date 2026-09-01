@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use bflow::action::validate_branch_name;
 use bflow::editor::Editor;
 use bflow::git::{CliOutput, CommandRunner, Git};
-use bflow::hosting::{CliRunner, HostingPlatform};
+use bflow::hosting::{CliRunner, HostingPlatform, PrBody};
 use bflow::prompt::Prompter;
 use bflow::version_script::VersionScript;
 
@@ -520,8 +520,12 @@ impl MockHosting {
 }
 
 impl HostingPlatform for MockHosting {
-    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, template: Option<&str>) -> Result<String, String> {
-        let suffix = template.map(|t| format!(":template={t}")).unwrap_or_default();
+    fn create_or_get_pr(&self, head: &str, base: &str, title: &str, body: PrBody<'_>) -> Result<String, String> {
+        let suffix = match body {
+            PrBody::File(t) => format!(":template={t}"),
+            PrBody::NativeDefault => String::new(),
+            PrBody::Empty => ":empty-body".to_string(),
+        };
         self.calls.borrow_mut().push(format!("create_or_get_pr:{head}:{base}:{title}{suffix}"));
         Ok(self.pr_url.clone())
     }

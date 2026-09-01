@@ -1,6 +1,6 @@
 use crate::flows::{announce_version_pr, open_versioned_branches, require_clean_tree, run_version_script};
 use crate::git::Git;
-use crate::hosting::HostingPlatform;
+use crate::hosting::{HostingPlatform, PrBody};
 use crate::prompt::Prompter;
 use crate::repo_config::{BumpStrategy, Mode, RepoConfig};
 use crate::version::SemVer;
@@ -227,7 +227,7 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
     let title = format!("chore: set version {dev}");
 
     if git.remote_branch_exists(&chore_branch)? {
-        let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+        let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, PrBody::NativeDefault)?;
         announce_version_pr(hosting, &url);
         return Ok(());
     }
@@ -244,7 +244,7 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
     match run_version_script(git, script, dev) {
         Ok(true) => {
             git.push(&chore_branch)?;
-            let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
+            let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, PrBody::NativeDefault)?;
             announce_version_pr(hosting, &url);
             Ok(())
         }

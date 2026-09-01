@@ -3,7 +3,7 @@ mod common;
 use common::MockCliRunner;
 use bflow::hosting::devops::AzureDevOps;
 use bflow::hosting::github::GitHub;
-use bflow::hosting::HostingPlatform;
+use bflow::hosting::{HostingPlatform, PrBody};
 
 // The provider adapters carry real policy on top of `gh`/`az`: when an existing
 // PR is reused vs. a new one created, which CLI failures are normal and which
@@ -27,7 +27,7 @@ fn an_open_pr_is_reused_instead_of_creating_a_second_one() {
     // "PR already open" is a normal resume outcome, not an error.
     let runner = MockCliRunner::scripted(&[Ok("https://github.com/o/r/pull/7")]);
 
-    let url = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+    let url = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap();
 
     assert_eq!(url, "https://github.com/o/r/pull/7");
     assert_eq!(runner.calls(), vec![
@@ -43,7 +43,7 @@ fn the_probe_filter_never_lets_a_missing_pr_become_a_url() {
     // never created. `// empty` makes emptiness the filter's own guarantee.
     let runner = MockCliRunner::scripted(&[Ok(""), Ok("https://github.com/o/r/pull/12")]);
 
-    gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+    gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap();
 
     let probe = &runner.calls()[0];
     assert!(probe.ends_with("--jq .[0].url // empty"), "probe must coerce null to empty; got: {probe}");
@@ -58,11 +58,23 @@ fn no_existing_pr_creates_one_with_an_empty_body() {
         Ok("https://github.com/o/r/pull/8"),
     ]);
 
-    let url = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+    let url = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap();
 
     assert_eq!(url, "https://github.com/o/r/pull/8");
     assert_eq!(runner.calls()[1],
         "gh pr create --head feature/x --base develop --title feat: x --body ");
+}
+
+#[test]
+fn an_empty_body_pr_never_carries_a_body_file() {
+    // Landing legs pass PrBody::Empty: gh must get an explicit empty --body
+    // (no flag at all would drop gh into its interactive editor).
+    let runner = MockCliRunner::scripted(&[Ok(""), Ok("https://github.com/o/r/pull/8")]);
+
+    gh(&runner).create_or_get_pr("finish/hotfix-1.1.1-into-main", "main", "chore: merge hotfix 1.1.1 into main", PrBody::Empty).unwrap();
+
+    assert_eq!(runner.calls()[1],
+        "gh pr create --head finish/hotfix-1.1.1-into-main --base main --title chore: merge hotfix 1.1.1 into main --body ");
 }
 
 #[test]
@@ -71,7 +83,7 @@ fn a_closed_or_merged_pr_leads_to_a_fresh_one() {
     // new work, so a new PR is correct.
     let runner = MockCliRunner::scripted(&[Ok(""), Ok("https://github.com/o/r/pull/9")]);
 
-    let url = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+    let url = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap();
 
     assert_eq!(url, "https://github.com/o/r/pull/9");
 }
@@ -83,7 +95,7 @@ fn a_real_gh_failure_is_fatal_and_names_the_auth_fix() {
     // become "create a new PR".
     let runner = MockCliRunner::scripted(&[Err("gh pr list failed: HTTP 401: Bad credentials")]);
 
-    let err = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap_err();
+    let err = gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap_err();
 
     assert!(err.contains("gh auth login"), "must name the next command; got: {err}");
     assert_eq!(runner.calls().len(), 1, "nothing may be created after a real failure");
@@ -93,7 +105,7 @@ fn a_real_gh_failure_is_fatal_and_names_the_auth_fix() {
 fn a_resolved_template_is_passed_as_a_body_file() {
     let runner = MockCliRunner::scripted(&[Ok(""), Ok("https://github.com/o/r/pull/10")]);
 
-    gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", Some(".github/pr-templates/bflow-feature.md")).unwrap();
+    gh(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::File(".github/pr-templates/bflow-feature.md")).unwrap();
 
     assert_eq!(runner.calls()[1],
         "gh pr create --head feature/x --base develop --title feat: x --body-file .github/pr-templates/bflow-feature.md");
@@ -108,7 +120,7 @@ fn an_open_pr_to_a_different_base_is_not_reused() {
     let runner = MockCliRunner::scripted(&[Ok(""), Ok("https://github.com/o/r/pull/11")]);
 
     let url = gh(&runner)
-        .create_or_get_pr("hotfix/1.2.4", "release/1.2.0", "chore: merge hotfix 1.2.4 into release/1.2.0", None)
+        .create_or_get_pr("hotfix/1.2.4", "release/1.2.0", "chore: merge hotfix 1.2.4 into release/1.2.0", PrBody::NativeDefault)
         .unwrap();
 
     assert_eq!(url, "https://github.com/o/r/pull/11");
@@ -182,7 +194,7 @@ fn an_active_ado_pr_is_reused_and_its_url_synthesized() {
     // az's webUrl is unreliable, so the URL is built from the parsed coordinates.
     let runner = MockCliRunner::scripted(&[Ok("2662")]);
 
-    let url = ado(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+    let url = ado(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap();
 
     assert_eq!(url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/2662");
     assert_eq!(runner.calls().len(), 1, "no create call may follow");
@@ -196,7 +208,7 @@ fn an_active_ado_pr_is_reused_and_its_url_synthesized() {
 fn no_active_ado_pr_creates_one() {
     let runner = MockCliRunner::scripted(&[Ok(""), Ok("2663")]);
 
-    let url = ado(&runner).create_or_get_pr("feature/x", "develop", "feat: x", None).unwrap();
+    let url = ado(&runner).create_or_get_pr("feature/x", "develop", "feat: x", PrBody::NativeDefault).unwrap();
 
     assert_eq!(url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/2663");
     let call = &runner.calls()[1];
@@ -209,7 +221,7 @@ fn an_unreadable_pr_template_is_a_hard_error_naming_the_path() {
     let runner = MockCliRunner::scripted(&[Ok("")]);
 
     let err = ado(&runner)
-        .create_or_get_pr("feature/x", "develop", "feat: x", Some("/definitely/not/here.md"))
+        .create_or_get_pr("feature/x", "develop", "feat: x", PrBody::File("/definitely/not/here.md"))
         .unwrap_err();
 
     assert!(err.contains("Failed to read PR template"), "got: {err}");

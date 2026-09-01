@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::flows::open_pr_in_browser;
 use crate::git::Git;
+use crate::hosting::PrBody;
 use crate::git::branch::BranchType;
 use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
@@ -67,7 +68,7 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, current: &st
     }
 
     println!("Creating PR: {title} → {base}");
-    let url = hosting.create_or_get_pr(current, base, title, template.and_then(|p| p.to_str()))?;
+    let url = hosting.create_or_get_pr(current, base, title, template.and_then(|p| p.to_str()).map_or(PrBody::NativeDefault, PrBody::File))?;
     println!("PR: {url}");
     open_pr_in_browser(hosting, &url);
 

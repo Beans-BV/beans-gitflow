@@ -247,6 +247,13 @@ landing PRs, version PRs — also opens in your default browser right after its
 URL is printed. When no browser can open (headless CI, no `xdg-open`), bflow
 prints a warning and carries on; the PR itself is unaffected.
 
+Protected-mode landing PRs (the merges bflow opens when finishing — hotfix or
+release into `main`, `develop`, or an open `release/*`) get an **empty
+description**: their title says everything, so the repository's own PR
+template never decorates them. A `bflow-release.md` / `bflow-hotfix.md` (or
+`bflow-default.md`) in `.github/pr-templates/` still applies when you created
+one on purpose.
+
 On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
 
 On work branches, the PR target is normally detected from the branch topology: when exactly one candidate parent is found it is used directly, and only when several candidates exist does a selection menu appear. Candidates are `develop` plus the work branches your branch could have come from, ranked nearest-first; work branches that were started *from* your branch are excluded, while `develop` is always offered no matter how far ahead of you it has moved. Pass `--base <branch>` to set the target explicitly and skip detection and the menu entirely — combined with `--breaking`, this makes `bflow finish` fully scriptable without a TTY (CI, AI agents). The branch must exist on origin — PRs are created on the hosting platform, so a local-only branch is rejected (push or fetch it first) — and must differ from the branch being finished. `--base` is only valid on work branches; release, hotfix, release-fix, and hotfix-fix finishes have a fixed target and reject it.

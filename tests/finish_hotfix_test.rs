@@ -477,7 +477,7 @@ fn protected_hotfix_opens_main_pr_and_stops() {
         "open_pr_to:hotfix/1.1.1:main",
         "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
-        "create_or_get_pr:finish/hotfix-1.1.1-into-main:main:chore: merge hotfix 1.1.1 into main",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-main:main:chore: merge hotfix 1.1.1 into main:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -531,7 +531,7 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
         "open_pr_to:hotfix/1.1.1:develop",
         "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
         "merged_pr_to:hotfix/1.1.1:develop",
-        "create_or_get_pr:finish/hotfix-1.1.1-into-develop:develop:chore: merge hotfix 1.1.1 into develop",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-develop:develop:chore: merge hotfix 1.1.1 into develop:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -593,7 +593,7 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
         "open_pr_to:hotfix/1.1.1:release/1.2.0",
         "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
-        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -659,7 +659,7 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
         "open_pr_to:hotfix/1.1.1:release/1.3.0",
         "merged_pr_to:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0",
         "merged_pr_to:hotfix/1.1.1:release/1.3.0",
-        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0:chore: merge hotfix 1.1.1 into release/1.3.0",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0:chore: merge hotfix 1.1.1 into release/1.3.0:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -776,7 +776,7 @@ fn protected_hotfix_reopens_the_develop_leg_when_the_branch_moved() {
         "open_pr_to:hotfix/1.3.1:develop",
         "merged_pr_to:finish/hotfix-1.3.1-into-develop:develop",
         "merged_pr_to:hotfix/1.3.1:develop",
-        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop",
+        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert!(!hosting_calls.iter().any(|c| c.starts_with("create_or_get_pr") && c.contains(":main:")),
@@ -811,7 +811,7 @@ fn protected_hotfix_reopens_develop_instead_of_completing_when_the_tip_landed_no
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "unlanded commits must not be deleted; calls: {calls:?}");
     let hosting_calls = hosting.calls();
     assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
-        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop".to_string(),
+        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop:empty-body".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ], "the develop leg must re-open with a finish-branch PR and put it in the browser");
 }
@@ -956,7 +956,7 @@ fn protected_hotfix_all_legs_use_finish_branches() {
         "open_pr_to:hotfix/1.1.1:release/1.2.0",
         "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
-        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
+        "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0:empty-body",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
