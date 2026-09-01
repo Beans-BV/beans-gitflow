@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-09-01
+
+### Added
+- PR completion-type enforcement: every PR bflow creates or re-surfaces prints a hard-to-miss banner naming the required completion type — Squash for work, fix, and version PRs; Merge commit for protected finish/* landing PRs. On the next run bflow verifies the merged PR via the merge commit's parent count and hard-stops with undo instructions when the wrong type was used, before any cleanup or tagging.
+- New `--accept-merge-type` flag on `bflow finish` and `bflow sync` to accept a wrongly completed PR and continue.
+
 ## [3.3.0] - 2026-09-01
 
 ### Added
@@ -177,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[3.4.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.0.0...v3.1.0
