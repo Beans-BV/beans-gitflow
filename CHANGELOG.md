@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-09-01
+
+### Added
+- Worktree mode: `bflow start hotfix-fix` now opens a worktree for the `hotfix/{v}` container branch as well (or announces the worktree that already holds it), opened before the fix branch's own worktree so the fix keeps editor focus. The container is where `bflow finish` runs later, and no other command would ever hand it a worktree.
+- Every PR bflow creates or re-surfaces now opens in your default browser right after its URL is printed — protected-mode landing PRs and version PRs included, matching what work and fix PRs already did.
+
+### Changed
+- Protected-mode landing PRs (the merges of a hotfix or release into `main`, `develop`, and open `release/*` branches) now get an empty description: the title says everything, so the repository's native PR template no longer decorates them. An explicit `.github/pr-templates/bflow-release.md`, `bflow-hotfix.md`, or `bflow-default.md` still applies.
+
+### Fixed
+- A failed browser open (headless CI, no `xdg-open`) is now a warning instead of an error — previously a work-branch finish failed on it even though its PR had already been created.
+
 ## [3.2.0] - 2026-08-26
 
 ### Added
@@ -165,6 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[3.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/Beans-BV/beans-gitflow/compare/v2.4.0...v3.0.0
