@@ -493,6 +493,8 @@ pub struct MockHosting {
     pub calls: RefCell<Vec<String>>,
     /// (head, base) -> url of an OPEN PR, for `open_pr_to`.
     pub open_prs_to: HashMap<(String, String), String>,
+    /// When set, `open_url` fails with this (the call is still recorded).
+    pub open_url_error: Option<String>,
     pub pr_url: String,
     /// What `merged_pr` reports (defaults to no merged PR).
     pub merged_pr: Option<bflow::hosting::MergedPr>,
@@ -505,6 +507,7 @@ impl MockHosting {
         Self {
             calls: RefCell::new(Vec::new()),
             open_prs_to: HashMap::new(),
+            open_url_error: None,
             pr_url: "https://github.com/org/repo/pull/1".to_string(),
             merged_pr: None,
             merged_prs_to: HashMap::new(),
@@ -540,7 +543,10 @@ impl HostingPlatform for MockHosting {
 
     fn open_url(&self, url: &str) -> Result<(), String> {
         self.calls.borrow_mut().push(format!("open_url:{url}"));
-        Ok(())
+        match &self.open_url_error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
     }
 
     fn check_auth(&self) -> Result<(), String> {

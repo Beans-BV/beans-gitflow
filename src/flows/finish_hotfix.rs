@@ -130,7 +130,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
                 let title = format!("chore: merge hotfix {version} into {main_branch}");
                 let finish = ensure_finish_branch(git, &hotfix_branch, main_branch, "bflow finish")?;
                 let url = hosting.create_or_get_pr(&finish, main_branch, &title, template.and_then(|p| p.to_str()))?;
-                announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
+                announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, main_branch));
                 return Ok(());
             }
         }
@@ -146,7 +146,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
-            announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
+            announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, "develop"));
             return Ok(());
         }
     }
@@ -160,7 +160,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
             LegState::Landed(pr) => landed.push(pr),
             LegState::ContentPresent => content_landed = true,
             LegState::Pending { url, finish } => {
-                announce_pending_landing(&title, &url, "bflow finish", &finish_conflict_hint(&finish, release));
+                announce_pending_landing(hosting, &title, &url, "bflow finish", &finish_conflict_hint(&finish, release));
                 return Ok(());
             }
         }

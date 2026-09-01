@@ -478,6 +478,7 @@ fn protected_hotfix_opens_main_pr_and_stops() {
         "merged_pr_to:finish/hotfix-1.1.1-into-main:main",
         "merged_pr_to:hotfix/1.1.1:main",
         "create_or_get_pr:finish/hotfix-1.1.1-into-main:main:chore: merge hotfix 1.1.1 into main",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "checkout:main"), "must never land into the target locally; calls: {calls:?}");
@@ -531,6 +532,7 @@ fn protected_hotfix_tags_merge_commit_then_opens_develop_pr() {
         "merged_pr_to:finish/hotfix-1.1.1-into-develop:develop",
         "merged_pr_to:hotfix/1.1.1:develop",
         "create_or_get_pr:finish/hotfix-1.1.1-into-develop:develop:chore: merge hotfix 1.1.1 into develop",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("rev_list_count")), "hotfixes carry no RC gate; calls: {calls:?}");
@@ -592,6 +594,7 @@ fn protected_hotfix_opens_one_release_pr_per_run() {
         "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
         "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
 
@@ -657,6 +660,7 @@ fn protected_hotfix_next_run_opens_pr_for_the_remaining_release() {
         "merged_pr_to:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0",
         "merged_pr_to:hotfix/1.1.1:release/1.3.0",
         "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.3.0:release/1.3.0:chore: merge hotfix 1.1.1 into release/1.3.0",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
 
@@ -773,6 +777,7 @@ fn protected_hotfix_reopens_the_develop_leg_when_the_branch_moved() {
         "merged_pr_to:finish/hotfix-1.3.1-into-develop:develop",
         "merged_pr_to:hotfix/1.3.1:develop",
         "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert!(!hosting_calls.iter().any(|c| c.starts_with("create_or_get_pr") && c.contains(":main:")),
         "must not reopen a main PR once main has landed; calls: {hosting_calls:?}");
@@ -804,9 +809,11 @@ fn protected_hotfix_reopens_develop_instead_of_completing_when_the_tip_landed_no
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "unlanded commits must not be deleted; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "unlanded commits must not be deleted; calls: {calls:?}");
-    assert_eq!(hosting.calls().last().unwrap(),
-        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop",
-        "the develop leg must re-open with a finish-branch PR");
+    let hosting_calls = hosting.calls();
+    assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
+        "create_or_get_pr:finish/hotfix-1.3.1-into-develop:develop:chore: merge hotfix 1.3.1 into develop".to_string(),
+        "open_url:https://github.com/org/repo/pull/1".to_string(),
+    ], "the develop leg must re-open with a finish-branch PR and put it in the browser");
 }
 
 #[test]
@@ -950,6 +957,7 @@ fn protected_hotfix_all_legs_use_finish_branches() {
         "merged_pr_to:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0",
         "merged_pr_to:hotfix/1.1.1:release/1.2.0",
         "create_or_get_pr:finish/hotfix-1.1.1-into-release-1.2.0:release/1.2.0:chore: merge hotfix 1.1.1 into release/1.2.0",
+        "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
 

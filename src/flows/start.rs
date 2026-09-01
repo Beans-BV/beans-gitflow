@@ -1,4 +1,4 @@
-use crate::flows::{open_versioned_branches, require_clean_tree, run_version_script};
+use crate::flows::{announce_version_pr, open_versioned_branches, require_clean_tree, run_version_script};
 use crate::git::Git;
 use crate::hosting::HostingPlatform;
 use crate::prompt::Prompter;
@@ -228,7 +228,7 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
 
     if git.remote_branch_exists(&chore_branch)? {
         let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
-        println!("Version PR: {url}");
+        announce_version_pr(hosting, &url);
         return Ok(());
     }
 
@@ -245,7 +245,7 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
         Ok(true) => {
             git.push(&chore_branch)?;
             let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, None)?;
-            println!("Version PR: {url}");
+            announce_version_pr(hosting, &url);
             Ok(())
         }
         Ok(false) => {

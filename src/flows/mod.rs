@@ -346,10 +346,26 @@ pub(crate) fn pending_landing_message(title: &str, url: &str, rerun: &str, hint:
 }
 
 /// Announce a landing step that opened (or reused) a PR and is stopping for a
-/// human to merge it.
-pub(crate) fn announce_pending_landing(title: &str, url: &str, rerun: &str, hint: &str) {
+/// human to merge it — and put that PR in front of them in the browser.
+pub(crate) fn announce_pending_landing(hosting: &dyn HostingPlatform, title: &str, url: &str, rerun: &str, hint: &str) {
     use std::io::IsTerminal;
     println!("{}", pending_landing_message(title, url, rerun, hint, std::io::stdout().is_terminal()));
+    open_pr_in_browser(hosting, url);
+}
+
+/// Announce a version PR waiting for a human merge, and open it.
+pub(crate) fn announce_version_pr(hosting: &dyn HostingPlatform, url: &str) {
+    println!("Version PR: {url}");
+    open_pr_in_browser(hosting, url);
+}
+
+/// Best-effort browser open for a PR bflow just created or re-surfaced: the PR
+/// exists and its URL is already printed, so a failed open (headless CI, no
+/// xdg-open) is a warning, never an error.
+pub(crate) fn open_pr_in_browser(hosting: &dyn HostingPlatform, url: &str) {
+    if let Err(e) = hosting.open_url(url) {
+        eprintln!("Warning: {e}. Open the PR yourself: {url}");
+    }
 }
 
 /// Cut `tag` at `sha` (a PR's merge commit) unless it already exists — and
