@@ -852,6 +852,7 @@ fn m2_protected_mode_opens_a_version_pr_on_a_fresh_branch() {
         "protected mode must never push develop directly; calls: {:?}", git.calls());
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+        "copy_text:chore: set version 1.2.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert_eq!(script.calls(), vec!["run:1.1.0", "run:1.2.0"]);
@@ -930,6 +931,7 @@ fn m2_protected_mode_reuses_a_leftover_chore_branch_without_recreating_it() {
         "a leftover remote branch must be reused, never recreated; calls: {:?}", git.calls());
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+        "copy_text:chore: set version 1.2.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert_eq!(script.calls(), vec!["run:1.1.0"], "the leftover-reuse path never re-runs the script");
@@ -978,6 +980,7 @@ fn bump_develop_protected_deletes_leftover_local_chore_branch_before_recreating(
     ]);
     assert_eq!(hosting.calls(), vec![
         "create_or_get_pr:chore/set-version-1.2.0:develop:chore: set version 1.2.0",
+        "copy_text:chore: set version 1.2.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }

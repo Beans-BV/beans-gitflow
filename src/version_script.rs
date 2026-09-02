@@ -103,6 +103,20 @@ mod tests {
     }
 
     #[test]
+    fn resolve_picks_the_current_platforms_script() {
+        // `resolve` is `resolve_for` with the platform baked in — with both
+        // scripts present it must pick this platform's file, same as
+        // resolve_for(root, cfg!(windows)) would.
+        let root = tmp_dir();
+        std::fs::create_dir_all(root.join(".bflow")).unwrap();
+        std::fs::write(root.join(SCRIPT_UNIX), "#!/bin/sh\n").unwrap();
+        std::fs::write(root.join(SCRIPT_WINDOWS), "@echo off\n").unwrap();
+        let expected = if cfg!(windows) { SCRIPT_WINDOWS } else { SCRIPT_UNIX };
+        assert_eq!(resolve(&root).unwrap(), Some(root.join(expected)));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn resolve_for_none_present_yields_none() {
         let root = tmp_dir();
         assert_eq!(resolve_for(&root, false).unwrap(), None);

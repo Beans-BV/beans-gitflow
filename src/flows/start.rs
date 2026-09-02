@@ -35,7 +35,7 @@ fn materialize_branch(
         git.create_branch(branch, base)?;
     }
     git.push(branch)?;
-    println!("Branch '{branch}' created and pushed.");
+    println!("✔ Branch '{branch}' created and pushed.");
     if let Some(ctx) = worktree {
         open_worktree(git, &ctx, branch)?;
     }
@@ -228,7 +228,7 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
 
     if git.remote_branch_exists(&chore_branch)? {
         let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, PrBody::NativeDefault)?;
-        announce_version_pr(hosting, &url);
+        announce_version_pr(hosting, &title, &url);
         return Ok(());
     }
 
@@ -245,7 +245,7 @@ fn bump_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: 
         Ok(true) => {
             git.push(&chore_branch)?;
             let url = hosting.create_or_get_pr(&chore_branch, "develop", &title, PrBody::NativeDefault)?;
-            announce_version_pr(hosting, &url);
+            announce_version_pr(hosting, &title, &url);
             Ok(())
         }
         Ok(false) => {

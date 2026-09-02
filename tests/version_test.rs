@@ -210,3 +210,31 @@ fn finish_branch_names_flatten_slashes() {
     assert_eq!(finish_branch_name("hotfix/1.1.1", "develop"), "finish/hotfix-1.1.1-into-develop");
     assert_eq!(finish_branch_name("hotfix/1.1.1", "release/1.2.0"), "finish/hotfix-1.1.1-into-release-1.2.0");
 }
+
+#[test]
+fn finish_branch_source_round_trips_every_produced_name() {
+    use bflow::version::{finish_branch_name, finish_branch_source};
+    // Finish branches are only ever built from release/hotfix sources
+    // (ensure_finish_branch callers); the parser recovers exactly those.
+    for (source, target) in [
+        ("release/1.2.0", "main"),
+        ("release/1.2.0", "develop"),
+        ("hotfix/1.1.1", "main"),
+        ("hotfix/1.1.1", "develop"),
+        ("hotfix/1.1.1", "release/1.2.0"),
+    ] {
+        let finish = finish_branch_name(source, target);
+        assert_eq!(finish_branch_source(&finish), Some(source.to_string()), "for {finish}");
+    }
+}
+
+#[test]
+fn finish_branch_source_rejects_non_finish_names() {
+    use bflow::version::finish_branch_source;
+    assert_eq!(finish_branch_source("release/1.2.0"), None);
+    assert_eq!(finish_branch_source("develop"), None);
+    assert_eq!(finish_branch_source("finish/feature-x-into-develop"), None);
+    assert_eq!(finish_branch_source("finish/release-notaversion-into-main"), None);
+    assert_eq!(finish_branch_source("finish/release-1.2.0"), None);
+    assert_eq!(finish_branch_source("finish/release-1.2.0-into-"), None);
+}

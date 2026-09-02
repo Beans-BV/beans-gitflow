@@ -185,7 +185,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
 
     if git.remote_branch_exists(&chore_branch)? {
         let url = hosting.create_or_get_pr(&chore_branch, branch, &title, PrBody::NativeDefault)?;
-        announce_deferred(hosting, &url);
+        announce_deferred(hosting, &title, &url);
         return Ok(());
     }
 
@@ -202,7 +202,7 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
         Ok(true) => {
             git.push(&chore_branch)?;
             let url = hosting.create_or_get_pr(&chore_branch, branch, &title, PrBody::NativeDefault)?;
-            announce_deferred(hosting, &url);
+            announce_deferred(hosting, &title, &url);
             git.checkout(branch)?;
             Ok(())
         }
@@ -220,8 +220,8 @@ fn bump_protected(git: &dyn Git, hosting: &dyn HostingPlatform, script: Option<&
     }
 }
 
-fn announce_deferred(hosting: &dyn HostingPlatform, pr_url: &str) {
-    announce_version_pr(hosting, pr_url);
+fn announce_deferred(hosting: &dyn HostingPlatform, title: &str, pr_url: &str) {
+    announce_version_pr(hosting, title, pr_url);
     println!("The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.");
 }
 
@@ -242,7 +242,7 @@ pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
     git.push("develop")?;
 
     git.checkout(&current)?;
-    println!("Develop synced with {release_branch}.");
+    println!("✔ Develop synced with {release_branch}.");
 
     Ok(())
 }
@@ -328,7 +328,7 @@ pub fn finish_release(
 /// `tip_landed` gates deletion: free mode always passes `true` (its own
 /// ancestor-based merge guard already proves the branch merged, so there is
 /// no separate "did the tip go anywhere" question to ask).
-fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str, main_branch: &str, release_version: &SemVer, tip_landed: bool) -> Result<(), String> {
+pub fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str, main_branch: &str, release_version: &SemVer, tip_landed: bool) -> Result<(), String> {
     println!("Cleaning up release branch...");
     if !tip_landed {
         eprintln!("⚠ Keeping {release_branch}: its tip is not part of any landed pull request, so deleting it could lose commits.");
@@ -342,7 +342,7 @@ fn finish_release_cleanup(git: &dyn Git, cfg: &RepoConfig, release_branch: &str,
         }
     }
 
-    println!("Release {release_version} complete.");
+    println!("✔ Release {release_version} complete.");
     Ok(())
 }
 

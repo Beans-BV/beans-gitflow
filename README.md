@@ -610,7 +610,7 @@ Use `mode=protected` when `main`/`develop` require pull requests (branch protect
 - `finish`, `bump`, and `sync` **exit 0** with the PR pending — nothing is left half-done, there's just a human step in between. Re-run the same command after the PR is merged; it continues from there.
 - Landings happen **one PR per run**, in order (`main`, then `develop`, then — for hotfixes — each open `release/*` branch). Only the **last** landing deletes the source branch (and every `finish/*` branch, orphans included) — unless `keep-release-branches=true`, or its tip provably landed nowhere, in which case bflow keeps the branch and tells you how to remove it yourself.
 - Progress is never stored on disk for a protected finish — there's nothing to resume, because it never merged locally. Each run re-derives what's landed from the hosting platform's PR state and from tags.
-- **Landing PRs are born mergeable.** Before opening (or refreshing) a landing PR, bflow merges the target into the finish branch itself. A conflict — e.g. on the version file, see [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut) — therefore surfaces immediately in your terminal, mid-run, left mid-merge ON the finish branch: resolve it, `git add . && git commit --no-edit`, switch back to the source branch, and re-run (the re-run pushes the resolution and opens the PR conflict-free; `git merge --abort` backs out instead). A PR that turns conflicted *later* because the target moved is healed the same way — just re-run. The release/hotfix branch is never touched by a resolution, and the finish branch is never rebased.
+- **Landing PRs are born mergeable.** Before opening (or refreshing) a landing PR, bflow merges the target into the finish branch itself. A conflict — e.g. on the version file, see [Version-file merge-conflict papercut](#version-file-merge-conflict-papercut) — therefore surfaces immediately in your terminal, mid-run, and bflow announces that **your current worktree is now on the finish branch**, mid-merge. Resolve the conflicts right there, `git add . && git commit --no-edit`, and re-run — the re-run switches the worktree back to the source branch itself, pushes the resolution, and opens the PR conflict-free (`git merge --abort && git switch <source>` backs out instead). A PR that turns conflicted *later* because the target moved is healed the same way — just re-run. The release/hotfix branch is never touched by a resolution, and the finish branch is never rebased.
 - **Upgrading with a landing in flight?** An open landing PR whose head is the release/hotfix branch itself (opened by an older bflow) is a hard error naming it: merge it and re-run, or close/abandon it and re-run — bflow then reopens it from a finish branch. Already-merged old-style legs are recognized as landed.
 - That's different from deliberately adding *new*, unrelated work to a release branch after its `main` PR has merged — don't do that; the clean tag is already placed there. Ship further fixes as a hotfix instead. If you do, bflow says so rather than letting it pass unnoticed:
 
@@ -625,6 +625,7 @@ A `bflow finish` loop on a release branch looks like this:
 
 ```
 $ bflow finish
+Copied PR title + URL to clipboard.
 
 chore: merge release 2.6.0 into main
 https://github.com/org/repo/pull/42
@@ -632,12 +633,13 @@ https://github.com/org/repo/pull/42
 Waiting for a human to merge this PR.
 Re-run 'bflow finish' to continue after the merge.
 
-Conflicts later (main moved)? Just re-run — bflow merges `main` into `finish/release-2.6.0-into-main` and stops for you to resolve locally if needed.
+Conflicts later (main moved)? Just re-run — bflow merges `main` into `finish/release-2.6.0-into-main` in this worktree and stops there for you to resolve locally if needed.
 
   ... a human merges pull/42 on GitHub ...
 
 $ bflow finish
 Tagging: v2.6.0
+Copied PR title + URL to clipboard.
 
 chore: merge release 2.6.0 into develop
 https://github.com/org/repo/pull/43
@@ -645,14 +647,16 @@ https://github.com/org/repo/pull/43
 Waiting for a human to merge this PR.
 Re-run 'bflow finish' to continue after the merge.
 
-Conflicts later (develop moved)? Just re-run — bflow merges `develop` into `finish/release-2.6.0-into-develop` and stops for you to resolve locally if needed.
+Conflicts later (develop moved)? Just re-run — bflow merges `develop` into `finish/release-2.6.0-into-develop` in this worktree and stops there for you to resolve locally if needed.
 
   ... a human merges pull/43 ...
 
 $ bflow finish
 Cleaning up release branch...
-Release 2.6.0 complete.
+✔ Release 2.6.0 complete.
 ```
+
+The title + URL pair is printed bare (bold title in a terminal, no prefixes) and copied to your clipboard, so pasting the PR into Slack is select-copy-paste — or just paste. On a machine without a clipboard tool the copy is silently skipped; the block is always printed. The same block is printed for work-branch and version PRs. Styling degrades automatically: bold is dropped when output is piped, when [`NO_COLOR`](https://no-color.org/) is set, or when `TERM=dumb`.
 
 If cleanup finds commits on the branch that never reached any of the landed PRs — e.g. something was pushed to it directly after everything else landed — it keeps the branch instead of deleting it:
 
@@ -700,7 +704,11 @@ In protected mode, a version commit that can't land directly goes out as its own
 bflow never tags a commit that isn't yet on the branch being tagged. When `bflow bump` in protected mode needs a version-script commit on an already-pushed release branch, it opens the `release-chore/.../set-version` PR and defers the tag:
 
 ```
-Version PR: https://github.com/org/repo/pull/44
+Copied PR title + URL to clipboard.
+
+chore: set version 2.6.0
+https://github.com/org/repo/pull/44
+
 The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.
 ```
 

@@ -305,20 +305,23 @@ pub(crate) fn ensure_finish_branch(git: &dyn Git, source: &str, target: &str, re
 pub(crate) fn finish_conflict_hint(finish: &str, target: &str) -> String {
     format!(
         "Conflicts later ({target} moved)? Just re-run — bflow merges `{target}` into \
-         `{finish}` and stops for you to resolve locally if needed."
+         `{finish}` in this worktree and stops there for you to resolve locally if needed."
     )
 }
 
 /// Recovery for a conflicted merge into the finish branch: the tree is left
 /// mid-merge ON the finish branch — resolution happens there, never on the
-/// source branch. No push step: the re-run pushes the resolved branch.
+/// source branch. The hint must announce that switch loudly (the user's
+/// worktree changed under them) and promise the switch-back the lifecycle
+/// performs on re-run. No push step: the re-run pushes the resolved branch.
 pub(crate) fn finish_merge_conflict_hint(finish: &str, source: &str, rerun: &str) -> String {
     format!(
-        "Resolve the conflicts on {finish} and commit the merge, \
-         then switch back to {source} and re-run '{rerun}' to continue:\n    \
-         git add . && git commit --no-edit\n    \
-         git switch {source}\n    {rerun}\n\
-         To back out instead: git merge --abort"
+        "⚠ Merge conflict — bflow switched this worktree to {finish} \
+         to build the landing branch, and it is now mid-merge there.\n\
+         Resolve the conflicts here, then:\n    \
+         git add . && git commit --no-edit\n    {rerun}\n\
+         Re-running '{rerun}' switches this worktree back to {source} and continues.\n\
+         To back out instead: git merge --abort && git switch {source}"
     )
 }
 
@@ -387,7 +390,7 @@ pub(crate) fn leg_landed(git: &dyn Git, hosting: &dyn HostingPlatform, source: &
 /// refs (origin first — a remote-side resolution never moves the local ref)
 /// prove containment by ancestry. Nothing provable → false: cleanup keeps the
 /// branch rather than delete commits that may never have landed.
-pub(crate) fn tip_landed_somewhere(git: &dyn Git, source: &str, landed: &[LandedPr], finish_branches: &[String]) -> Result<bool, String> {
+pub fn tip_landed_somewhere(git: &dyn Git, source: &str, landed: &[LandedPr], finish_branches: &[String]) -> Result<bool, String> {
     let tip = git.branch_sha(source)?;
     if landed.iter().any(|pr| pr.head_sha == tip) {
         return Ok(true);
@@ -425,31 +428,49 @@ pub(crate) fn report_commits_past_landing(git: &dyn Git, source: &str, pr: &Land
     Ok(())
 }
 
+/// The copy-pasteable heart of every PR announcement: the title on one bare
+/// line, the URL on the next — no prefixes, no chrome, so selecting both
+/// lines pastes cleanly into Slack. `bold` styles only the title; resolved at
+/// the print site so this stays pure.
+pub(crate) fn pr_block(title: &str, url: &str, bold: bool) -> String {
+    format!("{}\n{url}", crate::style::bold(title, bold))
+}
+
 /// The full "stopping for a human" block a pending landing prints: PR title,
 /// URL, what happens next, and the conflict recipe — blank-line separated.
-/// `bold` styles only the title; resolved at the print site so this stays pure.
 pub(crate) fn pending_landing_message(title: &str, url: &str, rerun: &str, hint: &str, bold: bool) -> String {
-    let title = if bold { format!("\x1b[1m{title}\x1b[0m") } else { title.to_string() };
     format!(
-        "\n{title}\n{url}\n\n\
+        "\n{}\n\n\
          Waiting for a human to merge this PR.\n\
          Re-run '{rerun}' to continue after the merge.\n\n\
-         {hint}"
+         {hint}",
+        pr_block(title, url, bold)
     )
 }
 
+/// Best-effort clipboard copy of the Slack-pasteable payload (`title\nurl`),
+/// announced when it lands (clig.dev: say so when you change state). Failure
+/// is silent: the block is printed either way, the clipboard is a bonus.
+pub(crate) fn copy_pr_to_clipboard(hosting: &dyn HostingPlatform, title: &str, url: &str) {
+    if hosting.copy_text(&format!("{title}\n{url}")).is_ok() {
+        println!("Copied PR title + URL to clipboard.");
+    }
+}
+
 /// Announce a landing step that opened (or reused) a PR and is stopping for a
-/// human to merge it — and put that PR in front of them in the browser.
+/// human to merge it — and put that PR in front of them in the browser and on
+/// their clipboard.
 pub(crate) fn announce_pending_landing(hosting: &dyn HostingPlatform, title: &str, url: &str, rerun: &str, hint: &str) {
-    use std::io::IsTerminal;
-    println!("{}", pending_landing_message(title, url, rerun, hint, std::io::stdout().is_terminal()));
+    copy_pr_to_clipboard(hosting, title, url);
+    println!("{}", pending_landing_message(title, url, rerun, hint, crate::style::styled()));
     println!("{}", completion_instruction(CompletionType::MergeCommit));
     open_pr_in_browser(hosting, url);
 }
 
 /// Announce a version PR waiting for a human merge, and open it.
-pub(crate) fn announce_version_pr(hosting: &dyn HostingPlatform, url: &str) {
-    println!("Version PR: {url}");
+pub(crate) fn announce_version_pr(hosting: &dyn HostingPlatform, title: &str, url: &str) {
+    copy_pr_to_clipboard(hosting, title, url);
+    println!("\n{}\n", pr_block(title, url, crate::style::styled()));
     println!("{}", completion_instruction(CompletionType::Squash));
     open_pr_in_browser(hosting, url);
 }
@@ -472,7 +493,7 @@ pub(crate) fn open_pr_in_browser(hosting: &dyn HostingPlatform, url: &str) {
 /// matching `sha` would be a tag on the merge commit, which is on the mainline
 /// by definition. It stays as a guard for any future caller without that
 /// precondition.
-pub(crate) fn tag_at_if_missing(git: &dyn Git, tag: &str, message: &str, sha: &str) -> Result<(), String> {
+pub fn tag_at_if_missing(git: &dyn Git, tag: &str, message: &str, sha: &str) -> Result<(), String> {
     if !git.tag_exists(tag)? {
         println!("Tagging: {tag}");
         return git.create_tag_at(tag, message, sha);
@@ -647,29 +668,50 @@ mod tests {
     #[test]
     fn finish_conflict_hint_points_at_rerunning() {
         // bflow merges the target into the finish branch itself, so a PR that
-        // conflicts later (the target moved) is healed by re-running.
+        // conflicts later (the target moved) is healed by re-running. The hint
+        // warns that the re-run works on the finish branch in this worktree.
         let hint = finish_conflict_hint("finish/hotfix-2.11.6-into-main", "main");
         assert_eq!(
             hint,
             "Conflicts later (main moved)? Just re-run — bflow merges `main` into \
-             `finish/hotfix-2.11.6-into-main` and stops for you to resolve locally if needed."
+             `finish/hotfix-2.11.6-into-main` in this worktree and stops there \
+             for you to resolve locally if needed."
         );
     }
 
     #[test]
-    fn finish_merge_conflict_hint_commits_before_switching_back() {
-        // Same discipline as resume_hint: the copy-pasteable block must not
-        // start with `git switch` — mid-merge, that fails. No `git push` step:
-        // the re-run pushes the resolved finish branch itself.
+    fn finish_merge_conflict_hint_announces_the_switch_and_the_auto_switch_back() {
+        // The user's worktree was silently left on the finish branch mid-merge;
+        // the hint must say so loudly. The copy-pasteable block must not start
+        // with `git switch` — mid-merge, that fails. No manual switch-back
+        // step: the re-run switches back to the source branch itself. No `git
+        // push` step: the re-run pushes the resolved finish branch itself.
         let hint = finish_merge_conflict_hint("finish/hotfix-2.11.6-into-main", "hotfix/2.11.6", "bflow finish");
         assert_eq!(
             hint,
-            "Resolve the conflicts on finish/hotfix-2.11.6-into-main and commit the merge, \
-             then switch back to hotfix/2.11.6 and re-run 'bflow finish' to continue:\n    \
-             git add . && git commit --no-edit\n    \
-             git switch hotfix/2.11.6\n    bflow finish\n\
-             To back out instead: git merge --abort"
+            "⚠ Merge conflict — bflow switched this worktree to finish/hotfix-2.11.6-into-main \
+             to build the landing branch, and it is now mid-merge there.\n\
+             Resolve the conflicts here, then:\n    \
+             git add . && git commit --no-edit\n    bflow finish\n\
+             Re-running 'bflow finish' switches this worktree back to hotfix/2.11.6 and continues.\n\
+             To back out instead: git merge --abort && git switch hotfix/2.11.6"
         );
+    }
+
+    #[test]
+    fn pr_block_is_a_bare_title_line_then_a_bare_url_line() {
+        // The Slack-pasteable payload: no prefixes, no indentation, no chrome
+        // (12-factor CLI: decorated lines break copy-paste).
+        let block = pr_block("feat: edit confluence skill", "https://dev.azure.com/x/pullrequest/2698", false);
+        assert_eq!(block, "feat: edit confluence skill\nhttps://dev.azure.com/x/pullrequest/2698");
+    }
+
+    #[test]
+    fn pr_block_bolds_only_the_title() {
+        // The URL must stay escape-free even when styled — terminals often
+        // include trailing escapes in a URL selection.
+        let block = pr_block("title", "url", true);
+        assert_eq!(block, "\x1b[1mtitle\x1b[0m\nurl");
     }
 
     #[test]

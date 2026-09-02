@@ -251,6 +251,103 @@ fn unmerged_paths_block_even_when_the_merge_was_committed() {
         "no mutation may run; calls: {calls:?}");
 }
 
+// --- Re-run from a finish branch (post-conflict switch-back) ---
+// A conflicted landing-branch merge leaves the worktree on the finish branch
+// (see ensure_finish_branch). After the user commits the resolution, re-running
+// the finish/sync must switch back to the source branch and continue — the
+// conflict hint promises exactly that.
+
+/// release_git() left on its own finish branch, resolution committed (clean,
+/// not mid-merge), source pushed — ready for a protected re-run.
+fn resolved_finish_branch_git(target: &str) -> MockGit {
+    let mut git = release_git();
+    git.current_branch = format!("finish/release-2.5.0-into-{target}");
+    git.pushed_branches.insert("release/2.5.0".to_string());
+    git
+}
+
+fn run_protected(git: &MockGit, command: Option<Commands>) -> Result<(), String> {
+    let hosting = MockHosting::new();
+    let prompter = MockPrompter::new();
+    let editor = MockEditor::new();
+    run(git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &protected_cfg(), None, command)
+}
+
+#[test]
+fn finish_on_a_finish_branch_switches_back_to_the_source_first() {
+    let git = resolved_finish_branch_git("main");
+
+    let result = run_protected(&git, finish_cmd());
+
+    assert!(result.is_ok(), "the finish must continue from the source branch: {result:?}");
+    let calls = git.calls();
+    let switch = calls.iter().position(|c| c == "checkout:release/2.5.0")
+        .unwrap_or_else(|| panic!("must switch back to the source branch; calls: {calls:?}"));
+    let fetch = calls.iter().position(|c| c == "fetch")
+        .unwrap_or_else(|| panic!("the finish must proceed after the switch; calls: {calls:?}"));
+    assert!(switch < fetch, "switch-back must precede dispatch; calls: {calls:?}");
+}
+
+#[test]
+fn sync_on_a_finish_branch_switches_back_to_the_source_first() {
+    let git = resolved_finish_branch_git("develop");
+
+    let result = run_protected(&git, Some(Commands::Sync { accept_merge_type: false }));
+
+    assert!(result.is_ok(), "the sync must continue from the source branch: {result:?}");
+    assert!(git.calls().contains(&"checkout:release/2.5.0".to_string()),
+        "must switch back to the source branch; calls: {:?}", git.calls());
+}
+
+#[test]
+fn mid_merge_on_a_finish_branch_blocks_with_the_merge_message_not_a_switch() {
+    let mut git = resolved_finish_branch_git("main");
+    git.mid_merge = true;
+
+    let err = run_protected(&git, finish_cmd()).unwrap_err();
+
+    assert!(err.contains("Unresolved merge in progress"),
+        "the user mid-resolution must get the merge message, not 'Nothing to finish'; got: {err}");
+    let calls = git.calls();
+    assert!(!calls.contains(&"checkout:release/2.5.0".to_string()),
+        "never switch away from an unfinished merge; calls: {calls:?}");
+    assert!(!calls.iter().any(|c| c == "fetch"),
+        "preflight must block before fetch; calls: {calls:?}");
+}
+
+#[test]
+fn unmerged_paths_on_a_finish_branch_block_without_a_switch() {
+    let mut git = resolved_finish_branch_git("main");
+    git.unmerged_paths = true;
+
+    let err = run_protected(&git, finish_cmd()).unwrap_err();
+
+    assert!(err.contains("Unresolved merge in progress"), "got: {err}");
+    assert!(!git.calls().contains(&"checkout:release/2.5.0".to_string()),
+        "never switch away from unresolved paths; calls: {:?}", git.calls());
+}
+
+#[test]
+fn abort_on_a_finish_branch_does_not_switch() {
+    let git = resolved_finish_branch_git("main");
+
+    let result = run_protected(&git, Some(Commands::Finish { breaking: None, base: None, abort: true, accept_merge_type: false }));
+
+    assert!(result.is_ok(), "abort is a no-op without state: {result:?}");
+    assert!(!git.calls().contains(&"checkout:release/2.5.0".to_string()),
+        "abort must not switch branches; calls: {:?}", git.calls());
+}
+
+#[test]
+fn finish_with_explicit_base_on_a_finish_branch_does_not_switch() {
+    let git = resolved_finish_branch_git("main");
+
+    run_protected(&git, Some(Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false, accept_merge_type: false }))
+        .expect_err("a finish branch is not a work branch, so --base must be rejected");
+    assert!(!git.calls().contains(&"checkout:release/2.5.0".to_string()),
+        "an explicit --base is not a finish-branch resume; calls: {:?}", git.calls());
+}
+
 // --- Stash policy (dirty start: stash before mutation, pop on success) ---
 
 #[test]

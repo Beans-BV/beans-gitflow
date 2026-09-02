@@ -113,3 +113,20 @@ impl fmt::Display for SemVer {
 pub fn finish_branch_name(source: &str, target: &str) -> String {
     format!("finish/{}-into-{}", source.replace('/', "-"), target.replace('/', "-"))
 }
+
+/// Inverse of `finish_branch_name`, recovering the source branch. Finish
+/// branches are only ever built from release/hotfix sources, whose flattened
+/// form (`release-1.2.0`) is unambiguous: a SemVer never contains `-into-`.
+pub fn finish_branch_source(branch: &str) -> Option<String> {
+    let flattened = branch.strip_prefix("finish/")?;
+    for kind in ["release", "hotfix"] {
+        if let Some(rest) = flattened.strip_prefix(kind).and_then(|r| r.strip_prefix('-')) {
+            if let Some((version, target)) = rest.split_once("-into-") {
+                if SemVer::parse(version).is_some() && !target.is_empty() {
+                    return Some(format!("{kind}/{version}"));
+                }
+            }
+        }
+    }
+    None
+}

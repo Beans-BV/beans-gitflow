@@ -227,6 +227,7 @@ fn bump_patch_protected_fresh_defers_the_tag_and_uses_the_new_version() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
         "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.1",
+        "copy_text:chore: set version 1.1.1\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert_eq!(script.calls(), vec!["run:1.1.1"]);
@@ -290,6 +291,7 @@ fn bump_protected_fresh_with_changes_defers_the_tag_to_the_landing_pr() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
         "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.0",
+        "copy_text:chore: set version 1.1.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     // The deferral: no tag is cut on this run, of any kind.
@@ -394,6 +396,7 @@ fn bump_protected_already_consumed_falls_through_to_the_fresh_path() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
         "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.0",
+        "copy_text:chore: set version 1.1.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     // Consumed on a previous run — this run never re-cuts a tag.
@@ -431,6 +434,7 @@ fn bump_protected_reuses_a_leftover_remote_chore_branch_without_recreating_it() 
     assert_eq!(hosting.calls(), vec![
         "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
         "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.0",
+        "copy_text:chore: set version 1.1.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     assert!(script.calls().is_empty());
@@ -467,6 +471,7 @@ fn bump_protected_deletes_leftover_local_chore_branch_before_recreating() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr_to:release-chore/1.1.0/set-version:release/1.1.0",
         "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version 1.1.0",
+        "copy_text:chore: set version 1.1.0\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -533,6 +538,7 @@ fn sync_protected_opens_develop_pr_and_stops() {
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop:empty-body",
+        "copy_text:chore: sync release 1.1.0 with develop\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -582,6 +588,7 @@ fn sync_protected_stale_merged_pr_reopens_new_pr() {
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop:empty-body",
+        "copy_text:chore: sync release 1.1.0 with develop\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -744,6 +751,7 @@ fn protected_patch_finish_opens_main_pr_without_any_tag_machinery() {
         "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
         "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main:empty-body",
+        "copy_text:chore: merge release 1.1.0 into main\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -1057,6 +1065,7 @@ fn protected_finish_tags_merge_commit_then_opens_develop_pr() {
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body",
+        "copy_text:chore: merge release 1.1.0 into develop\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -1394,8 +1403,9 @@ fn protected_finish_keeps_the_branch_when_its_tip_landed_nowhere() {
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_local")), "unlanded commits must not be deleted; calls: {calls:?}");
     assert!(!calls.iter().any(|c| c.starts_with("delete_branch_remote")), "unlanded commits must not be deleted; calls: {calls:?}");
     let hosting_calls = hosting.calls();
-    assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
+    assert_eq!(hosting_calls[hosting_calls.len() - 3..], [
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
+        "copy_text:chore: merge release 1.1.0 into develop\nhttps://github.com/org/repo/pull/1".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ], "the develop leg must re-open with a finish-branch PR and put it in the browser");
 }
@@ -1432,6 +1442,7 @@ fn protected_finish_pushes_when_remote_branch_missing_before_opening_pr() {
         "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
         "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main:empty-body",
+        "copy_text:chore: merge release 1.1.0 into main\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -1602,6 +1613,7 @@ fn protected_release_opens_main_pr_from_the_finish_branch() {
         "merged_pr_to:finish/release-1.1.0-into-main:main",
         "merged_pr_to:release/1.1.0:main",
         "create_or_get_pr:finish/release-1.1.0-into-main:main:chore: merge release 1.1.0 into main:empty-body",
+        "copy_text:chore: merge release 1.1.0 into main\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
     let calls = git.calls();
@@ -1734,8 +1746,9 @@ fn protected_release_tags_the_finish_prs_merge_commit() {
     assert!(calls.contains(&"create_tag_at:v1.1.0:chore: release 1.1.0:mcF".to_string()),
         "the tag is cut at the finish PR's merge commit; calls: {calls:?}");
     let hosting_calls = hosting.calls();
-    assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
+    assert_eq!(hosting_calls[hosting_calls.len() - 3..], [
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
+        "copy_text:chore: merge release 1.1.0 into develop\nhttps://github.com/org/repo/pull/1".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ]);
 }
@@ -1767,8 +1780,9 @@ fn develop_leg_reopens_when_release_gained_commits_after_a_landed_sync() {
     assert!(!calls.contains(&"delete_branch_local:release/1.1.0".to_string()),
         "the finish must NOT complete while develop misses commits; calls: {calls:?}");
     let hosting_calls = hosting.calls();
-    assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
+    assert_eq!(hosting_calls[hosting_calls.len() - 3..], [
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
+        "copy_text:chore: merge release 1.1.0 into develop\nhttps://github.com/org/repo/pull/1".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ]);
 }
@@ -1794,8 +1808,9 @@ fn ensure_reuses_a_remote_finish_that_gained_resolution_commits() {
     assert!(!calls.iter().any(|c| c.starts_with("push:finish/") || c.starts_with("create_branch_no_checkout:finish/") || c.starts_with("checkout:finish/")),
         "a remote finish that already contains the tip is reused untouched; calls: {calls:?}");
     let hosting_calls = hosting.calls();
-    assert_eq!(hosting_calls[hosting_calls.len() - 2..], [
+    assert_eq!(hosting_calls[hosting_calls.len() - 3..], [
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: merge release 1.1.0 into develop:empty-body".to_string(),
+        "copy_text:chore: merge release 1.1.0 into develop\nhttps://github.com/org/repo/pull/1".to_string(),
         "open_url:https://github.com/org/repo/pull/1".to_string(),
     ]);
 }
@@ -1844,6 +1859,7 @@ fn protected_sync_lands_via_the_develop_finish_branch() {
         "merged_pr_to:finish/release-1.1.0-into-develop:develop",
         "merged_pr_to:release/1.1.0:develop",
         "create_or_get_pr:finish/release-1.1.0-into-develop:develop:chore: sync release 1.1.0 with develop:empty-body",
+        "copy_text:chore: sync release 1.1.0 with develop\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -1905,4 +1921,96 @@ fn ensure_pushes_a_local_finish_that_contains_the_tip_but_never_reached_origin()
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c.starts_with("checkout:finish/")), "nothing to refresh; calls: {calls:?}");
     assert!(calls.contains(&"push:finish/release-1.1.0-into-develop".to_string()), "the push must be retried; calls: {calls:?}");
+}
+
+#[test]
+fn bump_protected_merged_pr_with_no_prior_tag_cuts_the_first_rc_at_the_merge_commit() {
+    // A branch whose very first RC went out through a chore PR has no tag yet
+    // to compare against — nothing is "consumed", so the deferred tag is cut
+    // at that PR's merge commit.
+    let mut git = MockGit::new();
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("release-chore/1.1.0/set-version".to_string(), "release/1.1.0".to_string()),
+        landed("chore-head", "merge-commit-sha"),
+    );
+    let script = MockVersionScript::new();
+    let cfg = RepoConfig { mode: Mode::Protected, keep_release_branches: false, ..RepoConfig::default() };
+
+    bump_version(&git, &hosting, Some(&script), &cfg, 1, 1).unwrap();
+
+    let calls = git.calls();
+    assert!(calls.contains(&"create_tag_at:v1.1.0-rc.1:chore: bump version to v1.1.0-rc.1:merge-commit-sha".to_string()),
+        "the first RC must be cut at the PR merge commit; calls: {calls:?}");
+    assert!(calls.contains(&"push_tag:v1.1.0-rc.1".to_string()), "calls: {calls:?}");
+    assert!(script.calls().is_empty(), "consuming a landed PR never re-runs the script");
+}
+
+#[test]
+fn protected_release_refuses_a_clean_tag_pointing_at_the_wrong_commit() {
+    // The clean tag exists but points at neither the mainline nor the main
+    // PR's merge commit — a stale or hand-created tag. Silently skipping it
+    // would ship the wrong commit as the release; bflow stops and names it.
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.existing_remote_branches.insert("release/1.1.0".to_string());
+    git.pushed_branches.insert("release/1.1.0".to_string());
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "somewhere-else".to_string());
+    git.ancestors.insert(("mcF".to_string(), "origin/main".to_string()));
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("finish/release-1.1.0-into-main".to_string(), "main".to_string()),
+        landed("finhead", "mcF"),
+    );
+    git.parent_counts.insert("mcF".to_string(), 2);
+
+    let err = finish_release(&git, &hosting, &protected_cfg(false), 1, 1, "main", None, false).unwrap_err();
+
+    assert!(err.contains("points at somewhere-else"), "got: {err}");
+    assert!(err.contains("Move or delete the tag"), "the error must name the fix; got: {err}");
+}
+
+// --- Guard arms unreachable through the strict flows, pinned directly ---
+
+#[test]
+fn tag_at_if_missing_skips_a_tag_already_at_the_right_commit() {
+    // Doc contract: the equal-commit arm is unreachable through current
+    // callers and stays as a guard for future ones — pinned here directly.
+    use bflow::flows::tag_at_if_missing;
+    let mut git = MockGit::new();
+    git.existing_tags.insert("v1.1.0".to_string());
+    git.tag_commits.insert("v1.1.0".to_string(), "mcF".to_string());
+
+    tag_at_if_missing(&git, "v1.1.0", "chore: release 1.1.0", "mcF").unwrap();
+
+    assert!(!git.calls().iter().any(|c| c.starts_with("create_tag")),
+        "an existing correct tag must never be re-cut; calls: {:?}", git.calls());
+}
+
+#[test]
+fn tip_landed_nowhere_provable_is_false() {
+    // Doc contract: nothing provable → false, so cleanup keeps the branch
+    // rather than delete commits that may never have landed.
+    use bflow::flows::tip_landed_somewhere;
+    let mut git = MockGit::new();
+    git.branch_shas.insert("release/1.1.0".to_string(), "tip".to_string());
+
+    let landed = tip_landed_somewhere(&git, "release/1.1.0", &[], &["finish/release-1.1.0-into-main".to_string()]).unwrap();
+
+    assert!(!landed);
+}
+
+#[test]
+fn release_cleanup_with_unlanded_tip_keeps_the_branch() {
+    // Last-resort guard behind the strict legs: completing with an unlanded
+    // tip must warn and keep the branch, never delete commits.
+    use bflow::flows::finish_release::finish_release_cleanup;
+    use bflow::version::SemVer;
+    let git = MockGit::new();
+
+    finish_release_cleanup(&git, &protected_cfg(false), "release/1.1.0", "main", &SemVer::new(1, 1, 0), false).unwrap();
+
+    assert!(!git.calls().iter().any(|c| c.starts_with("delete_branch")),
+        "an unlanded tip must never be deleted; calls: {:?}", git.calls());
 }

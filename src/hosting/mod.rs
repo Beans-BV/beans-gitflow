@@ -62,6 +62,11 @@ pub trait HostingPlatform {
     fn open_url(&self, url: &str) -> Result<()> {
         open_in_browser(url)
     }
+    /// Put `text` on the user's clipboard. Default-implemented like `open_url`:
+    /// a user-machine side effect, not provider knowledge.
+    fn copy_text(&self, text: &str) -> Result<()> {
+        copy_to_clipboard(text)
+    }
     fn check_auth(&self) -> Result<()>;
 }
 
@@ -129,6 +134,33 @@ mod tests {
         // template — Cargo.toml stands in for a native path that exists.
         assert_eq!(resolve_body_file(PrBody::Empty, &["Cargo.toml"]), None);
     }
+}
+
+/// Write `text` to the OS clipboard by piping it into the platform's
+/// clipboard tool (platform dispatch, provider-agnostic — a zero-policy shell
+/// like `open_in_browser`). Callers treat failure as "no clipboard here".
+#[cfg(target_os = "macos")]
+const CLIPBOARD_TOOLS: &[&[&str]] = &[&["pbcopy"]];
+#[cfg(target_os = "windows")]
+const CLIPBOARD_TOOLS: &[&[&str]] = &[&["clip"]];
+#[cfg(target_os = "linux")]
+const CLIPBOARD_TOOLS: &[&[&str]] = &[&["wl-copy"], &["xclip", "-selection", "clipboard"], &["xsel", "-ib"]];
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+const CLIPBOARD_TOOLS: &[&[&str]] = &[];
+
+pub fn copy_to_clipboard(text: &str) -> Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    CLIPBOARD_TOOLS
+        .iter()
+        .find_map(|cmd| {
+            let mut child = Command::new(cmd[0]).args(&cmd[1..])
+                .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
+                .spawn().ok()?;
+            child.stdin.take()?.write_all(text.as_bytes()).ok()?;
+            child.wait().ok()?.success().then_some(())
+        })
+        .ok_or_else(|| "no clipboard tool available".to_string())
 }
 
 /// Open a URL in the OS default browser (platform dispatch, provider-agnostic).

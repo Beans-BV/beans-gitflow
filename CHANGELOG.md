@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-09-02
+
+### Added
+- Every PR announcement (work, fix, landing, and version PRs) now prints a bare, copy-ready block: the PR title in bold on one line, the URL on the next — ready to paste into Slack. The block is also copied to your clipboard automatically (best-effort and announced; silently skipped on machines without a clipboard tool). Uses pbcopy on macOS, clip on Windows, and wl-copy/xclip/xsel on Linux.
+- Terminal styling now degrades cleanly: bold is dropped when output is piped, when NO_COLOR is set, or when TERM=dumb.
+
+### Changed
+- Re-running `bflow finish` (or `bflow sync`) from a `finish/*` branch after resolving a landing-merge conflict now switches the worktree back to the source branch automatically and continues — the manual `git switch` step is gone.
+- The merge-conflict message now announces loudly that bflow switched the current worktree to the finish branch, and names the exact recovery commands.
+- Completed operations print a uniform check mark (release/hotfix complete, develop synced, branch created and pushed).
+
 ## [3.4.0] - 2026-09-01
 
 ### Added
@@ -183,6 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform CI/CD with GitHub Actions (macOS x86_64, macOS ARM64, Windows)
 - README with mermaid diagrams documenting the branch model and workflows
 
+[3.5.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/Beans-BV/beans-gitflow/compare/v3.1.0...v3.2.0
