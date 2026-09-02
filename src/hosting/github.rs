@@ -53,8 +53,8 @@ impl HostingPlatform for GitHub<'_> {
         let line = self
             .run_gh(&[
                 "pr", "list", "--head", head, "--state", "all", "--limit", "1",
-                "--json", "url,state,headRefOid,baseRefName",
-                "--jq", r#".[0] | select(.state == "MERGED") | [.url, .headRefOid, .baseRefName] | @tsv"#,
+                "--json", "url,state,headRefOid,mergeCommit,baseRefName",
+                "--jq", r#".[0] | select(.state == "MERGED") | [.url, .headRefOid, .mergeCommit.oid, .baseRefName] | @tsv"#,
             ])
             .map_err(|e| format!("Could not check for a merged PR: {e}\n{AUTH_REMEDY}"))?;
         parse_merged_pr(&line)
@@ -89,19 +89,21 @@ impl HostingPlatform for GitHub<'_> {
     }
 }
 
-/// Parse the `url<TAB>headRefOid<TAB>baseRefName` line the merged-PR jq filter
-/// emits. Empty output is the normal "no merged PR" case; anything else that
-/// isn't three non-empty fields is a hard error (never guess about cleanup).
+/// Parse the `url<TAB>headRefOid<TAB>mergeCommit.oid<TAB>baseRefName` line the
+/// merged-PR jq filter emits. Empty output is the normal "no merged PR" case;
+/// anything else that isn't four non-empty fields is a hard error (never guess
+/// about cleanup).
 fn parse_merged_pr(line: &str) -> Result<Option<MergedPr>> {
     let line = line.trim();
     if line.is_empty() {
         return Ok(None);
     }
     match line.split('\t').collect::<Vec<_>>().as_slice() {
-        [url, sha, base] if !url.is_empty() && !sha.is_empty() && !base.is_empty() => {
+        [url, sha, merge_sha, base] if !url.is_empty() && !sha.is_empty() && !merge_sha.is_empty() && !base.is_empty() => {
             Ok(Some(MergedPr {
                 url: url.to_string(),
                 head_sha: sha.to_string(),
+                merge_commit_sha: merge_sha.to_string(),
                 base: base.to_string(),
             }))
         }
@@ -139,17 +141,19 @@ mod tests {
     }
 
     #[test]
-    fn three_fields_parse_into_merged_pr() {
-        let pr = parse_merged_pr("https://github.com/o/r/pull/49\tabc123\tdevelop").unwrap().unwrap();
+    fn four_fields_parse_into_merged_pr() {
+        let pr = parse_merged_pr("https://github.com/o/r/pull/49\tabc123\tdeadbeef\tdevelop").unwrap().unwrap();
         assert_eq!(pr.url, "https://github.com/o/r/pull/49");
         assert_eq!(pr.head_sha, "abc123");
+        assert_eq!(pr.merge_commit_sha, "deadbeef");
         assert_eq!(pr.base, "develop");
     }
 
     #[test]
     fn malformed_output_is_a_hard_error() {
         assert!(parse_merged_pr("only-a-url").is_err());
-        assert!(parse_merged_pr("url\t\tdevelop").is_err());
+        assert!(parse_merged_pr("url\tabc123\tdevelop").is_err());
+        assert!(parse_merged_pr("url\tabc123\t\tdevelop").is_err());
     }
 
     #[test]

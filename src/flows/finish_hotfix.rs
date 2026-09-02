@@ -21,9 +21,10 @@ pub fn finish_hotfix(
     patch: u32,
     main_branch: &str,
     template: Option<&Path>,
+    accept_merge_type: bool,
 ) -> Result<(), String> {
     if cfg.mode == Mode::Protected {
-        return finish_hotfix_protected(git, hosting, cfg, major, minor, patch, main_branch, template);
+        return finish_hotfix_protected(git, hosting, cfg, major, minor, patch, main_branch, template, accept_merge_type);
     }
 
     let version = SemVer::new(major, minor, patch);
@@ -102,7 +103,7 @@ fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, m
 /// mainline containment *before* consulting the main leg's current PR lookup —
 /// see `finish_release_protected` for why.
 #[allow(clippy::too_many_arguments)]
-fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, patch: u32, main_branch: &str, template: Option<&Path>) -> Result<(), String> {
+fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, patch: u32, main_branch: &str, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let version = SemVer::new(major, minor, patch);
     let hotfix_branch = version.hotfix_branch();
     let tag = version.tag_name();
@@ -110,7 +111,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
     let mut landed: Vec<LandedPr> = Vec::new();
 
     refuse_open_legacy_pr(hosting, &hotfix_branch, main_branch)?;
-    let main_pr = finish_leg_landed(git, hosting, &hotfix_branch, main_branch)?;
+    let main_pr = finish_leg_landed(git, hosting, &hotfix_branch, main_branch, accept_merge_type)?;
     if let Some(pr) = &main_pr {
         landed.push(pr.clone());
     }
@@ -142,7 +143,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
 
     let mut content_landed = false;
     let title = format!("chore: merge hotfix {version} into develop");
-    match land_leg_strict(git, hosting, &hotfix_branch, "develop", &title, template, "bflow finish")? {
+    match land_leg_strict(git, hosting, &hotfix_branch, "develop", &title, template, "bflow finish", accept_merge_type)? {
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {
@@ -156,7 +157,7 @@ fn finish_hotfix_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &R
 
     for release in &release_branches {
         let title = format!("chore: merge hotfix {version} into {release}");
-        match land_leg_strict(git, hosting, &hotfix_branch, release, &title, template, "bflow finish")? {
+        match land_leg_strict(git, hosting, &hotfix_branch, release, &title, template, "bflow finish", accept_merge_type)? {
             LegState::Landed(pr) => landed.push(pr),
             LegState::ContentPresent => content_landed = true,
             LegState::Pending { url, finish } => {

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::flows::open_pr_in_browser;
+use crate::flows::{completion_instruction, enforce_completion_type, open_pr_in_browser, CompletionType, WORK_PR_UNDO};
 use crate::git::Git;
 use crate::hosting::PrBody;
 use crate::git::branch::BranchType;
@@ -15,7 +15,7 @@ use crate::version::SemVer;
 /// mean new work, which continues into a fresh PR.
 ///
 /// Returns `true` when cleanup ran and the finish is complete.
-fn try_cleanup_merged(git: &dyn Git, hosting: &dyn HostingPlatform, current: &str) -> Result<bool, String> {
+fn try_cleanup_merged(git: &dyn Git, hosting: &dyn HostingPlatform, current: &str, accept_merge_type: bool) -> Result<bool, String> {
     let Some(pr) = hosting.merged_pr(current)? else {
         return Ok(false);
     };
@@ -24,6 +24,9 @@ fn try_cleanup_merged(git: &dyn Git, hosting: &dyn HostingPlatform, current: &st
         return Ok(false);
     }
     println!("PR already merged: {}", pr.url);
+    // Wrong completion type stops the finish BEFORE cleanup: the branch is
+    // still needed to redo the PR, so nothing may be deleted yet.
+    enforce_completion_type(git, &pr.url, &pr.merge_commit_sha, CompletionType::Squash, accept_merge_type, WORK_PR_UNDO)?;
 
     // Remote deletion first: after the worktree is removed the process working
     // directory is gone, so every other git call must happen before it.
@@ -70,6 +73,7 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, current: &st
     println!("Creating PR: {title} → {base}");
     let url = hosting.create_or_get_pr(current, base, title, template.and_then(|p| p.to_str()).map_or(PrBody::NativeDefault, PrBody::File))?;
     println!("PR: {url}");
+    println!("{}", completion_instruction(CompletionType::Squash));
     open_pr_in_browser(hosting, &url);
 
     Ok(())
@@ -156,7 +160,8 @@ fn detect_parent_branch(git: &dyn Git, prompter: &dyn Prompter, current: &str) -
     Ok(candidates[idx].0.clone())
 }
 
-pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter: &dyn Prompter, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>, template: Option<&Path>) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter: &dyn Prompter, branch_type: &BranchType, breaking: Option<bool>, base: Option<String>, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let commit_type = branch_type.commit_type().ok_or("Cannot finish: not on a work branch")?;
     let name = branch_type.name().ok_or("Cannot finish: branch has no name")?;
     let current = git.current_branch()?;
@@ -173,7 +178,7 @@ pub fn finish_work_branch(git: &dyn Git, hosting: &dyn HostingPlatform, prompter
             return Err(format!("Base branch '{base}' not found on origin. Push it first (or fetch if it exists remotely)."));
         }
     }
-    if try_cleanup_merged(git, hosting, &current)? {
+    if try_cleanup_merged(git, hosting, &current, accept_merge_type)? {
         return Ok(());
     }
     let base = match base {
@@ -203,33 +208,33 @@ fn prompt_breaking_change(prompter: &dyn Prompter) -> Result<bool, String> {
     Ok(idx == 1)
 }
 
-fn finish_fix(git: &dyn Git, hosting: &dyn HostingPlatform, commit_type: &str, name: &str, parent: &str, template: Option<&Path>) -> Result<(), String> {
+fn finish_fix(git: &dyn Git, hosting: &dyn HostingPlatform, commit_type: &str, name: &str, parent: &str, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let current = git.current_branch()?;
-    if try_cleanup_merged(git, hosting, &current)? {
+    if try_cleanup_merged(git, hosting, &current, accept_merge_type)? {
         return Ok(());
     }
     push_and_create_pr(git, hosting, &current, parent, &pr_title(commit_type, false, name), template)
 }
 
-pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
+pub fn finish_release_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let BranchType::ReleaseFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a release-fix branch".to_string());
     };
-    finish_fix(git, hosting, "fix", name, &SemVer::new(*major, *minor, *patch).release_branch(), template)
+    finish_fix(git, hosting, "fix", name, &SemVer::new(*major, *minor, *patch).release_branch(), template, accept_merge_type)
 }
 
-pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
+pub fn finish_hotfix_fix(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let BranchType::HotfixFix { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a hotfix-fix branch".to_string());
     };
-    finish_fix(git, hosting, "fix", name, &SemVer::new(*major, *minor, *patch).hotfix_branch(), template)
+    finish_fix(git, hosting, "fix", name, &SemVer::new(*major, *minor, *patch).hotfix_branch(), template, accept_merge_type)
 }
 
-pub fn finish_release_chore(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>) -> Result<(), String> {
+pub fn finish_release_chore(git: &dyn Git, hosting: &dyn HostingPlatform, branch_type: &BranchType, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let BranchType::ReleaseChore { major, minor, patch, name } = branch_type else {
         return Err("Cannot finish: not on a release-chore branch".to_string());
     };
-    finish_fix(git, hosting, "chore", name, &SemVer::new(*major, *minor, *patch).release_branch(), template)
+    finish_fix(git, hosting, "chore", name, &SemVer::new(*major, *minor, *patch).release_branch(), template, accept_merge_type)
 }
 
 #[cfg(test)]

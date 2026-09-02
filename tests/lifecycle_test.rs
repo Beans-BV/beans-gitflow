@@ -21,7 +21,7 @@ fn wt_config() -> WorktreeConfig {
 }
 
 fn finish_cmd() -> Option<Commands> {
-    Some(Commands::Finish { breaking: None, base: None, abort: false })
+    Some(Commands::Finish { breaking: None, base: None, abort: false, accept_merge_type: false })
 }
 
 /// A MockGit standing on release/2.5.0 with one RC tag and a fake `.git` dir,
@@ -44,6 +44,78 @@ fn run_lifecycle(git: &MockGit, command: Option<Commands>) -> Result<(), String>
     let prompter = MockPrompter::new();
     let editor = MockEditor::new();
     run(git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, command)
+}
+
+// --- The --accept-merge-type flag reaches the flows ---
+
+fn wrongly_squash_checked_feature_git(name: &str) -> MockGit {
+    let mut git = MockGit::with_tmp_git_dir(name);
+    git.current_branch = "feature/x".to_string();
+    git.head_sha = "abc".to_string();
+    git.parent_counts.insert("merge-of-abc".to_string(), 2);
+    git
+}
+
+fn merged_feature_hosting() -> MockHosting {
+    let mut hosting = MockHosting::new();
+    hosting.merged_pr = Some(bflow::hosting::MergedPr {
+        url: "https://github.com/o/r/pull/9".to_string(),
+        head_sha: "abc".to_string(),
+        merge_commit_sha: "merge-of-abc".to_string(),
+        base: "develop".to_string(),
+    });
+    hosting
+}
+
+fn run_with(git: &MockGit, hosting: &MockHosting, command: Option<Commands>) -> Result<(), String> {
+    let prompter = MockPrompter::new();
+    let editor = MockEditor::new();
+    run(git, hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &RepoConfig::default(), None, command)
+}
+
+#[test]
+fn finish_without_the_flag_refuses_a_wrongly_completed_pr() {
+    let git = wrongly_squash_checked_feature_git("bflow-accept-mt-refuse");
+    let hosting = merged_feature_hosting();
+
+    let err = run_with(&git, &hosting, Some(Commands::Finish { breaking: None, base: None, abort: false, accept_merge_type: false })).unwrap_err();
+
+    assert!(err.contains("--accept-merge-type"), "got: {err}");
+}
+
+#[test]
+fn finish_with_the_flag_accepts_a_wrongly_completed_pr() {
+    let git = wrongly_squash_checked_feature_git("bflow-accept-mt-accept");
+    let hosting = merged_feature_hosting();
+
+    run_with(&git, &hosting, Some(Commands::Finish { breaking: None, base: None, abort: false, accept_merge_type: true })).unwrap();
+
+    assert!(git.calls().contains(&"delete_branch_local:feature/x".to_string()),
+        "the accepted finish must complete; got: {:?}", git.calls());
+}
+
+#[test]
+fn sync_forwards_the_accept_flag_to_the_landing_check() {
+    let mut git = MockGit::with_tmp_git_dir("bflow-accept-mt-sync");
+    git.current_branch = "release/1.1.0".to_string();
+    git.branch_shas.insert("release/1.1.0".to_string(), "relsha".to_string());
+    git.parent_counts.insert("mc1".to_string(), 1);
+    let mut hosting = MockHosting::new();
+    hosting.merged_prs_to.insert(
+        ("release/1.1.0".to_string(), "develop".to_string()),
+        bflow::hosting::LandedPr { url: "u".to_string(), head_sha: "relsha".to_string(), merge_commit_sha: "mc1".to_string() },
+    );
+    git.ancestors.insert(("mc1".to_string(), "origin/develop".to_string()));
+    let prompter = MockPrompter::new();
+    let editor = MockEditor::new();
+    let cfg = RepoConfig { mode: Mode::Protected, ..RepoConfig::default() };
+
+    let refused = run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &cfg, None,
+        Some(Commands::Sync { accept_merge_type: false }));
+    assert!(refused.unwrap_err().contains("--accept-merge-type"));
+
+    run(&git, &hosting, &prompter, &WorktreeEnv { config: &wt_config(), editor: &editor, setup: &MockWorktreeSetup::new(), commands: None }, &cfg, None,
+        Some(Commands::Sync { accept_merge_type: true })).unwrap();
 }
 
 // --- State-before-mutation ordering ---
@@ -261,7 +333,7 @@ fn abort_clears_state_without_touching_the_repo() {
         started_at: "1".to_string(), stash_message: Some("bflow-finish:release/2.5.0:1".to_string()),
     }.save(&git.git_dir).unwrap();
 
-    run_lifecycle(&git, Some(Commands::Finish { breaking: None, base: None, abort: true })).unwrap();
+    run_lifecycle(&git, Some(Commands::Finish { breaking: None, base: None, abort: true, accept_merge_type: false })).unwrap();
 
     assert!(!state_path(&git.git_dir).exists(), "abort must discard the state file");
     let calls = git.calls();
@@ -288,7 +360,7 @@ fn release_state() -> FinishState {
 fn resume_state_resumes_finish_without_base() {
     let branch_type = BranchType::Release { major: 2, minor: 5, patch: 0 };
     let state = release_state();
-    let cmd = Some(Commands::Finish { breaking: None, base: None, abort: false });
+    let cmd = Some(Commands::Finish { breaking: None, base: None, abort: false, accept_merge_type: false });
 
     let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "release/2.5.0", Some(&state), false, "main").unwrap();
 
@@ -305,7 +377,7 @@ fn abort_is_accepted_from_any_branch_including_unrecognized_ones() {
         BranchType::Develop,
         BranchType::Release { major: 2, minor: 5, patch: 0 },
     ] {
-        let cmd = Some(Commands::Finish { breaking: None, base: None, abort: true });
+        let cmd = Some(Commands::Finish { breaking: None, base: None, abort: true, accept_merge_type: false });
 
         let action = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "whatever", None, false, "main").unwrap();
 
@@ -488,7 +560,7 @@ fn bump_dispatches_and_cuts_the_next_rc() {
 fn sync_dispatches_and_returns_to_the_release_branch() {
     let git = release_git();
 
-    run_lifecycle(&git, Some(Commands::Sync)).unwrap();
+    run_lifecycle(&git, Some(Commands::Sync { accept_merge_type: false })).unwrap();
 
     let calls = git.calls();
     assert!(calls.contains(&"merge:release/2.5.0:chore: sync release 2.5.0 with develop".to_string()),
@@ -557,7 +629,7 @@ fn abort_without_state_succeeds_and_does_nothing() {
     // decisions.md: "--abort ... succeeds on a clean repo — safe to run speculatively".
     let git = release_git();
 
-    run_lifecycle(&git, Some(Commands::Finish { breaking: None, base: None, abort: true })).unwrap();
+    run_lifecycle(&git, Some(Commands::Finish { breaking: None, base: None, abort: true, accept_merge_type: false })).unwrap();
 
     let calls = git.calls();
     assert!(!calls.iter().any(|c| c == "fetch"), "abort must not fetch; calls: {calls:?}");
@@ -663,7 +735,7 @@ fn explicit_base_rejected_even_when_resume_state_exists() {
     // resume early-return used to skip — silently swallowing an invalid --base.
     let branch_type = BranchType::Release { major: 2, minor: 5, patch: 0 };
     let state = release_state();
-    let cmd = Some(Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false });
+    let cmd = Some(Commands::Finish { breaking: None, base: Some("develop".to_string()), abort: false, accept_merge_type: false });
 
     let err = resolve_action_with_state(cmd, &MockPrompter::new(), &branch_type, "release/2.5.0", Some(&state), false, "main").unwrap_err();
 

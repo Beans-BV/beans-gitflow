@@ -236,7 +236,7 @@ bflow start hotfix-fix --name <name> [--no-checkout] [--no-worktree]     # must 
 ### Finish
 
 ```bash
-bflow finish [--breaking | --breaking=false] [--base <branch>]
+bflow finish [--breaking | --breaking=false] [--base <branch>] [--accept-merge-type]
 bflow finish --abort   # discard an in-progress release/hotfix finish
 ```
 
@@ -257,6 +257,34 @@ one on purpose.
 On feature, fix, and refactor branches, `bflow finish` asks whether the work contains breaking changes. Pass `--breaking` (true) or `--breaking=false` to skip the prompt in non-interactive contexts. The flag is honored on any work branch type.
 
 On work branches, the PR target is normally detected from the branch topology: when exactly one candidate parent is found it is used directly, and only when several candidates exist does a selection menu appear. Candidates are `develop` plus the work branches your branch could have come from, ranked nearest-first; work branches that were started *from* your branch are excluded, while `develop` is always offered no matter how far ahead of you it has moved. Pass `--base <branch>` to set the target explicitly and skip detection and the menu entirely — combined with `--breaking`, this makes `bflow finish` fully scriptable without a TTY (CI, AI agents). The branch must exist on origin — PRs are created on the hosting platform, so a local-only branch is rejected (push or fetch it first) — and must differ from the branch being finished. `--base` is only valid on work branches; release, hotfix, release-fix, and hotfix-fix finishes have a fixed target and reject it.
+
+#### PR completion types
+
+Every PR bflow opens must be completed with a specific button, and bflow prints
+a hard-to-miss banner next to the PR URL saying which one:
+
+- **Work and fix PRs** (feature/fix/chore/docs/refactor, `release-fix`,
+  `hotfix-fix`, `release-chore`, version PRs) → **Squash**. One commit per
+  change lands on the target.
+- **Protected-mode landing PRs** (`finish/*` into `main`/`develop`/`release/*`)
+  → **Merge commit**. The merge keeps history connected, which the finish
+  flows rely on.
+
+bflow cannot pre-select the button (GitHub has no API for it), so it **verifies
+after the fact**: on the next run it reads the merge commit's parent count
+(2 parents = merge commit, 1 = squash). A wrong completion **hard-stops the
+flow** — nothing is cleaned up or tagged — and prints the undo steps:
+
+- Wrongly **merged** work PR: revert (or reset) the merge on the target, run
+  `git commit --amend --no-edit` on your branch (the new commit id lets a
+  fresh PR open), then re-run `bflow finish`.
+- Wrongly **squashed** landing PR: revert the PR on the hosting platform —
+  a protected branch cannot be force-pushed back.
+
+To accept the mistake and continue instead, re-run the same command with
+`--accept-merge-type` (available on `finish` and `sync`). A rebase merge of a
+single-commit PR is indistinguishable from a squash and passes the squash
+check — the result is identical.
 
 #### After the PR is merged
 
@@ -302,7 +330,7 @@ The feature is opt-in: with no `.github/pr-templates/` directory, bflow falls ba
 
 ```bash
 bflow bump    # bump patch version
-bflow sync    # sync release into develop
+bflow sync    # sync release into develop  [--accept-merge-type]
 ```
 
 Both require being on a release branch.

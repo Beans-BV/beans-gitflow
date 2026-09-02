@@ -31,6 +31,10 @@ pub struct MockGit {
     pub rev_list_count_result: u32,
     /// Per-(from, to) counts; falls back to `rev_list_count_result` when absent.
     pub rev_list_counts: HashMap<(String, String), u32>,
+    /// Parent count per commit sha (`commit_parent_count`). A sha not in the map
+    /// is an error, matching git's behavior for an unknown commit — tests that
+    /// reach a completion-type check must say how the PR was completed.
+    pub parent_counts: HashMap<String, u32>,
     pub commit_messages: Vec<String>,
     /// Refs (the `to` arg) that should fail with an error. Used to simulate missing branches.
     pub fail_commit_messages_for: Vec<String>,
@@ -123,6 +127,7 @@ impl MockGit {
             merge_bases: HashMap::new(),
             rev_list_count_result: 0,
             rev_list_counts: HashMap::new(),
+            parent_counts: HashMap::new(),
             commit_messages: Vec::new(),
             fail_commit_messages_for: Vec::new(),
             fail_merge_base_for: Vec::new(),
@@ -303,6 +308,13 @@ impl Git for MockGit {
         Ok(*self.rev_list_counts
             .get(&(from.to_string(), to.to_string()))
             .unwrap_or(&self.rev_list_count_result))
+    }
+    fn commit_parent_count(&self, sha: &str) -> Result<u32, String> {
+        self.calls.borrow_mut().push(format!("commit_parent_count:{sha}"));
+        self.parent_counts
+            .get(sha)
+            .copied()
+            .ok_or(format!("Could not read parents of commit '{sha}'. Run 'git fetch' and retry."))
     }
 
     fn commit_messages(&self, from: &str, to: &str) -> Result<Vec<String>, String> {

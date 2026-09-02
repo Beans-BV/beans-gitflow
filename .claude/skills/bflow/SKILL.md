@@ -61,9 +61,11 @@ bflow worktree status
 ### Finish current branch
 
 ```bash
-bflow finish [--breaking] [--base <branch>]  # infers action from current branch type
+bflow finish [--breaking] [--base <branch>] [--accept-merge-type]  # infers action from current branch type
 bflow finish --abort       # discard an in-progress release/hotfix finish
 ```
+
+**PR completion types are enforced.** Work/fix/version PRs must be completed with **Squash**; protected `finish/*` landing PRs with a **Merge commit**. bflow prints a banner next to each PR URL saying which, and verifies on the next run via the merge commit's parent count (2 = merge, 1 = squash). A wrong completion **hard-stops** the flow (no cleanup, no tag) and prints undo steps — wrongly merged work PR: revert/reset the target, `git commit --amend --no-edit` on the branch, re-run; wrongly squashed landing PR: revert it on the platform. To accept the mistake and continue: re-run with `--accept-merge-type` (on `finish` and `sync`).
 
 Every PR bflow creates or re-surfaces (work/fix PRs, protected landing PRs, version PRs) also opens in the default browser; a failed open is a warning, never an error. Protected landing PRs (hotfix/release → main/develop/release) get an empty description — the repo's native PR template never applies to them; a `bflow-release.md`/`bflow-hotfix.md`/`bflow-default.md` template still does.
 
@@ -108,7 +110,7 @@ A repo without `.bflow/config` is **not initialised**: the interactive menu offe
 
 ```bash
 bflow bump # create next RC tag (on release/* only)
-bflow sync # merge release into develop (on release/* only)
+bflow sync [--accept-merge-type] # merge release into develop (on release/* only)
 ```
 
 ### Landing modes & version script

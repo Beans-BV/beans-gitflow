@@ -225,12 +225,12 @@ fn announce_deferred(hosting: &dyn HostingPlatform, pr_url: &str) {
     println!("The RC tag is deferred until this PR merges. After it merges, re-run 'bflow bump' to cut the tag.");
 }
 
-pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, template: Option<&Path>) -> Result<(), String> {
+pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
 
     if cfg.mode == Mode::Protected {
-        return sync_with_develop_protected(git, hosting, &release, &release_branch, template);
+        return sync_with_develop_protected(git, hosting, &release, &release_branch, template, accept_merge_type);
     }
 
     let current = git.current_branch()?;
@@ -252,9 +252,9 @@ pub fn sync_with_develop(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &Rep
 /// The strict landed-check is what keeps a stale merged landing from being
 /// trusted as "already synced" — a release with new commits since that merge
 /// re-enters this same PR-opening path with a refreshed finish branch.
-fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, release: &SemVer, release_branch: &str, template: Option<&Path>) -> Result<(), String> {
+fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, release: &SemVer, release_branch: &str, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let title = format!("chore: sync release {release} with develop");
-    match land_leg_strict(git, hosting, release_branch, "develop", &title, template, "bflow sync")? {
+    match land_leg_strict(git, hosting, release_branch, "develop", &title, template, "bflow sync", accept_merge_type)? {
         LegState::Landed(_) | LegState::ContentPresent => {
             println!("Develop already contains {release_branch}.");
             Ok(())
@@ -266,6 +266,7 @@ fn sync_with_develop_protected(git: &dyn Git, hosting: &dyn HostingPlatform, rel
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn finish_release(
     git: &dyn Git,
     hosting: &dyn HostingPlatform,
@@ -274,9 +275,10 @@ pub fn finish_release(
     minor: u32,
     main_branch: &str,
     template: Option<&Path>,
+    accept_merge_type: bool,
 ) -> Result<(), String> {
     if cfg.mode == Mode::Protected {
-        return finish_release_protected(git, hosting, cfg, major, minor, main_branch, template);
+        return finish_release_protected(git, hosting, cfg, major, minor, main_branch, template, accept_merge_type);
     }
 
     let release = SemVer::new(major, minor, 0);
@@ -366,14 +368,15 @@ fn staging_gate(git: &dyn Git, release_branch: &str, main_branch: &str, major: u
 /// returns the new PR, whose merge commit is not what an already-cut tag
 /// points at, and comparing against it would wrongly call a landed release
 /// unlanded.
-fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, main_branch: &str, template: Option<&Path>) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &RepoConfig, major: u32, minor: u32, main_branch: &str, template: Option<&Path>, accept_merge_type: bool) -> Result<(), String> {
     let release = SemVer::new(major, minor, 0);
     let release_branch = release.release_branch();
 
     let mut landed: Vec<LandedPr> = Vec::new();
 
     refuse_open_legacy_pr(hosting, &release_branch, main_branch)?;
-    let main_pr = finish_leg_landed(git, hosting, &release_branch, main_branch)?;
+    let main_pr = finish_leg_landed(git, hosting, &release_branch, main_branch, accept_merge_type)?;
     if let Some(pr) = &main_pr {
         landed.push(pr.clone());
     }
@@ -440,7 +443,7 @@ fn finish_release_protected(git: &dyn Git, hosting: &dyn HostingPlatform, cfg: &
 
     let mut content_landed = false;
     let title = format!("chore: merge release {release} into develop");
-    match land_leg_strict(git, hosting, &release_branch, "develop", &title, template, "bflow finish")? {
+    match land_leg_strict(git, hosting, &release_branch, "develop", &title, template, "bflow finish", accept_merge_type)? {
         LegState::Landed(pr) => landed.push(pr),
         LegState::ContentPresent => content_landed = true,
         LegState::Pending { url, finish } => {

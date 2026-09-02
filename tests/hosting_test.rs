@@ -132,15 +132,17 @@ fn an_open_pr_to_a_different_base_is_not_reused() {
 
 #[test]
 fn merged_pr_asks_only_for_the_newest_pr_of_the_branch() {
-    let runner = MockCliRunner::scripted(&[Ok("https://github.com/o/r/pull/49\tabc123\tdevelop")]);
+    let runner = MockCliRunner::scripted(&[Ok("https://github.com/o/r/pull/49\tabc123\tdeadbeef\tdevelop")]);
 
     let pr = gh(&runner).merged_pr("feature/x").unwrap().unwrap();
 
     assert_eq!(pr.head_sha, "abc123");
+    assert_eq!(pr.merge_commit_sha, "deadbeef");
     assert_eq!(pr.base, "develop");
     let call = &runner.calls()[0];
     assert!(call.contains("--state all"), "closed PRs must be visible too; got: {call}");
     assert!(call.contains("--limit 1"), "only the newest PR decides; got: {call}");
+    assert!(call.contains("mergeCommit"), "the completion-type check needs the merge commit; got: {call}");
 }
 
 #[test]
@@ -230,15 +232,16 @@ fn an_unreadable_pr_template_is_a_hard_error_naming_the_path() {
 
 #[test]
 fn ado_merged_pr_queries_the_newest_pr_of_any_status() {
-    let runner = MockCliRunner::scripted(&[Ok("completed\tabc123\trefs/heads/develop\t49")]);
+    let runner = MockCliRunner::scripted(&[Ok("completed\tabc123\tdeadbeef\trefs/heads/develop\t49")]);
 
     let pr = ado(&runner).merged_pr("feature/x").unwrap().unwrap();
 
     assert_eq!(pr.url, "https://dev.azure.com/beans/Shop/_git/shop/pullrequest/49");
     assert_eq!(pr.head_sha, "abc123");
+    assert_eq!(pr.merge_commit_sha, "deadbeef");
     let call = &runner.calls()[0];
     assert!(call.contains("--status all"), "got: {call}");
-    assert!(call.contains("[0].[status, lastMergeSourceCommit.commitId, targetRefName, pullRequestId]"),
+    assert!(call.contains("[0].[status, lastMergeSourceCommit.commitId, lastMergeCommit.commitId, targetRefName, pullRequestId]"),
         "the tsv row parser depends on this exact projection and order; got: {call}");
 }
 

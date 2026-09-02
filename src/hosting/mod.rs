@@ -13,6 +13,9 @@ pub type Result<T> = std::result::Result<T, String>;
 pub struct MergedPr {
     pub url: String,
     pub head_sha: String,
+    /// The commit the merge created on the base branch — its parent count
+    /// reveals how the PR was completed (2 = merge commit, 1 = squash/rebase).
+    pub merge_commit_sha: String,
     /// Short name of the branch the PR merged into (e.g. `develop`).
     pub base: String,
 }
