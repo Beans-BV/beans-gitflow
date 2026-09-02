@@ -325,3 +325,19 @@ fn az_open_pr_to_empty_result_is_none() {
     let runner = MockCliRunner::scripted(&[Ok("")]);
     assert_eq!(ado(&runner).open_pr_to("release/1.2.0", "develop").unwrap(), None);
 }
+
+#[test]
+fn az_malformed_merged_pr_row_is_an_error_not_a_silent_none() {
+    // A row that isn't the expected 5-field tsv means the az query changed
+    // shape — surfacing it beats guessing at merge state.
+    let runner = MockCliRunner::scripted(&[Ok("garbage-without-tabs")]);
+    let err = ado(&runner).merged_pr("feature/x").unwrap_err();
+    assert!(err.contains("Unexpected merged-PR data"), "got: {err}");
+}
+
+#[test]
+fn az_malformed_merged_pr_to_row_is_an_error_not_a_silent_none() {
+    let runner = MockCliRunner::scripted(&[Ok("completed\tonly-two")]);
+    let err = ado(&runner).merged_pr_to("feature/x", "develop").unwrap_err();
+    assert!(err.contains("Unexpected merged-PR data"), "got: {err}");
+}

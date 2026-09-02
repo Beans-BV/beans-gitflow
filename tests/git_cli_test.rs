@@ -484,3 +484,17 @@ fn worktree_of_is_none_when_no_tree_holds_the_branch() {
 
     assert_eq!(git(&runner).worktree_of("main").unwrap(), None);
 }
+
+#[test]
+fn find_stash_by_message_returns_the_matching_ref() {
+    // The stash-pop path never pops blind: the ref comes from matching the
+    // bflow-written message in `git stash list`.
+    let runner = MockCommandRunner::ok(
+        "stash@{0} On develop: WIP unrelated\n\
+         stash@{1} On release/1.1.0: bflow-finish:release/1.1.0:123\n");
+
+    assert_eq!(
+        git(&runner).find_stash_by_message("bflow-finish:release/1.1.0:123").unwrap(),
+        Some("stash@{1}".to_string())
+    );
+}

@@ -21,8 +21,25 @@ fn finish_release_fix_pushes_and_creates_pr() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr:release-fix/1.1.0/login-bug",
         "create_or_get_pr:release-fix/1.1.0/login-bug:release/1.1.0:fix: login bug",
+        "copy_text:fix: login bug\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
+}
+
+#[test]
+fn a_failed_clipboard_copy_never_fails_the_finish() {
+    // The clipboard is a bonus on top of the printed block: a machine without
+    // a clipboard tool (headless CI) silently skips it.
+    let mut git = MockGit::new();
+    git.current_branch = "release-fix/1.1.0/login-bug".to_string();
+    let mut hosting = MockHosting::new();
+    hosting.copy_text_error = Some("no clipboard tool".to_string());
+    let branch_type = BranchType::ReleaseFix { major: 1, minor: 1, patch: 0, name: "login-bug".to_string() };
+
+    finish_release_fix(&git, &hosting, &branch_type, None, false).unwrap();
+
+    assert!(hosting.calls().iter().any(|c| c.starts_with("copy_text:")),
+        "the copy must still be attempted; calls: {:?}", hosting.calls());
 }
 
 #[test]
@@ -58,6 +75,7 @@ fn finish_hotfix_fix_pushes_and_creates_pr() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr:hotfix-fix/1.0.1/crash-fix",
         "create_or_get_pr:hotfix-fix/1.0.1/crash-fix:hotfix/1.0.1:fix: crash fix",
+        "copy_text:fix: crash fix\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }
@@ -75,6 +93,7 @@ fn finish_release_fix_with_custom_pr_url() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr:release-fix/2.0.0/typo",
         "create_or_get_pr:release-fix/2.0.0/typo:release/2.0.0:fix: typo",
+        "copy_text:fix: typo\nhttps://github.com/org/repo/pull/42",
         "open_url:https://github.com/org/repo/pull/42",
     ]);
 }
@@ -96,6 +115,7 @@ fn finish_release_chore_pushes_and_creates_pr() {
     assert_eq!(hosting.calls(), vec![
         "merged_pr:release-chore/1.1.0/set-version",
         "create_or_get_pr:release-chore/1.1.0/set-version:release/1.1.0:chore: set version",
+        "copy_text:chore: set version\nhttps://github.com/org/repo/pull/1",
         "open_url:https://github.com/org/repo/pull/1",
     ]);
 }

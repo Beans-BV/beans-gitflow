@@ -72,7 +72,7 @@ pub fn finish_hotfix(
 /// `tip_landed` gates deletion: free mode always passes `true` (its own
 /// ancestor-based merge guard already proves the branch merged, so there is
 /// no separate "did the tip go anywhere" question to ask).
-fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, main_branch: &str, version: &SemVer, release_branches: &[String], tip_landed: bool) -> Result<(), String> {
+pub fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, main_branch: &str, version: &SemVer, release_branches: &[String], tip_landed: bool) -> Result<(), String> {
     println!("Cleaning up hotfix branch...");
     if !tip_landed {
         eprintln!("⚠ Keeping {hotfix_branch}: its tip is not part of any landed pull request, so deleting it could lose commits.");
@@ -87,10 +87,10 @@ fn finish_hotfix_cleanup(git: &dyn Git, cfg: &RepoConfig, hotfix_branch: &str, m
     }
 
     if release_branches.is_empty() {
-        println!("Hotfix {version} complete.");
+        println!("✔ Hotfix {version} complete.");
     } else {
         let list = release_branches.join(", ");
-        println!("Hotfix {version} propagated to: {main_branch}, develop, {list}");
+        println!("✔ Hotfix {version} propagated to: {main_branch}, develop, {list}");
         println!("Run 'bflow bump' on each release branch to cut a new RC.");
     }
     Ok(())

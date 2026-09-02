@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::flows::{completion_instruction, enforce_completion_type, open_pr_in_browser, CompletionType, WORK_PR_UNDO};
+use crate::flows::{completion_instruction, copy_pr_to_clipboard, enforce_completion_type, open_pr_in_browser, pr_block, CompletionType, WORK_PR_UNDO};
 use crate::git::Git;
 use crate::hosting::PrBody;
 use crate::git::branch::BranchType;
@@ -70,9 +70,10 @@ fn push_and_create_pr(git: &dyn Git, hosting: &dyn HostingPlatform, current: &st
         println!("Using PR template: {}", path.display());
     }
 
-    println!("Creating PR: {title} → {base}");
+    println!("Creating PR against {base}...");
     let url = hosting.create_or_get_pr(current, base, title, template.and_then(|p| p.to_str()).map_or(PrBody::NativeDefault, PrBody::File))?;
-    println!("PR: {url}");
+    copy_pr_to_clipboard(hosting, title, &url);
+    println!("\n{}\n", pr_block(title, &url, crate::style::styled()));
     println!("{}", completion_instruction(CompletionType::Squash));
     open_pr_in_browser(hosting, &url);
 

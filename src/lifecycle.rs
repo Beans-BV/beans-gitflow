@@ -16,6 +16,7 @@ use crate::menu;
 use crate::prompt::Prompter;
 use crate::repo_config::{Mode, RepoConfig};
 use crate::state::{current_timestamp, FinishKind, FinishState};
+use crate::version::finish_branch_source;
 use crate::version_script::VersionScript;
 use crate::worktree::{WorktreeContext, WorktreeEnv};
 
@@ -35,6 +36,24 @@ pub fn run(
 
     // One-time upgrade of any pre-2.4 global state file into the per-branch folder.
     FinishState::migrate_legacy(&git_dir)?;
+
+    // A conflicted landing merge leaves the worktree on the finish branch
+    // (ensure_finish_branch). An explicit finish/sync re-run from there means
+    // the resolution is committed: switch back to the source branch and
+    // continue — finish_merge_conflict_hint promises exactly this. Still
+    // mid-merge, give the merge message instead of dispatch's "not a gitflow
+    // branch" rejection. --abort and an explicit --base are not resumes.
+    let branch_name = match finish_branch_source(&branch_name) {
+        Some(source) if is_finish_branch_rerun(&command) => {
+            if git.is_mid_merge()? || git.has_unmerged_paths()? {
+                return Err(unresolved_merge_message(None));
+            }
+            println!("Conflict resolution on {branch_name} is committed — switching this worktree back to {source}...");
+            git.checkout(&source)?;
+            source
+        }
+        _ => branch_name,
+    };
 
     let branch_type = BranchType::parse(&branch_name);
 
@@ -249,6 +268,16 @@ fn handle_abort(git_dir: &std::path::Path, state: Option<FinishState>) -> Result
             Ok(())
         }
     }
+}
+
+/// The commands the conflict hint tells the user to re-run from the finish
+/// branch. `--abort` recovers, it does not resume; an explicit `--base`
+/// targets a work-branch finish, which never lands via a finish branch.
+fn is_finish_branch_rerun(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
+        Some(Commands::Finish { abort: false, base: None, .. }) | Some(Commands::Sync { .. })
+    )
 }
 
 fn unresolved_merge_message(resume_state: Option<&FinishState>) -> String {
